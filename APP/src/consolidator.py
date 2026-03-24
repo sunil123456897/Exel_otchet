@@ -9,6 +9,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from audit_logic import audit
 import openpyxl
+import zipfile
+from xml.etree import ElementTree
 
 # Configure logging
 logging.basicConfig(
@@ -180,9 +182,22 @@ class Consolidator:
                 if cached_mtime == mtime:
                     return cached_sheets
             
-            wb = openpyxl.load_workbook(file_path, read_only=True, keep_links=False)
-            sheetnames = [s.title for s in wb.worksheets if s.sheet_state == 'visible']
-            wb.close()
+            sheetnames = []
+            try:
+                with zipfile.ZipFile(file_path, 'r') as zf:
+                    if 'xl/workbook.xml' in zf.namelist():
+                        with zf.open('xl/workbook.xml') as f:
+                            tree = ElementTree.parse(f)
+                            root = tree.getroot()
+                            for sheet in root.findall('.//{*}sheet'):
+                                state = sheet.attrib.get('state', 'visible')
+                                if state == 'visible':
+                                    sheetnames.append(sheet.attrib.get('name'))
+            except Exception as zip_e:
+                logger.debug(f"Fast zip parsing failed for {file_path} ({zip_e}), falling back to openpyxl")
+                wb = openpyxl.load_workbook(file_path, read_only=True, keep_links=False)
+                sheetnames = [s.title for s in wb.worksheets if s.sheet_state == 'visible']
+                wb.close()
             
             self._sheet_cache[file_path] = (mtime, sheetnames)
             return sheetnames
