@@ -1,5 +1,3 @@
-# Performance Learnings
-
-- **Openpyxl Column Adjustment Bottleneck**: Iterating through `ws.columns` to find the maximum string length instantiates `Cell` objects and scales poorly O(N*M).
-- **Optimization Strategy**: Use `ws.iter_rows(values_only=True)` to extract values as tuples and bypass cell instantiation entirely.
-- **Sampling Optimization**: For structural components like width adjustment, sampling the first and last N rows (e.g. 100) captures almost all edge cases (headers, wide data rows, and summary totals) with a fraction of the performance cost for massive sheets. This yielded an 84% reduction in processing time for 100,000 row datasets.
+## 2024-05-24 - [Combine openpyxl Iterations for Styling]
+**Learning:** In openpyxl, running `iter_rows` to set baseline cell styles and then immediately running `iter_cols` over the same region to conditionally format specific columns is a severe anti-pattern. This double-pass over the cells introduces massive overhead due to the constant creation and evaluation of `StyleProxy` objects.
+**Action:** When applying styles in openpyxl, always consolidate formatting into a single O(N) pass. Compute the column index during the `iter_rows` loop and apply column-specific rules inline, eliminating the need to ever invoke `iter_cols` on the same worksheet area.

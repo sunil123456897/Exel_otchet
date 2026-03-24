@@ -179,16 +179,26 @@ class MasterWriter:
         max_row = ws.max_row
         for r_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=max_row)):
             fill = self.fill_odd if (r_idx+1)%2==1 else self.fill_even
-            for cell in row:
-                cell.fill, cell.border, cell.font, cell.alignment = fill, self.border_thin, self.font_standard, self.align_left
+            for c_idx, cell in enumerate(row, start=1):
+                cell.fill = fill
+                cell.border = self.border_thin
 
-        for col in ws.iter_cols(min_col=5, max_col=11, min_row=2, max_row=max_row):
-            c_idx = col[0].column
-            for cell in col:
-                cell.number_format = '#,##0.00'; cell.alignment = self.align_right
-                val = cell.value if cell.value else 0
-                if c_idx == 5 and val > 0.01: cell.fill, cell.font = self.fill_income, self.font_income
-                if c_idx == 6 and abs(val) > 0.01: cell.fill, cell.font = self.fill_expense, self.font_expense
+                # Numeric columns (5 through 11)
+                if 5 <= c_idx <= 11:
+                    cell.number_format = '#,##0.00'
+                    cell.alignment = self.align_right
+                    val = cell.value if cell.value else 0
+                    if c_idx == 5 and val > 0.01:
+                        cell.fill = self.fill_income
+                        cell.font = self.font_income
+                    elif c_idx == 6 and abs(val) > 0.01:
+                        cell.fill = self.fill_expense
+                        cell.font = self.font_expense
+                    else:
+                        cell.font = self.font_standard
+                else:
+                    cell.font = self.font_standard
+                    cell.alignment = self.align_left
 
         total_row = max_row + 1
         ws.cell(total_row, 1, "ИТОГО:").font = self.font_total
