@@ -44,7 +44,7 @@ def get_base_path():
 class GuiMaster:
     def __init__(self, root, config_path=None):
         self.root = root
-        self.root.title("🚀 Master-Report v5.3 | Financial Consolidator")
+        self.root.title("🚀 Master-Report v5.5 | Financial Consolidator")
         self.root.geometry("1200x900")
         self.root.configure(bg='#f0f2f5')
         
@@ -325,6 +325,11 @@ class GuiMaster:
                     self.filter_tree()
                     self.update_stats(ready_count, total_count, Decimal('0'), Decimal('0'))
                     self.progress_var.set(100)
+                    
+                    # NEW: Auto-save config if smart tracking recovered a file
+                    if getattr(self.consolidator, 'rename_detected', False):
+                        logging.info("Автоматическое сохранение новых путей (файлы были переименованы)")
+                        self.save_config()
                 
                 self.root.after(0, finalize)
                 
@@ -349,7 +354,7 @@ class GuiMaster:
         lb.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         self.append_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(dialog, text="Добавить к существующим (не удалять старые)", variable=self.append_var).pack(pady=5)
+        ttk.Checkbutton(dialog, text="Добавить к существующим", variable=self.append_var).pack(pady=5)
         
         def pick():
             sel = lb.curselection()
@@ -364,38 +369,42 @@ class GuiMaster:
             )
             
             if file_paths:
-                # Convert tuple to list of absolute paths
                 abs_paths = [os.path.abspath(fp) for fp in file_paths]
                 
-                # Get current paths and handle legacy string format
-                current_paths = self.config.data.get('employee_paths', {}).get(emp_name, [])
-                if isinstance(current_paths, str):
-                    current_paths = [current_paths]
+                # Get current paths (handle potential dict/object format for tracking)
+                current_raw = self.config.data.get('employee_paths', {}).get(emp_name, [])
+                if isinstance(current_raw, str): current_raw = [current_raw]
                 
-                # Combine based on checkbox
+                # Combine
                 if self.append_var.get():
-                    combined = current_paths + abs_paths
+                    # Keep existing objects/strings
+                    combined = current_raw + abs_paths
                 else:
                     combined = abs_paths
                 
-                # Remove duplicates while preserving order
-                final_paths = list(dict.fromkeys(combined))
+                # Deduplicate based on path while preserving tracking info if exists
+                final_paths = []
+                seen_paths = set()
+                for item in combined:
+                    p = item['path'] if isinstance(item, dict) else item
+                    if p not in seen_paths:
+                        final_paths.append(item)
+                        seen_paths.add(p)
                 
-                # Store absolute paths in config
                 if 'employee_paths' not in self.config.data:
                     self.config.data['employee_paths'] = {}
                 
                 self.config.data['employee_paths'][emp_name] = final_paths
                 self.save_config()
                 
-                logging.info(f"Сотруднику {emp_name} привязано файлов: {len(final_paths)} (новых: {len(abs_paths)})")
-                messagebox.showinfo("Успех", f"Файлы для {emp_name} успешно привязаны ({len(final_paths)} шт.)!")
+                logging.info(f"Обновлена привязка для {emp_name}: {len(final_paths)} файлов")
+                messagebox.showinfo("Успех", f"Файлы для {emp_name} успешно привязаны!")
                 dialog.destroy()
                 self.refresh_status()
         
         btn_frame = ttk.Frame(dialog, padding=10)
         btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="Выбрать файл", command=pick).pack(side=tk.RIGHT)
+        ttk.Button(btn_frame, text="📊 Выбрать ФАЙЛЫ", command=pick).pack(side=tk.RIGHT)
         ttk.Button(btn_frame, text="Отмена", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
 
     def copy_missing_to_clipboard(self):

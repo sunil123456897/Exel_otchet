@@ -77,13 +77,13 @@ class Template1Reader:
             # 1. Scan headers with openpyxl (fast, low memory)
             wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
             
-            # Prepare regex patterns for target dates for fuzzy matching
+            # Prepare robust regex patterns for target dates
             date_patterns = []
             if target_dates:
                 for d in target_dates:
-                    p = re.compile(rf"{d.day:02}\.{d.month:02}")
-                    p_loose = re.compile(rf"{d.day}\.{d.month}")
-                    date_patterns.append((d, p, p_loose))
+                    # Pattern: (start or non-digit) (optional zero) (day) . (optional zero) (month) (end or non-digit)
+                    pattern = re.compile(rf"(^|[^0-9])0?{d.day}\.0?{d.month}([^0-9]|$)")
+                    date_patterns.append((d, pattern))
 
             to_process = []
             for ws in wb.worksheets:
@@ -98,8 +98,8 @@ class Template1Reader:
                     if not (sh.startswith('_') or sh == "АНАЛИТИКА" or sh == "СВОД"):
                         matched_date = sh
                 else:
-                    for d_obj, p, p_l in date_patterns:
-                        if p.search(clean_sh) or p_l.search(clean_sh):
+                    for d_obj, p in date_patterns:
+                        if p.search(clean_sh):
                             matched_date = d_obj
                             break
                 
@@ -224,48 +224,112 @@ class Consolidator:
         return employee_map
 
     def get_employees(self):
-        discovered = self.discover_employees()
+        """
+        Logic: Prioritizes explicit manual mappings from config.yaml.
+        Uses 'Smart Tracking' (File ID + Fuzzy Prefix) to follow renamed/replaced files.
+        """
         config_list = self.config.get('employees', [])
         custom_paths = self.config.get('employee_paths', {})
+        discovered = self.discover_employees()
         result = {}
         
-        for target_name in (config_list if config_list else discovered.keys()):
+        target_names = config_list if config_list else sorted(list(set(list(discovered.keys()) + list(custom_paths.keys()))))
+        
+        self.rename_detected = False
+
+        for target_name in target_names:
             paths_for_emp = []
             seen_for_emp = set()
+            
             if target_name in custom_paths:
                 p_val = custom_paths[target_name]
-                # Handle both single string and list of strings
                 p_list = p_val if isinstance(p_val, list) else [p_val]
-                for p in p_list:
-                    if os.path.exists(p):
-                        if p not in seen_for_emp:
-                            paths_for_emp.append(p)
-                            seen_for_emp.add(p)
-            
+                
+                updated_paths = []
+                for entry in p_list:
+                    path = entry['path'] if isinstance(entry, dict) else entry
+                    file_id = entry.get('id') if isinstance(entry, dict) else None
+                    p_abs = os.path.abspath(path)
+                    
+                    # 1. SMART RECOVERY (If file missing or name changed)
+                    if not os.path.exists(p_abs):
+                        parent = os.path.dirname(p_abs)
+                        if os.path.exists(parent):
+                            found_path = None
+                            
+                            # A. Try exact ID match (Fast & Reliable on NTFS)
+                            if file_id and file_id > 0:
+                                for f in os.listdir(parent):
+                                    full_f = os.path.join(parent, f)
+                                    try:
+                                        if os.path.isfile(full_f) and os.stat(full_f).st_ino == file_id:
+                                            found_path = full_f
+                                            logger.info(f"[Smart] File '{os.path.basename(path)}' was renamed to '{f}' (ID match)")
+                                            break
+                                    except: continue
+                            
+                            # B. Try Fuzzy Prefix match (For daily "Save As" users)
+                            if not found_path:
+                                old_name = os.path.basename(p_abs)
+                                # Extract meaningful prefix (letters/digits before symbols)
+                                prefix_match = re.match(r'^([a-zA-Zа-яА-Я0-9_]+)', old_name)
+                                prefix = prefix_match.group(1).lower()[:7] if prefix_match else ""
+                                
+                                if len(prefix) >= 3:
+                                    candidates = []
+                                    for f in os.listdir(parent):
+                                        if f.lower().startswith(prefix) and f.endswith('.xlsx') and not f.startswith('~$'):
+                                            candidates.append(os.path.join(parent, f))
+                                    
+                                    if candidates:
+                                        # Pick the most recently modified file among candidates
+                                        found_path = max(candidates, key=os.path.getmtime)
+                                        logger.info(f"[Smart] File '{old_name}' not found. Using newest substitute: '{os.path.basename(found_path)}'")
+                            
+                            if found_path:
+                                p_abs = found_path
+                                self.rename_detected = True
+
+                    # 2. FINALIZE & UPDATE METADATA
+                    if os.path.exists(p_abs) and not os.path.isdir(p_abs):
+                        if p_abs not in seen_for_emp:
+                            paths_for_emp.append(p_abs)
+                            seen_for_emp.add(p_abs)
+                            try:
+                                curr_id = os.stat(p_abs).st_ino
+                                updated_paths.append({"path": p_abs, "id": curr_id})
+                            except:
+                                updated_paths.append(p_abs)
+                
+                # Update in-memory config
+                if updated_paths:
+                    self.config.data.setdefault('employee_paths', {})[target_name] = updated_paths
+
+            # 3. Fallback: Folder-based discovery (only if exact match)
+            t_lower = target_name.lower()
             for d_name, paths in discovered.items():
-                if target_name.lower() in d_name.lower():
+                if t_lower == d_name.lower():
                     for p in paths:
-                        if p not in seen_for_emp:
-                            paths_for_emp.append(p)
-                            seen_for_emp.add(p)
+                        p_abs = os.path.abspath(p)
+                        if p_abs not in seen_for_emp:
+                            paths_for_emp.append(p_abs)
+                            seen_for_emp.add(p_abs)
             
+            # Final deduplication
             unique_paths = []
             seen_hashes = set()
             for p in paths_for_emp:
                 try:
-                    # PERFORMANCE: FAST HASHING (metadata + tiny prefix)
                     st = os.stat(p)
                     h_source = f"{st.st_size}-{st.st_mtime}"
-                    with open(p, 'rb') as f:
-                        h_source += f.read(8192).hex() # Only read first 8KB
-                    h = hashlib.md5(h_source.encode()).hexdigest()
-                    
-                    if h not in seen_hashes:
-                        seen_hashes.add(h)
+                    if h_source not in seen_hashes:
                         unique_paths.append(p)
+                        seen_hashes.add(h_source)
                 except:
                     if p not in unique_paths: unique_paths.append(p)
+            
             result[target_name] = unique_paths
+            
         return result
 
     def get_all_available_dates(self):
@@ -462,10 +526,15 @@ class Consolidator:
         """PERFORMANCE: Use cached sheet names for instant checking."""
         try:
             sheetnames = self._get_sheetnames_fast(file_path)
-            date_pattern = re.compile(rf"{target_date.day:02}\.{target_date.month:02}")
-            date_pattern_loose = re.compile(rf"{target_date.day}\.{target_date.month}")
+            # Robust regex: matches day.month with optional leading zeros
+            # Ensures no partial matches like '16.03' for '6.03' using word boundaries/non-digits
+            day = target_date.day
+            month = target_date.month
+            # Pattern: (start or non-digit) (optional zero) (day) . (optional zero) (month) (end or non-digit)
+            pattern = re.compile(rf"(^|[^0-9])0?{day}\.0?{month}([^0-9]|$)")
+            
             for sh in sheetnames:
-                if date_pattern.search(sh) or date_pattern_loose.search(sh):
+                if pattern.search(sh):
                     return True
         except: pass
         return False
