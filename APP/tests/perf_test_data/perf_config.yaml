@@ -4,10 +4,8 @@ logic:
   return_keywords:
   - "\u0432\u043E\u0437\u0432\u0440\u0430\u0442"
 paths:
-  master_file: "E:\\\u0414\u043B\u044F \u0414\u0430\u0448\u0438\\\u0412\u0435\u0440\
-    \u0441\u0438\u044F 5\\APP\\tests\\perf_test_data\\Master.xlsx"
-  source_root: "E:\\\u0414\u043B\u044F \u0414\u0430\u0448\u0438\\\u0412\u0435\u0440\
-    \u0441\u0438\u044F 5\\APP\\tests\\perf_test_data\\source"
+  master_file: /app/APP/tests/perf_test_data/Master.xlsx
+  source_root: /app/APP/tests/perf_test_data/source
 sh1:
   markers:
     amount: "\u0441\u0443\u043C\u043C\u0430 \u043F\u043B\u0430\u0442\u0435\u0436\u0430"
