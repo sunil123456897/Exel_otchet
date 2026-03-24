@@ -1,6 +1,5 @@
 import os
 import logging
-import pandas as pd
 from datetime import datetime
 import openpyxl
 from openpyxl.utils import get_column_letter
@@ -101,20 +100,36 @@ class MasterWriter:
             wb._sheets.insert(i, sheet)
 
     def _auto_adjust_columns(self, ws):
-        for col in ws.columns:
-            max_length = 0
-            first_cell = col[0]
-            column_letter = first_cell.column_letter
-            column_index = first_cell.column # 1-based index
+        max_row = ws.max_row
+        max_col = ws.max_column
+
+        if max_row == 0 or max_col == 0:
+            return
             
-            for cell in col:
-                if cell.value is not None:
-                    # For numeric columns, we might have formulas or large numbers
-                    # str(cell.value) for a formula is the formula itself, e.g., '=SUM(E2:E10)'
-                    length = len(str(cell.value))
-                    if length > max_length:
-                        max_length = length
-            
+        col_max_lengths = [0] * max_col
+
+        # Sample rows to avoid checking every cell in large sheets.
+        # Check first 100 rows (headers, initial data) and last 100 rows (totals).
+        for row in ws.iter_rows(min_row=1, max_row=min(100, max_row), values_only=True):
+            for i, val in enumerate(row):
+                if val is not None:
+                    length = len(str(val))
+                    if length > col_max_lengths[i]:
+                        col_max_lengths[i] = length
+
+        if max_row > 100:
+            for row in ws.iter_rows(min_row=max(101, max_row - 99), max_row=max_row, values_only=True):
+                for i, val in enumerate(row):
+                    if val is not None:
+                        length = len(str(val))
+                        if length > col_max_lengths[i]:
+                            col_max_lengths[i] = length
+
+        for i in range(max_col):
+            column_index = i + 1
+            column_letter = get_column_letter(column_index)
+            max_length = col_max_lengths[i]
+
             if 5 <= column_index <= 11:
                 # Numeric columns (Приход, Расход, Комиссия, ИТОГ, etc.)
                 # Use multiplier for thousand separators and larger margin for bold/formulas
@@ -160,18 +175,22 @@ class MasterWriter:
                 r.get('фильтры', '')
             ]
             ws.append(row_vals)
-            curr_row = ws.max_row
-            fill = self.fill_odd if (idx+1)%2==1 else self.fill_even
-            for c_idx, cell in enumerate(ws[curr_row], 1):
-                cell.fill, cell.border, cell.font, cell.alignment = fill, self.border_thin, self.font_standard, self.align_left
-                # Columns with numbers
-                if 5 <= c_idx <= 11:
-                    cell.number_format = '#,##0.00'; cell.alignment = self.align_right
-                    val = cell.value if cell.value else 0
-                    if c_idx == 5 and val > 0.01: cell.fill, cell.font = self.fill_income, self.font_income
-                    if c_idx == 6 and abs(val) > 0.01: cell.fill, cell.font = self.fill_expense, self.font_expense
 
-        total_row = ws.max_row + 1
+        max_row = ws.max_row
+        for r_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=max_row)):
+            fill = self.fill_odd if (r_idx+1)%2==1 else self.fill_even
+            for cell in row:
+                cell.fill, cell.border, cell.font, cell.alignment = fill, self.border_thin, self.font_standard, self.align_left
+
+        for col in ws.iter_cols(min_col=5, max_col=11, min_row=2, max_row=max_row):
+            c_idx = col[0].column
+            for cell in col:
+                cell.number_format = '#,##0.00'; cell.alignment = self.align_right
+                val = cell.value if cell.value else 0
+                if c_idx == 5 and val > 0.01: cell.fill, cell.font = self.fill_income, self.font_income
+                if c_idx == 6 and abs(val) > 0.01: cell.fill, cell.font = self.fill_expense, self.font_expense
+
+        total_row = max_row + 1
         ws.cell(total_row, 1, "ИТОГО:").font = self.font_total
         for c in range(5, 9):
             let = get_column_letter(c); cell = ws.cell(total_row, c)

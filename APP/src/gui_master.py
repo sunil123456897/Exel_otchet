@@ -49,8 +49,7 @@ class GuiMaster:
         self.root.configure(bg='#f0f2f5')
         
         # Initialize YAML
-        self.yaml = YAML()
-        self.yaml.preserve_quotes = True
+        self.yaml = YAML(typ='safe')
         self.yaml.indent(mapping=2, sequence=4, offset=2)
         
         # Colors & Styles

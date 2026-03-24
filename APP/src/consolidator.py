@@ -50,13 +50,13 @@ class Template1Reader:
         self.config = config
         self.markers = config.sh1.get('markers', {})
 
-    def find_header_row(self, df_preview):
+    def find_header_row(self, rows):
         markers = ["дата", "заказчик", "исполнитель", "приход", "расход", "сумма платежа", "комиссия", "итог"]
         best_score = 0
         best_idx = None
         # Scan first 150 rows
-        for i in range(min(len(df_preview), 150)):
-            row_values = [str(val).lower() for val in df_preview.iloc[i] if pd.notna(val)]
+        for i, row in enumerate(rows):
+            row_values = [str(val).lower() for val in row if val is not None]
             score = 0
             for m in markers:
                 if any(m in val for val in row_values):
@@ -68,13 +68,13 @@ class Template1Reader:
 
     def read_file(self, file_path, target_dates=None):
         """
-        Reads Excel file ONCE and extracts all requested dates.
-        PERFORMANCE: Uses single-pass reading and slices dataframes in-memory.
+        Reads Excel file efficiently by scanning headers with openpyxl first,
+        then loading data with Pandas using dtype=str for precision.
         """
         try:
-            xl = pd.ExcelFile(file_path, engine='openpyxl')
-            all_dfs_by_date = {}
-
+            # 1. Scan headers with openpyxl (fast, low memory)
+            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            
             # Prepare regex patterns for target dates for fuzzy matching
             date_patterns = []
             if target_dates:
@@ -83,10 +83,12 @@ class Template1Reader:
                     p_loose = re.compile(rf"{d.day}\.{d.month}")
                     date_patterns.append((d, p, p_loose))
 
-            # Filter visible sheets only
-            visible_sheets = [s.title for s in xl.book.worksheets if s.sheet_state == 'visible']
-            
-            for sh in visible_sheets:
+            to_process = []
+            for ws in wb.worksheets:
+                if ws.sheet_state != 'visible':
+                    continue
+                
+                sh = ws.title
                 clean_sh = sh.strip()
                 matched_date = None
                 
@@ -102,56 +104,65 @@ class Template1Reader:
                 if not matched_date:
                     continue
 
-                # PERFORMANCE: SINGLE-PASS READING
-                # Read entire sheet without header, then find header and slice
-                df_full = pd.read_excel(xl, sheet_name=sh, header=None)
-                if df_full.empty:
-                    continue
-                    
-                header_idx = self.find_header_row(df_full)
+                # Read first 150 rows for header detection
+                rows_preview = []
+                for i, row in enumerate(ws.iter_rows(max_row=150, values_only=True)):
+                    rows_preview.append(row)
                 
-                if header_idx is None:
+                header_idx = self.find_header_row(rows_preview)
+                if header_idx is not None:
+                    to_process.append((sh, matched_date, header_idx))
+                else:
                     logger.warning(f"Header not found in file {file_path} sheet {sh}. Skipping.")
-                    continue
-                
-                # Transform: use header_idx row as columns and slice everything below
-                df = df_full.iloc[header_idx + 1:].copy()
-                df.columns = df_full.iloc[header_idx]
-                
-                # Column mapping
-                col_map = {}
-                for key, marker in self.markers.items():
-                    found_col = None
-                    for col in df.columns:
-                        if marker.lower() in str(col).lower():
-                            found_col = col
-                            break
-                    if found_col is None:
-                        alts = {'amount': ['сумма платежа', 'приход', 'расход'], 'income': ['приход'], 'expense': ['расход']}
-                        for alt in alts.get(key, []):
-                            for col in df.columns:
-                                if alt.lower() in str(col).lower():
-                                    found_col = col
-                                    break
-                            if found_col: break
-                    if found_col is not None:
-                        col_map[key] = found_col
-                
-                if any(k in col_map for k in ['amount', 'income', 'expense']):
-                    if hasattr(matched_date, 'strftime'):
-                        date_key = matched_date.strftime("%d.%m.%Y")
-                    else:
-                        date_key = str(matched_date)
-                        
-                    if date_key not in all_dfs_by_date:
-                        all_dfs_by_date[date_key] = []
-                    all_dfs_by_date[date_key].append((df, col_map, sh, header_idx))
             
-            xl.close()
+            wb.close()
+
+            if not to_process:
+                return None
+
+            # 2. Load data with Pandas
+            xl = pd.ExcelFile(file_path, engine='openpyxl')
+            all_dfs_by_date = {}
+
+            try:
+                for sh, matched_date, header_idx in to_process:
+                    # CRITICAL: dtype=str for 100% precision
+                    df = pd.read_excel(xl, sheet_name=sh, header=header_idx, dtype=str)
+                    
+                    # Column mapping
+                    col_map = {}
+                    for key, marker in self.markers.items():
+                        found_col = None
+                        for col in df.columns:
+                            if marker.lower() in str(col).lower():
+                                found_col = col
+                                break
+                        if found_col is None:
+                            alts = {'amount': ['сумма платежа', 'приход', 'расход'], 'income': ['приход'], 'expense': ['расход']}
+                            for alt in alts.get(key, []):
+                                for col in df.columns:
+                                    if alt.lower() in str(col).lower():
+                                        found_col = col
+                                        break
+                                if found_col: break
+                        if found_col is not None:
+                            col_map[key] = found_col
+                    
+                    if any(k in col_map for k in ['amount', 'income', 'expense']):
+                        if hasattr(matched_date, 'strftime'):
+                            date_key = matched_date.strftime("%d.%m.%Y")
+                        else:
+                            date_key = str(matched_date)
+                            
+                        if date_key not in all_dfs_by_date:
+                            all_dfs_by_date[date_key] = []
+                        all_dfs_by_date[date_key].append((df, col_map, sh, header_idx))
+            finally:
+                xl.close()
+
             return all_dfs_by_date if all_dfs_by_date else None
         except Exception as e:
             logger.error(f"Error reading {file_path}: {e}")
-            if 'xl' in locals(): xl.close()
             return None
 
 class Consolidator:
@@ -205,18 +216,23 @@ class Consolidator:
         
         for target_name in (config_list if config_list else discovered.keys()):
             paths_for_emp = []
+            seen_for_emp = set()
             if target_name in custom_paths:
                 p_val = custom_paths[target_name]
                 # Handle both single string and list of strings
                 p_list = p_val if isinstance(p_val, list) else [p_val]
                 for p in p_list:
-                    if os.path.exists(p): 
-                        paths_for_emp.append(p)
+                    if os.path.exists(p):
+                        if p not in seen_for_emp:
+                            paths_for_emp.append(p)
+                            seen_for_emp.add(p)
             
             for d_name, paths in discovered.items():
                 if target_name.lower() in d_name.lower():
                     for p in paths:
-                        if p not in paths_for_emp: paths_for_emp.append(p)
+                        if p not in seen_for_emp:
+                            paths_for_emp.append(p)
+                            seen_for_emp.add(p)
             
             unique_paths = []
             seen_hashes = set()
@@ -256,15 +272,28 @@ class Consolidator:
                 except: continue
         return sorted(list(unique_dates))
 
-    def is_junk_row(self, row, col_map):
-        row_str = " ".join([str(v).lower() for v in row.values if pd.notna(v)])
-        if any(m in row_str for m in ["заказчик", "исполнитель", "приход", "расход"]) and \
-           sum(1 for m in ["заказчик", "исполнитель", "приход", "расход"] if m in row_str) >= 2:
-            return True
-        totals = ["итого", "всего", "итог"]
-        for val in row.values:
-            v_str = str(val).strip(': ').lower()
-            if any(t == v_str for t in totals): return True
+    _JUNK_TOTALS = frozenset({"итого", "всего", "итог"})
+    _JUNK_MARKERS = ("заказчик", "исполнитель", "приход", "расход")
+
+    def is_junk_row(self, row_dict, col_map):
+        # Handle pandas Series gracefully during transition
+        vals = row_dict.values() if isinstance(row_dict, dict) else row_dict.tolist()
+
+        v_strs = []
+        for val in vals:
+            if pd.isna(val): continue
+            v_str = str(val).lower()
+            if v_str.strip(': ') in self._JUNK_TOTALS:
+                return True
+            v_strs.append(v_str)
+
+        row_str = " ".join(v_strs)
+        marker_count = 0
+        for m in self._JUNK_MARKERS:
+            if m in row_str:
+                marker_count += 1
+                if marker_count >= 2:
+                    return True
         return False
 
     def consolidate_multiple(self, target_dates):
@@ -296,19 +325,19 @@ class Consolidator:
                         
                         for df, col_map, sh_name, header_idx in sheets:
                             logger.info(f"[*] Processing {display_name} | {sh_name}")
-                            for idx, row in df.iterrows():
-                                if pd.isna(row.get(col_map.get('customer'))) and \
-                                   pd.isna(row.get(col_map.get('amount'))) and \
-                                   pd.isna(row.get(col_map.get('income'))) and \
-                                   pd.isna(row.get(col_map.get('expense'))):
+                            for idx, row_dict in df.to_dict('index').items():
+                                if pd.isna(row_dict.get(col_map.get('customer'))) and \
+                                   pd.isna(row_dict.get(col_map.get('amount'))) and \
+                                   pd.isna(row_dict.get(col_map.get('income'))) and \
+                                   pd.isna(row_dict.get(col_map.get('expense'))):
                                     continue
                                 
-                                if self.is_junk_row(row, col_map): continue
+                                if self.is_junk_row(row_dict, col_map): continue
                                 
                                 # Excel row is index + 1
                                 actual_row_idx = idx + 1
                                 transformed = self.transform_row(
-                                    row, col_map, display_name, sh_name, 
+                                    row_dict, col_map, display_name, sh_name,
                                     row_index=actual_row_idx, 
                                     filename=os.path.basename(path)
                                 )
@@ -358,13 +387,13 @@ class Consolidator:
             return res
         except: return Decimal('0')
 
-    def transform_row(self, row, col_map, employee_name, sheet_name, row_index, log_audit=True, filename=None):
+    def transform_row(self, row_dict, col_map, employee_name, sheet_name, row_index, log_audit=True, filename=None):
         def get_text(v):
             if pd.isna(v): return ""
             return str(v)
 
-        raw_val = row.get(col_map.get('amount'))
-        filters_val = get_text(row.get(col_map.get('filters', ''), '')).lower()
+        raw_val = row_dict.get(col_map.get('amount'))
+        filters_val = get_text(row_dict.get(col_map.get('filters', ''), '')).lower()
         income_overrides = self.config.logic.get('income_overrides', ['доп', 'доп сф', '% посред'])
         return_keywords = self.config.logic.get('return_keywords', ['возврат'])
         
@@ -372,7 +401,7 @@ class Consolidator:
         if pd.isna(raw_val) and not is_additional: return None
             
         raw_amount = self.to_decimal(raw_val)
-        source_total = self.to_decimal(row.get(col_map.get('total'), 0))
+        source_total = self.to_decimal(row_dict.get(col_map.get('total'), 0))
         if raw_amount == 0 and source_total == 0 and not is_additional: return None
 
         income = Decimal('0.00'); expense = Decimal('0.00')
@@ -382,8 +411,8 @@ class Consolidator:
         elif raw_amount < 0: expense = abs(raw_amount)
         else: income = raw_amount
 
-        customer_val = get_text(row.get(col_map.get('customer'), ''))
-        contractor_val = get_text(row.get(col_map.get('contractor'), ''))
+        customer_val = get_text(row_dict.get(col_map.get('customer'), ''))
+        contractor_val = get_text(row_dict.get(col_map.get('contractor'), ''))
 
         # ANTI-FORMULA PROTECTION
         def sanitize(v):
@@ -402,11 +431,11 @@ class Consolidator:
             'ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)': sanitize(contractor_val),
             'сумма платежа ПРИХОД': income,
             'сумма платежа РАСХОД': expense,
-            'комиссия': self.to_decimal_percent(row.get(col_map.get('commission'), 0)),
+            'комиссия': self.to_decimal_percent(row_dict.get(col_map.get('commission'), 0)),
             'ИТОГ': source_total,
-            '% посредника': self.to_decimal_percent(row.get(col_map.get('percent_broker'))),
-            'посредник 1(кэш)': self.to_decimal(row.get(col_map.get('broker1'))),
-            'посредник 2': self.to_decimal(row.get(col_map.get('broker2'))),
+            '% посредника': self.to_decimal_percent(row_dict.get(col_map.get('percent_broker'))),
+            'посредник 1(кэш)': self.to_decimal(row_dict.get(col_map.get('broker1'))),
+            'посредник 2': self.to_decimal(row_dict.get(col_map.get('broker2'))),
             'фильтры': sanitize(filters_val),
             'is_critical': False
         }
@@ -432,17 +461,17 @@ class Consolidator:
         all_rows = []
         for d_str, sheets in res_by_date.items():
             for df, col_map, sh_name, header_idx in sheets:
-                for idx, row in df.iterrows():
-                    if pd.isna(row.get(col_map.get('customer'))) and \
-                       pd.isna(row.get(col_map.get('amount'))) and \
-                       pd.isna(row.get(col_map.get('income'))) and \
-                       pd.isna(row.get(col_map.get('expense'))): continue
-                    if self.is_junk_row(row, col_map): continue
+                for idx, row_dict in df.to_dict('index').items():
+                    if pd.isna(row_dict.get(col_map.get('customer'))) and \
+                       pd.isna(row_dict.get(col_map.get('amount'))) and \
+                       pd.isna(row_dict.get(col_map.get('income'))) and \
+                       pd.isna(row_dict.get(col_map.get('expense'))): continue
+                    if self.is_junk_row(row_dict, col_map): continue
                     
                     # Excel row is index + 1
                     actual_row_idx = idx + 1
                     transformed = self.transform_row(
-                        row, col_map, "Preview", sh_name, 
+                        row_dict, col_map, "Preview", sh_name,
                         actual_row_idx, log_audit=False, 
                         filename=os.path.basename(file_path)
                     )
