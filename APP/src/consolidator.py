@@ -377,6 +377,17 @@ class Consolidator:
                 return True
             v_strs.append(v_str)
 
+        # STRICT FILTER: If there is no text context at all, it's a floating calculator number
+        c_val = row_dict.get(col_map.get('customer'))
+        contr_val = row_dict.get(col_map.get('contractor'))
+        f_val = row_dict.get(col_map.get('filters'))
+        
+        def is_empty(val):
+            return pd.isna(val) or str(val).strip() == ''
+            
+        if is_empty(c_val) and is_empty(contr_val) and is_empty(f_val):
+            return True
+
         row_str = " ".join(v_strs)
         marker_count = 0
         for m in self._JUNK_MARKERS:

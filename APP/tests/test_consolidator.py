@@ -183,18 +183,18 @@ def test_junk_header_repeat(consolidator, mock_col_map):
 
 def test_junk_needs_two_markers(consolidator, mock_col_map):
     """row contains only 'заказчик' -> False"""
-    row = {'col1': 'заказчик', 'col2': 'random'}
+    row = {mock_col_map['customer']: 'заказчик', mock_col_map['contractor']: 'some company'}
     assert consolidator.is_junk_row(row, mock_col_map) is False
 
 def test_valid_row_not_junk(consolidator, mock_col_map):
     """normal data row -> False"""
-    row = {'col1': 'Client A', 'col2': 'Contractor B', 'col3': '1000'}
+    row = {mock_col_map['customer']: 'Client A', mock_col_map['contractor']: 'Contractor B', mock_col_map['amount']: '1000'}
     assert consolidator.is_junk_row(row, mock_col_map) is False
 
 def test_all_nan_row(consolidator, mock_col_map):
-    """all values are NaN -> False (not junk, just empty)"""
-    row = {'col1': float('nan'), 'col2': None}
-    assert consolidator.is_junk_row(row, mock_col_map) is False
+    """all values are NaN -> True (is junk, has no context text)"""
+    row = {mock_col_map['customer']: float('nan'), mock_col_map['contractor']: None}
+    assert consolidator.is_junk_row(row, mock_col_map) is True
 
 def test_junk_case_insensitive(consolidator, mock_col_map):
     """'ИТОГО' uppercase -> True"""
