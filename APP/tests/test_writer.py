@@ -167,25 +167,27 @@ def test_existing_sheet_replaced(writer, dummy_data):
     assert ws.max_row == 3 # 1 header + 1 data + 1 total
 
 def test_income_cell_style(writer, dummy_data):
-    """income > 0 -> cell in col 5 has 'income_cell' style"""
+    """income > 0 -> cell in col 5 has 'income' background color"""
     dt = datetime(2026, 3, 25)
     wb = openpyxl.Workbook()
     writer.write_daily_data(dt, dummy_data, wb=wb)
 
     ws = wb["25.03"]
     # Row 2 (Emp1) has income = 500
-    assert ws.cell(row=2, column=5).style == 'income_cell'
+    # Instead of style name, we check the actual fill color set by writer.fill_income
+    cell = ws.cell(row=2, column=5)
+    assert cell.fill.start_color.rgb == "00C6EFCE"  # AARRGGBB for openpyxl
 
 def test_expense_cell_style(writer, dummy_data):
-    """expense > 0 -> cell in col 6 has 'expense_cell' style"""
+    """expense > 0 -> cell in col 6 has 'expense' background color"""
     dt = datetime(2026, 3, 25)
     wb = openpyxl.Workbook()
     writer.write_daily_data(dt, dummy_data, wb=wb)
 
     ws = wb["25.03"]
     # Row 3 (Emp2) has expense = 300
-    assert ws.cell(row=3, column=6).style == 'expense_cell'
-
+    cell = ws.cell(row=3, column=6)
+    assert cell.fill.start_color.rgb == "00FFC7CE"  # AARRGGBB for openpyxl
 # --- write_all_days ---
 def test_multiple_dates_written(writer, dummy_data):
     """3 dates passed -> 3 sheets created"""
