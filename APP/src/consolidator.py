@@ -462,6 +462,7 @@ class Consolidator:
 
                             # Pre-filter: remove completely empty key columns
                             key_cols = [col for col in [c_col, a_col, i_col, e_col] if col and col in df.columns]
+                            df['__original_row_idx__'] = df.index + header_idx + 2
                             if key_cols:
                                 df = df.dropna(subset=key_cols, how='all')
 
@@ -482,7 +483,7 @@ class Consolidator:
 
                                 if self.is_junk_row(row_dict, col_map): continue
 
-                                actual_row_idx = idx + 1
+                                actual_row_idx = row_dict.get('__original_row_idx__')
                                 transformed = self.transform_row(
                                     row_dict, col_map, display_name, sh_name,
                                     row_index=actual_row_idx,
@@ -660,6 +661,7 @@ class Consolidator:
 
                 # Pre-filter: remove completely empty key columns
                 key_cols = [col for col in [c_col, a_col, i_col, e_col] if col and col in df.columns]
+                df['__original_row_idx__'] = df.index + header_idx + 2
                 if key_cols:
                     df = df.dropna(subset=key_cols, how='all')
 
@@ -678,7 +680,7 @@ class Consolidator:
                         continue
                     if self.is_junk_row(row_dict, col_map): continue
 
-                    actual_row_idx = idx + 1
+                    actual_row_idx = row_dict.get('__original_row_idx__')
                     transformed = self.transform_row(
                         row_dict, col_map, "Preview", sh_name,
                         actual_row_idx, log_audit=False,
