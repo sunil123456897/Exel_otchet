@@ -82,6 +82,7 @@ class GuiMaster:
         
         # State
         self.all_employee_data = [] # Cache for filtering
+        self._cached_employees = {}
         
         self._apply_styles()
         self.setup_ui()
@@ -217,14 +218,14 @@ class GuiMaster:
         sel = self.tree.selection()
         if not sel: return
         name = self.tree.item(sel[0])['values'][0]
-        paths = self.consolidator.get_employees().get(name, [])
+        paths = getattr(self, '_cached_employees', {}).get(name, [])
         if paths: os.startfile(os.path.dirname(paths[0]))
 
     def open_employee_file(self):
         sel = self.tree.selection()
         if not sel: return
         name = self.tree.item(sel[0])['values'][0]
-        paths = self.consolidator.get_employees().get(name, [])
+        paths = getattr(self, '_cached_employees', {}).get(name, [])
         if paths: os.startfile(paths[0])
 
     def show_context_menu(self, event):
@@ -322,6 +323,7 @@ class GuiMaster:
                 # Final UI update on main thread
                 def finalize():
                     self.all_employee_data = local_data
+                    self._cached_employees = employees_map
                     self.filter_tree()
                     self.update_stats(ready_count, total_count, Decimal('0'), Decimal('0'))
                     self.progress_var.set(100)
@@ -353,8 +355,8 @@ class GuiMaster:
             lb.insert(tk.END, e)
         lb.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-        self.append_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(dialog, text="Добавить к существующим", variable=self.append_var).pack(pady=5)
+        append_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(dialog, text="Добавить к существующим", variable=append_var).pack(pady=5)
         
         def pick():
             sel = lb.curselection()
@@ -376,7 +378,7 @@ class GuiMaster:
                 if isinstance(current_raw, str): current_raw = [current_raw]
                 
                 # Combine
-                if self.append_var.get():
+                if append_var.get():
                     # Keep existing objects/strings
                     combined = current_raw + abs_paths
                 else:
@@ -421,10 +423,14 @@ class GuiMaster:
 
     def save_config(self):
         try:
-            with open(self.config_path, 'r', encoding='utf-8') as f: config_to_save = self.yaml.load(f)
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                config_to_save = self.yaml.load(f)
+            if config_to_save is None:
+                config_to_save = {}
             config_to_save['employees'] = self.config.data.get('employees', [])
             config_to_save['employee_paths'] = self.config.data.get('employee_paths', {})
-            with open(self.config_path, 'w', encoding='utf-8') as f: self.yaml.dump(config_to_save, f)
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                self.yaml.dump(config_to_save, f)
         except Exception as e: logging.error(f"Ошибка сохранения: {e}")
 
     def run_consolidation_all_dates(self):
@@ -437,8 +443,19 @@ class GuiMaster:
                     logging.warning("Даты не найдены.")
                     return
                 
-                if not messagebox.askyesno("Найдено дат: " + str(len(all_dates)), 
-                                         f"Найдено {len(all_dates)} дат. Начать полную сборку отчетов кураторов?"):
+                user_confirmed = [False]
+                confirm_event = threading.Event()
+
+                def ask_confirm():
+                    user_confirmed[0] = messagebox.askyesno(
+                        "Найдено дат: " + str(len(all_dates)),
+                        f"Найдено {len(all_dates)} дат. Начать полную сборку отчетов кураторов?"
+                    )
+                    confirm_event.set()
+
+                self.root.after(0, ask_confirm)
+                confirm_event.wait()
+                if not user_confirmed[0]:
                     return
 
                 results_by_date = self.consolidator.consolidate_multiple(all_dates)
@@ -446,8 +463,12 @@ class GuiMaster:
 
                 self.writer.write_all_days(results_by_date)
                 logging.info("Глобальная сборка завершена!")
-                if messagebox.askyesno("Успех", "Сборка завершена! Открыть файл?"):
-                    os.startfile(self.writer.master_path)
+
+                def on_success():
+                    if messagebox.askyesno("Успех", "Сборка завершена! Открыть файл?"):
+                        os.startfile(self.writer.master_path)
+
+                self.root.after(0, on_success)
             except Exception as e:
                 logging.error(f"Ошибка: {e}")
             finally:
@@ -478,7 +499,11 @@ class GuiMaster:
                 
                 self.progress_var.set(100)
                 logging.info("Успешно!")
-                if messagebox.askyesno("Успех", f"Консолидация завершена!\n\nОткрыть файл?"): os.startfile(self.writer.master_path)
+
+                def on_done():
+                    if messagebox.askyesno("Успех", f"Консолидация завершена!\n\nОткрыть файл?"):
+                        os.startfile(self.writer.master_path)
+                self.root.after(0, on_done)
             except Exception as e:
                 logging.error(f"Ошибка: {e}")
                 self.root.after(0, lambda: messagebox.showerror("Ошибка", f"Произошла ошибка:\n{e}"))
