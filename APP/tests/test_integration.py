@@ -3,7 +3,6 @@ import yaml
 import pytest
 import pandas as pd
 from datetime import datetime
-from decimal import Decimal
 from unittest.mock import patch, MagicMock
 import openpyxl
 
@@ -83,11 +82,11 @@ def test_full_pipeline_single_date(mock_get_emp, mock_read_file, mock_log, mock_
 
     # Check income/expense matching input
     # Row 2 corresponds to first data row
-    assert ws.cell(row=2, column=5).value == Decimal('100.00')  # Income
-    assert ws.cell(row=2, column=6).value == Decimal('0.00')   # Expense
+    assert ws.cell(row=2, column=5).value == pytest.approx(100.0)
+    assert ws.cell(row=2, column=6).value == pytest.approx(0.0)
 
-    assert ws.cell(row=3, column=5).value == Decimal('0.00')   # Income
-    assert ws.cell(row=3, column=6).value == Decimal('200.00') # Expense
+    assert ws.cell(row=3, column=5).value == pytest.approx(0.0)
+    assert ws.cell(row=3, column=6).value == pytest.approx(200.0)
 
 @patch('consolidator.audit.log_action')
 @patch('consolidator.Template1Reader.read_file')

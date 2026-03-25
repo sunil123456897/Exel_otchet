@@ -84,12 +84,11 @@ def test_multi_file_merge():
         date_key = target_date.strftime("%d.%m.%Y")
         
         if date_key not in results:
-            # Try current year if 2026 didn't work (though it should if we passed it)
-            alt_date = datetime(datetime.now().year, 3, 23)
-            date_key = alt_date.strftime("%d.%m.%Y")
-            if date_key not in results:
-                print(f"Available keys: {list(results.keys())}")
-                raise KeyError(f"Date {date_key} not found in results")
+            available = list(results.keys())
+            raise AssertionError(
+                f"Expected date '{date_key}' not found in results. "
+                f"Available keys: {available}"
+            )
         
         rows = results[date_key]
         

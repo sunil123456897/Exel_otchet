@@ -3,6 +3,7 @@ import numpy as np
 import os
 import yaml
 import sys
+import tempfile
 from decimal import Decimal
 
 # Add APP and APP/src to sys.path to import consolidator and audit_logic
@@ -22,11 +23,11 @@ def test_nan_fix():
         },
         'employees': []
     }
-    config_path = 'test_config.yaml'
-    with open(config_path, 'w', encoding='utf-8') as f:
-        yaml.dump(config_data, f)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_path = os.path.join(tmpdir, 'test_config.yaml')
+        with open(config_path, 'w', encoding='utf-8') as f:
+            yaml.dump(config_data, f)
 
-    try:
         consolidator = Consolidator(config_path)
         
         # Mock row with NaN values
@@ -72,10 +73,6 @@ def test_nan_fix():
         assert res['посредник 2'] == Decimal('0.00')
         
         print("Test passed!")
-        
-    finally:
-        if os.path.exists(config_path):
-            os.remove(config_path)
 
 if __name__ == "__main__":
     try:

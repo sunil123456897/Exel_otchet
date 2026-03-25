@@ -6,6 +6,7 @@
 
 import pandas as pd
 import sys
+import os
 
 
 def compare_excel_files(old_file, new_file):
@@ -127,11 +128,11 @@ if __name__ == "__main__":
     new_file = sys.argv[2]
     
     # Проверяем существование файлов
-    if not pd.io.common.file_exists(old_file):
+    if not os.path.exists(old_file):
         print(f"[ERR] Файл не найден: {old_file}")
         sys.exit(1)
     
-    if not pd.io.common.file_exists(new_file):
+    if not os.path.exists(new_file):
         print(f"[ERR] Файл не найден: {new_file}")
         sys.exit(1)
     

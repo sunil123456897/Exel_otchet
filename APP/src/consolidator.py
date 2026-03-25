@@ -1,5 +1,4 @@
 import os
-import yaml
 import pandas as pd
 import re
 import hashlib
@@ -10,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from audit_logic import audit
 import openpyxl
 import zipfile
+import threading
 from xml.etree import ElementTree
 
 # Configure logging
@@ -27,8 +27,12 @@ class Config:
     def __init__(self, config_path):
         self.config_path = config_path
         try:
+            from ruamel.yaml import YAML as _YAML
+            _yaml_reader = _YAML(typ='safe')
             with open(config_path, 'r', encoding='utf-8') as f:
-                self.data = yaml.safe_load(f)
+                self.data = _yaml_reader.load(f)
+            if self.data is None:
+                self.data = {}
         except Exception as e:
             logger.error(f"Failed to load config from {config_path}: {e}")
             self.data = {}
@@ -388,6 +392,7 @@ class Consolidator:
         """
         employees = self.get_employees()
         results_by_date = {}
+        results_lock = threading.Lock()
         
         # Build flat list of (display_name, path)
         work_items = []
@@ -408,8 +413,6 @@ class Consolidator:
                     if not file_results: continue
                     
                     for date_str, sheets in file_results.items():
-                        if date_str not in results_by_date: results_by_date[date_str] = []
-                        
                         for df, col_map, sh_name, header_idx in sheets:
                             logger.info(f"[*] Processing {display_name} | {sh_name}")
                             c_col = col_map.get('customer')
@@ -423,6 +426,7 @@ class Consolidator:
                                 df = df.dropna(subset=key_cols, how='all')
 
                             cols = df.columns
+                            batch = []
                             for idx, row in enumerate(df.itertuples(index=False, name=None)):
                                 row_dict = dict(zip(cols, row))
                                 v_c = row_dict.get(c_col)
@@ -446,7 +450,13 @@ class Consolidator:
                                     row_index=actual_row_idx, 
                                     filename=os.path.basename(path)
                                 )
-                                if transformed: results_by_date[date_str].append(transformed)
+                                if transformed: batch.append(transformed)
+
+                            if batch:
+                                with results_lock:
+                                    if date_str not in results_by_date:
+                                        results_by_date[date_str] = []
+                                    results_by_date[date_str].extend(batch)
                 except Exception as e:
                     logger.error(f"Failed to process {path}: {e}")
 
