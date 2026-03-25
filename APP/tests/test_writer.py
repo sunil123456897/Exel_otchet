@@ -2,13 +2,6 @@ import os
 import sys
 from unittest.mock import MagicMock, call
 
-# Mock dependencies before they are imported by the module under test
-mock_openpyxl = MagicMock()
-sys.modules['openpyxl'] = mock_openpyxl
-sys.modules['openpyxl.utils'] = MagicMock()
-sys.modules['openpyxl.styles'] = MagicMock()
-sys.modules['pandas'] = MagicMock()
-
 # Now we can import MasterWriter
 # Add APP and APP/src to sys.path
 sys.path.append(os.path.join(os.getcwd(), 'APP'))
@@ -16,6 +9,13 @@ sys.path.append(os.path.join(os.getcwd(), 'APP', 'src'))
 
 from writer import MasterWriter
 import pytest
+from unittest.mock import patch
+
+@pytest.fixture(autouse=True)
+def mock_openpyxl_fixture(monkeypatch):
+    global mock_openpyxl
+    mock_openpyxl = MagicMock()
+    monkeypatch.setattr("writer.openpyxl", mock_openpyxl)
 
 def test_get_workbook_non_existent(monkeypatch):
     # Mock os.path.exists to return False

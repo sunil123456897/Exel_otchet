@@ -51,6 +51,60 @@ class MasterWriter:
         self.align_left = Alignment(horizontal='left', vertical='center', wrap_text=True)
         self.align_right = Alignment(horizontal='right', vertical='center')
 
+        from openpyxl.styles import NamedStyle
+
+        self.style_header = NamedStyle(name="header_row")
+        self.style_header.fill = self.fill_header
+        self.style_header.font = self.font_header
+        self.style_header.alignment = self.align_center
+        self.style_header.border = self.border_thin
+
+        self.style_odd = NamedStyle(name="odd_row")
+        self.style_odd.fill = self.fill_odd
+        self.style_odd.font = self.font_standard
+        self.style_odd.alignment = self.align_left
+        self.style_odd.border = self.border_thin
+
+        self.style_even = NamedStyle(name="even_row")
+        self.style_even.fill = self.fill_even
+        self.style_even.font = self.font_standard
+        self.style_even.alignment = self.align_left
+        self.style_even.border = self.border_thin
+
+        self.style_income = NamedStyle(name="income_cell")
+        self.style_income.fill = self.fill_income
+        self.style_income.font = self.font_income
+        self.style_income.alignment = self.align_right
+        self.style_income.border = self.border_thin
+        self.style_income.number_format = '#,##0.00'
+
+        self.style_expense = NamedStyle(name="expense_cell")
+        self.style_expense.fill = self.fill_expense
+        self.style_expense.font = self.font_expense
+        self.style_expense.alignment = self.align_right
+        self.style_expense.border = self.border_thin
+        self.style_expense.number_format = '#,##0.00'
+
+        self.style_standard_num_odd = NamedStyle(name="standard_num_odd")
+        self.style_standard_num_odd.fill = self.fill_odd
+        self.style_standard_num_odd.font = self.font_standard
+        self.style_standard_num_odd.alignment = self.align_right
+        self.style_standard_num_odd.border = self.border_thin
+        self.style_standard_num_odd.number_format = '#,##0.00'
+
+        self.style_standard_num_even = NamedStyle(name="standard_num_even")
+        self.style_standard_num_even.fill = self.fill_even
+        self.style_standard_num_even.font = self.font_standard
+        self.style_standard_num_even.alignment = self.align_right
+        self.style_standard_num_even.border = self.border_thin
+        self.style_standard_num_even.number_format = '#,##0.00'
+
+        self.style_total = NamedStyle(name="total_cell")
+        self.style_total.fill = self.fill_total
+        self.style_total.font = self.font_total
+        self.style_total.border = self.border_medium
+        self.style_total.number_format = '#,##0.00'
+
     def _apply_header_style(self, ws, row_idx=1):
         for cell in ws[row_idx]:
             cell.fill, cell.font, cell.alignment, cell.border = self.fill_header, self.font_header, self.align_center, self.border_thin
@@ -154,8 +208,20 @@ class MasterWriter:
         if sh_name in wb.sheetnames: del wb[sh_name]
         ws = wb.create_sheet(sh_name)
         
+        if 'header_row' not in wb.named_styles:
+            wb.add_named_style(self.style_header)
+            wb.add_named_style(self.style_odd)
+            wb.add_named_style(self.style_even)
+            wb.add_named_style(self.style_income)
+            wb.add_named_style(self.style_expense)
+            wb.add_named_style(self.style_standard_num_odd)
+            wb.add_named_style(self.style_standard_num_even)
+            wb.add_named_style(self.style_total)
+
         headers = ["Дата", "Сотрудник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход", "Комиссия", "ИТОГ", "% посредника", "посредник 1(кэш)", "посредник 2", "Фильтры"]
-        ws.append(headers); self._apply_header_style(ws)
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.style = 'header_row'
         ws.freeze_panes = 'A2'
         
         for idx, r in enumerate(employee_rows):
@@ -178,34 +244,29 @@ class MasterWriter:
 
         max_row = ws.max_row
         for r_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=max_row)):
-            fill = self.fill_odd if (r_idx+1)%2==1 else self.fill_even
-            for c_idx, cell in enumerate(row, start=1):
-                cell.fill = fill
-                cell.border = self.border_thin
+            is_odd = (r_idx+1)%2==1
+            style_row_str = 'odd_row' if is_odd else 'even_row'
+            style_num_str = 'standard_num_odd' if is_odd else 'standard_num_even'
 
+            for c_idx, cell in enumerate(row, start=1):
                 # Numeric columns (5 through 11)
                 if 5 <= c_idx <= 11:
-                    cell.number_format = '#,##0.00'
-                    cell.alignment = self.align_right
                     val = cell.value if cell.value else 0
                     if c_idx == 5 and val > 0.01:
-                        cell.fill = self.fill_income
-                        cell.font = self.font_income
+                        cell.style = 'income_cell'
                     elif c_idx == 6 and abs(val) > 0.01:
-                        cell.fill = self.fill_expense
-                        cell.font = self.font_expense
+                        cell.style = 'expense_cell'
                     else:
-                        cell.font = self.font_standard
+                        cell.style = style_num_str
                 else:
-                    cell.font = self.font_standard
-                    cell.alignment = self.align_left
+                    cell.style = style_row_str
 
         total_row = max_row + 1
         ws.cell(total_row, 1, "ИТОГО:").font = self.font_total
         for c in range(5, 9):
             let = get_column_letter(c); cell = ws.cell(total_row, c)
-            cell.value = f"=SUM({let}2:{let}{total_row-1})"; cell.number_format = '#,##0.00'
-            cell.fill, cell.font, cell.border = self.fill_total, self.font_total, self.border_medium
+            cell.value = f"=SUM({let}2:{let}{total_row-1})"
+            cell.style = 'total_cell'
         self._auto_adjust_columns(ws)
         
         if should_save:
