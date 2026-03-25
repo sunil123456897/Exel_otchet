@@ -49,6 +49,13 @@ class TestConfig:
 class TestFindHeaderRow:
 
     @pytest.fixture
+    def consolidator(self, tmp_path, mock_config_dict):
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, 'w', encoding='utf-8') as f:
+            yaml.dump(mock_config_dict, f)
+        return Consolidator(str(config_file))
+
+    @pytest.fixture
     def reader(self, consolidator):
         """Returns a Template1Reader instance."""
         return consolidator.reader

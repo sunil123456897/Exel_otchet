@@ -1,4 +1,5 @@
 import os
+import pytest
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
@@ -16,7 +17,11 @@ sys.path.append(os.path.join(BASE_DIR, 'src'))
 # or we can copy the logic if it's too tied to UI.
 # Let's try to import it and mock the UI components.
 
-from gui_master import GuiMaster
+gui_master_mod = pytest.importorskip(
+    "gui_master",
+    reason="gui_master requires tkinter/tkcalendar; skipping in headless env"
+)
+GuiMaster = gui_master_mod.GuiMaster
 
 class TestUiRefreshLogic(unittest.TestCase):
     def setUp(self):
