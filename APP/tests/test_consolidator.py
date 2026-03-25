@@ -5,9 +5,107 @@ import pandas as pd
 from datetime import datetime
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 from consolidator import Config, Template1Reader, Consolidator
+
+
+class TestConfig:
+
+    def test_config_loads_valid_yaml(self, tmp_path, mock_config_dict):
+        """Load valid YAML, verify all top-level sections parsed correctly."""
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, 'w', encoding='utf-8') as f:
+            yaml.dump(mock_config_dict, f)
+        cfg = Config(str(config_file))
+        assert cfg.sh1.get('markers') is not None
+        assert cfg.logic.get('income_overrides') == ['доп', 'доп сф', '% посред']
+        assert cfg.employees == ['EmpA', 'EmpB']
+
+    def test_config_missing_file(self):
+        """Pass nonexistent path — must not raise, data must be empty dict."""
+        cfg = Config("/nonexistent/path/config.yaml")
+        assert cfg.data == {}
+        assert cfg.paths == {}
+
+    def test_config_relative_paths_resolved(self, tmp_path, mock_config_dict):
+        """Relative paths in 'paths' section must be converted to absolute paths."""
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, 'w', encoding='utf-8') as f:
+            yaml.dump(mock_config_dict, f)
+        cfg = Config(str(config_file))
+        for key, val in cfg.paths.items():
+            if val:
+                assert os.path.isabs(val), f"Path '{key}' is not absolute: {val}"
+
+    def test_config_get_default(self, tmp_path, mock_config_dict):
+        """config.get('nonexistent_key', 'fallback') must return 'fallback'."""
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, 'w', encoding='utf-8') as f:
+            yaml.dump(mock_config_dict, f)
+        cfg = Config(str(config_file))
+        assert cfg.get('nonexistent_key', 'fallback') == 'fallback'
+        assert cfg.get('nonexistent_key') is None
+
+
+class TestFindHeaderRow:
+
+    @pytest.fixture
+    def reader(self, consolidator):
+        """Returns a Template1Reader instance."""
+        return consolidator.reader
+
+    def test_finds_header_with_all_markers(self, reader):
+        """Row containing дата, заказчик, исполнитель, приход must be detected."""
+        rows = [
+            (None, None, None),
+            ("дата", "заказчик", "исполнитель", "приход", "расход", "итог"),
+            ("01.01", "Client A", "Bank", "1000"),
+        ]
+        idx = reader.find_header_row(rows)
+        assert idx == 1
+
+    def test_finds_best_header_among_multiple_candidates(self, reader):
+        """Two rows partially match — verify highest score wins."""
+        rows = [
+            ("дата", "заказчик", "исполнитель"),        # score=3 — minimum match
+            ("дата", "заказчик", "исполнитель", "приход", "расход", "итог"),  # score=6 — best
+            ("01.01", "Client", "Bank", "500"),
+        ]
+        idx = reader.find_header_row(rows)
+        assert idx == 1
+
+    def test_returns_none_if_no_match(self, reader):
+        """Rows with random data — must return None."""
+        rows = [
+            ("apple", "banana", "cherry"),
+            ("123", "456", "789"),
+            (None, None, None),
+        ]
+        idx = reader.find_header_row(rows)
+        assert idx is None
+
+    def test_header_at_row_0(self, reader):
+        """Header is the very first row — boundary check."""
+        rows = [
+            ("дата", "заказчик", "исполнитель", "приход", "расход"),
+            ("01.01", "Client", "Bank", "1000"),
+        ]
+        idx = reader.find_header_row(rows)
+        assert idx == 0
+
+    def test_header_at_row_149(self, reader):
+        """Header is at last scanned row (row 149) — boundary check."""
+        rows = [("random", "data") for _ in range(149)]
+        rows.append(("дата", "заказчик", "исполнитель", "приход", "расход"))
+        idx = reader.find_header_row(rows)
+        assert idx == 149
+
+    def test_minimum_score_threshold(self, reader):
+        """Row with only 2 matching markers must NOT be detected (score < 3)."""
+        rows = [
+            ("дата", "заказчик", "nothing", "nothing"),  # score=2
+        ]
+        idx = reader.find_header_row(rows)
+        assert idx is None
 
 
 # --- Consolidator Tests ---
