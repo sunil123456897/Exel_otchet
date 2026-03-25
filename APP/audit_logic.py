@@ -27,7 +27,9 @@ class AuditLogger:
         Appends the buffer to the audit file to preserve history across sessions.
         """
         # Ensure directory exists
-        os.makedirs(os.path.dirname(os.path.abspath(self.audit_file)), exist_ok=True)
+        audit_dir = os.path.dirname(os.path.abspath(self.audit_file))
+        if audit_dir and not os.path.exists(audit_dir):
+            os.makedirs(audit_dir, exist_ok=True)
         
         file_exists = os.path.exists(self.audit_file)
         

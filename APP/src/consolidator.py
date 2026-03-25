@@ -4,7 +4,7 @@ import pandas as pd
 import re
 import hashlib
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from audit_logic import audit
@@ -213,7 +213,7 @@ class Consolidator:
 
         for root, dirs, files in os.walk(source_root):
             for file in files:
-                if "Шаблон" in file or file.startswith('~$') or not file.endswith('.xlsx'):
+                if "шаблон" in file.lower() or file.startswith('~$') or not file.endswith('.xlsx'):
                     continue
                 file_name_no_ext = os.path.splitext(file)[0]
                 parent_dir = os.path.basename(root)
@@ -345,7 +345,14 @@ class Consolidator:
                         match = date_pattern.search(sheet_name.strip())
                         if match:
                             try:
-                                d = datetime(int(match.group(4)) if match.group(4) else datetime.now().year, int(match.group(2)), int(match.group(1)))
+                                current = datetime.now()
+                                year = int(match.group(4)) if match.group(4) else current.year
+                                # If month is in the future relative to current month -> use previous year
+                                if not match.group(4):  # only when year is inferred
+                                    candidate = datetime(current.year, int(match.group(2)), int(match.group(1)))
+                                    if candidate > current + timedelta(days=15):
+                                        year = current.year - 1
+                                d = datetime(year, int(match.group(2)), int(match.group(1)))
                                 unique_dates.add(d)
                             except: continue
                 except: continue
@@ -390,7 +397,6 @@ class Consolidator:
                 work_items.append((display_name, path))
 
         # PERFORMANCE: PARALLEL PROCESSING
-        import os
         max_w = min(6, (os.cpu_count() or 2) + 2)
         with ThreadPoolExecutor(max_workers=max_w) as executor:
             future_to_item = {executor.submit(self.reader.read_file, path, target_dates): (name, path) for name, path in work_items}
@@ -452,6 +458,10 @@ class Consolidator:
         if isinstance(val, (int, float, Decimal)):
             return Decimal(str(val)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         try:
+            # Detect accounting negative notation: (number)
+            raw_str = str(val).strip()
+            is_accounting_negative = raw_str.startswith('(') and raw_str.endswith(')')
+
             s = re.sub(r"[^\d.,\-eE+]", "", str(val))
             if not s: return Decimal('0.00')
             
@@ -460,16 +470,38 @@ class Consolidator:
             if not s: return Decimal('0.00')
 
             if 'e' in s.lower(): 
-                return Decimal(s).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                result = Decimal(s).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                if is_accounting_negative:
+                    result = -abs(result)
+                return result
             
             separators = [i for i, char in enumerate(s) if char in '.,']
-            if separators:
+            if len(separators) == 1:
+                sep_idx = separators[0]
+                char = s[sep_idx]
+                suffix = s[sep_idx + 1:]
+                if char == '.' and len(suffix) == 3:
+                    # Treat as thousands separator
+                    clean_val = s.replace('.', '')
+                elif char == '.':
+                    # Treat as decimal point
+                    clean_val = s
+                elif char == ',':
+                    # Always treat as decimal point
+                    clean_val = s.replace(',', '.')
+                else:
+                    clean_val = s
+            elif len(separators) >= 2:
                 last_sep_idx = separators[-1]
                 prefix = s[:last_sep_idx].replace('.', '').replace(',', '')
                 suffix = s[last_sep_idx + 1:]
                 clean_val = f"{prefix}.{suffix}" if suffix else prefix
             else: clean_val = s
-            return Decimal(clean_val).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            result = Decimal(clean_val).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            if is_accounting_negative:
+                result = -abs(result)
+            return result
         except: return Decimal('0.00')
 
     def to_decimal_percent(self, val):
