@@ -259,30 +259,54 @@ class MasterWriter:
             ws.append(row_vals)
 
         max_row = ws.max_row
+        fill_row_styles = [self.fill_odd, self.fill_even]
+        font_row_styles = [self.font_standard, self.font_standard]
+
         for r_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=max_row)):
-            is_odd = (r_idx+1)%2==1
-            style_row_str = 'odd_row' if is_odd else 'even_row'
-            style_num_str = 'standard_num_odd' if is_odd else 'standard_num_even'
+            is_odd = (r_idx + 1) % 2 == 1
+            fill_row = self.fill_odd if is_odd else self.fill_even
+            num_fmt = '#,##0.00'
 
             for c_idx, cell in enumerate(row, start=1):
-                # Numeric columns (5 through 11)
                 if 5 <= c_idx <= 11:
                     val = cell.value if cell.value else 0
                     if c_idx == 5 and val > 0.01:
-                        cell.style = 'income_cell'
+                        cell.fill = self.fill_income
+                        cell.font = self.font_income
+                        cell.alignment = self.align_right
+                        cell.border = self.border_thin
+                        cell.number_format = num_fmt
                     elif c_idx == 6 and abs(val) > 0.01:
-                        cell.style = 'expense_cell'
+                        cell.fill = self.fill_expense
+                        cell.font = self.font_expense
+                        cell.alignment = self.align_right
+                        cell.border = self.border_thin
+                        cell.number_format = num_fmt
                     else:
-                        cell.style = style_num_str
+                        cell.fill = fill_row
+                        cell.font = self.font_standard
+                        cell.alignment = self.align_right
+                        cell.border = self.border_thin
+                        cell.number_format = num_fmt
                 else:
-                    cell.style = style_row_str
+                    cell.fill = fill_row
+                    cell.font = self.font_standard
+                    cell.alignment = self.align_left
+                    cell.border = self.border_thin
 
         total_row = max_row + 1
-        ws.cell(total_row, 1, "ИТОГО:").font = self.font_total
+        total_label = ws.cell(total_row, 1, "ИТОГО:")
+        total_label.font = self.font_total
+        total_label.fill = self.fill_total
+        total_label.border = self.border_medium
         for c in range(5, 9):
-            let = get_column_letter(c); cell = ws.cell(total_row, c)
+            let = get_column_letter(c)
+            cell = ws.cell(total_row, c)
             cell.value = f"=SUM({let}2:{let}{total_row-1})"
-            cell.style = 'total_cell'
+            cell.fill = self.fill_total
+            cell.font = self.font_total
+            cell.border = self.border_medium
+            cell.number_format = '#,##0.00'
         self._auto_adjust_columns(ws)
         
         if should_save:

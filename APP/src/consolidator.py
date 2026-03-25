@@ -425,10 +425,9 @@ class Consolidator:
                             if key_cols:
                                 df = df.dropna(subset=key_cols, how='all')
 
-                            cols = df.columns
+                            records = df.to_dict('records')
                             batch = []
-                            for idx, row in enumerate(df.itertuples(index=False, name=None)):
-                                row_dict = dict(zip(cols, row))
+                            for idx, row_dict in enumerate(records):
                                 v_c = row_dict.get(c_col)
                                 v_a = row_dict.get(a_col)
                                 v_i = row_dict.get(i_col)
@@ -440,14 +439,13 @@ class Consolidator:
                                    (v_i != v_i or v_i is None) and \
                                    (v_e != v_e or v_e is None):
                                     continue
-                                
+
                                 if self.is_junk_row(row_dict, col_map): continue
-                                
-                                # Excel row is index + 1
+
                                 actual_row_idx = idx + 1
                                 transformed = self.transform_row(
                                     row_dict, col_map, display_name, sh_name,
-                                    row_index=actual_row_idx, 
+                                    row_index=actual_row_idx,
                                     filename=os.path.basename(path)
                                 )
                                 if transformed: batch.append(transformed)
@@ -617,9 +615,8 @@ class Consolidator:
                 if key_cols:
                     df = df.dropna(subset=key_cols, how='all')
 
-                cols = df.columns
-                for idx, row in enumerate(df.itertuples(index=False, name=None)):
-                    row_dict = dict(zip(cols, row))
+                records = df.to_dict('records')
+                for idx, row_dict in enumerate(records):
                     v_c = row_dict.get(c_col)
                     v_a = row_dict.get(a_col)
                     v_i = row_dict.get(i_col)
@@ -632,12 +629,11 @@ class Consolidator:
                        (v_e != v_e or v_e is None):
                         continue
                     if self.is_junk_row(row_dict, col_map): continue
-                    
-                    # Excel row is index + 1
+
                     actual_row_idx = idx + 1
                     transformed = self.transform_row(
                         row_dict, col_map, "Preview", sh_name,
-                        actual_row_idx, log_audit=False, 
+                        actual_row_idx, log_audit=False,
                         filename=os.path.basename(file_path)
                     )
                     if transformed: all_rows.append(transformed)
