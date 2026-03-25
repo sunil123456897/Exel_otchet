@@ -51,59 +51,72 @@ class MasterWriter:
         self.align_left = Alignment(horizontal='left', vertical='center', wrap_text=True)
         self.align_right = Alignment(horizontal='right', vertical='center')
 
+    def _make_named_styles(self):
         from openpyxl.styles import NamedStyle
 
-        self.style_header = NamedStyle(name="header_row")
-        self.style_header.fill = self.fill_header
-        self.style_header.font = self.font_header
-        self.style_header.alignment = self.align_center
-        self.style_header.border = self.border_thin
+        styles = {}
 
-        self.style_odd = NamedStyle(name="odd_row")
-        self.style_odd.fill = self.fill_odd
-        self.style_odd.font = self.font_standard
-        self.style_odd.alignment = self.align_left
-        self.style_odd.border = self.border_thin
+        style_header = NamedStyle(name="header_row")
+        style_header.fill = self.fill_header
+        style_header.font = self.font_header
+        style_header.alignment = self.align_center
+        style_header.border = self.border_thin
+        styles['header_row'] = style_header
 
-        self.style_even = NamedStyle(name="even_row")
-        self.style_even.fill = self.fill_even
-        self.style_even.font = self.font_standard
-        self.style_even.alignment = self.align_left
-        self.style_even.border = self.border_thin
+        style_odd = NamedStyle(name="odd_row")
+        style_odd.fill = self.fill_odd
+        style_odd.font = self.font_standard
+        style_odd.alignment = self.align_left
+        style_odd.border = self.border_thin
+        styles['odd_row'] = style_odd
 
-        self.style_income = NamedStyle(name="income_cell")
-        self.style_income.fill = self.fill_income
-        self.style_income.font = self.font_income
-        self.style_income.alignment = self.align_right
-        self.style_income.border = self.border_thin
-        self.style_income.number_format = '#,##0.00'
+        style_even = NamedStyle(name="even_row")
+        style_even.fill = self.fill_even
+        style_even.font = self.font_standard
+        style_even.alignment = self.align_left
+        style_even.border = self.border_thin
+        styles['even_row'] = style_even
 
-        self.style_expense = NamedStyle(name="expense_cell")
-        self.style_expense.fill = self.fill_expense
-        self.style_expense.font = self.font_expense
-        self.style_expense.alignment = self.align_right
-        self.style_expense.border = self.border_thin
-        self.style_expense.number_format = '#,##0.00'
+        style_income = NamedStyle(name="income_cell")
+        style_income.fill = self.fill_income
+        style_income.font = self.font_income
+        style_income.alignment = self.align_right
+        style_income.border = self.border_thin
+        style_income.number_format = '#,##0.00'
+        styles['income_cell'] = style_income
 
-        self.style_standard_num_odd = NamedStyle(name="standard_num_odd")
-        self.style_standard_num_odd.fill = self.fill_odd
-        self.style_standard_num_odd.font = self.font_standard
-        self.style_standard_num_odd.alignment = self.align_right
-        self.style_standard_num_odd.border = self.border_thin
-        self.style_standard_num_odd.number_format = '#,##0.00'
+        style_expense = NamedStyle(name="expense_cell")
+        style_expense.fill = self.fill_expense
+        style_expense.font = self.font_expense
+        style_expense.alignment = self.align_right
+        style_expense.border = self.border_thin
+        style_expense.number_format = '#,##0.00'
+        styles['expense_cell'] = style_expense
 
-        self.style_standard_num_even = NamedStyle(name="standard_num_even")
-        self.style_standard_num_even.fill = self.fill_even
-        self.style_standard_num_even.font = self.font_standard
-        self.style_standard_num_even.alignment = self.align_right
-        self.style_standard_num_even.border = self.border_thin
-        self.style_standard_num_even.number_format = '#,##0.00'
+        style_standard_num_odd = NamedStyle(name="standard_num_odd")
+        style_standard_num_odd.fill = self.fill_odd
+        style_standard_num_odd.font = self.font_standard
+        style_standard_num_odd.alignment = self.align_right
+        style_standard_num_odd.border = self.border_thin
+        style_standard_num_odd.number_format = '#,##0.00'
+        styles['standard_num_odd'] = style_standard_num_odd
 
-        self.style_total = NamedStyle(name="total_cell")
-        self.style_total.fill = self.fill_total
-        self.style_total.font = self.font_total
-        self.style_total.border = self.border_medium
-        self.style_total.number_format = '#,##0.00'
+        style_standard_num_even = NamedStyle(name="standard_num_even")
+        style_standard_num_even.fill = self.fill_even
+        style_standard_num_even.font = self.font_standard
+        style_standard_num_even.alignment = self.align_right
+        style_standard_num_even.border = self.border_thin
+        style_standard_num_even.number_format = '#,##0.00'
+        styles['standard_num_even'] = style_standard_num_even
+
+        style_total = NamedStyle(name="total_cell")
+        style_total.fill = self.fill_total
+        style_total.font = self.font_total
+        style_total.border = self.border_medium
+        style_total.number_format = '#,##0.00'
+        styles['total_cell'] = style_total
+
+        return styles
 
     def _apply_header_style(self, ws, row_idx=1):
         for cell in ws[row_idx]:
@@ -127,6 +140,11 @@ class MasterWriter:
                     try:
                         os.replace(temp_path, self.master_path)
                     except PermissionError:
+                        try:
+                            if os.path.exists(temp_path):
+                                os.remove(temp_path)
+                        except Exception:
+                            pass
                         import tkinter.messagebox as mb
                         mb.showerror("Файл занят", f"Не удалось сохранить отчет!\n\nФайл '{self.master_path}' открыт в Excel.\nПожалуйста, закройте его и попробуйте снова.")
                         return
@@ -139,14 +157,17 @@ class MasterWriter:
             except: pass
 
     def _sort_sheets(self, wb):
+        SPECIAL_ORDER = ["ВСЕ ОПЕРАЦИИ", "ДАШБОРД", "АНАЛИТИКА", "СВОД"]
         def sheet_key(name):
             if "." in name:
                 try:
                     parts = name.split(".")
-                    # Sort by month, then by day
-                    return int(parts[1]), int(parts[0])
-                except: return 99, 99
-            return 100, 100
+                    return (0, int(parts[1]), int(parts[0]), 0)
+                except:
+                    return (0, 99, 99, 0)
+            priority = SPECIAL_ORDER.index(name) if name in SPECIAL_ORDER else 99
+            return (1, 0, 0, priority)
+
         sheet_names = sorted(wb.sheetnames, key=sheet_key)
         for i, name in enumerate(sheet_names):
             sheet = wb[name]
@@ -209,14 +230,9 @@ class MasterWriter:
         ws = wb.create_sheet(sh_name)
         
         if 'header_row' not in wb.named_styles:
-            wb.add_named_style(self.style_header)
-            wb.add_named_style(self.style_odd)
-            wb.add_named_style(self.style_even)
-            wb.add_named_style(self.style_income)
-            wb.add_named_style(self.style_expense)
-            wb.add_named_style(self.style_standard_num_odd)
-            wb.add_named_style(self.style_standard_num_even)
-            wb.add_named_style(self.style_total)
+            styles = self._make_named_styles()
+            for s in styles.values():
+                wb.add_named_style(s)
 
         headers = ["Дата", "Сотрудник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход", "Комиссия", "ИТОГ", "% посредника", "посредник 1(кэш)", "посредник 2", "Фильтры"]
         ws.append(headers)
@@ -231,13 +247,13 @@ class MasterWriter:
                 r.get('Сотрудник', ''), 
                 r.get('ЗАКАЗЧИК (название проекта, наименование ЮЛ)', ''),
                 r.get('ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)', ''), 
-                r.get('сумма платежа ПРИХОД', 0), 
-                r.get('сумма платежа РАСХОД', 0), 
-                r.get('комиссия', 0), 
-                r.get('ИТОГ', 0),
-                r.get('% посредника', 0), 
-                r.get('посредник 1(кэш)', 0), 
-                r.get('посредник 2', 0), 
+                float(r.get('сумма платежа ПРИХОД', 0)),
+                float(r.get('сумма платежа РАСХОД', 0)),
+                float(r.get('комиссия', 0)),
+                float(r.get('ИТОГ', 0)),
+                float(r.get('% посредника', 0)),
+                float(r.get('посредник 1(кэш)', 0)),
+                float(r.get('посредник 2', 0)),
                 r.get('фильтры', '')
             ]
             ws.append(row_vals)
