@@ -43,3 +43,6 @@ ENV/
 # Other
 .DS_Store
 Thumbs.db
+
+# Backups
+*.bak
