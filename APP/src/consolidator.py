@@ -176,7 +176,7 @@ class Consolidator:
 
     def _get_sheetnames_fast(self, file_path):
         try:
-            mtime = os.path.getmtime(file_path)
+            mtime = os.path.getmtime(file_path) if os.path.exists(file_path) else 0
             if file_path in self._sheet_cache:
                 cached_mtime, cached_sheets = self._sheet_cache[file_path]
                 if cached_mtime == mtime:
