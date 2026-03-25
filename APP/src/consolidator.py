@@ -404,11 +404,22 @@ class Consolidator:
                         
                         for df, col_map, sh_name, header_idx in sheets:
                             logger.info(f"[*] Processing {display_name} | {sh_name}")
+                            c_col = col_map.get('customer')
+                            a_col = col_map.get('amount')
+                            i_col = col_map.get('income')
+                            e_col = col_map.get('expense')
+
                             for idx, row_dict in df.to_dict('index').items():
-                                if pd.isna(row_dict.get(col_map.get('customer'))) and \
-                                   pd.isna(row_dict.get(col_map.get('amount'))) and \
-                                   pd.isna(row_dict.get(col_map.get('income'))) and \
-                                   pd.isna(row_dict.get(col_map.get('expense'))):
+                                v_c = row_dict.get(c_col)
+                                v_a = row_dict.get(a_col)
+                                v_i = row_dict.get(i_col)
+                                v_e = row_dict.get(e_col)
+
+                                # PERFORMANCE: Python inline NaN check is significantly faster than pd.isna
+                                if (v_c != v_c or v_c is None) and \
+                                   (v_a != v_a or v_a is None) and \
+                                   (v_i != v_i or v_i is None) and \
+                                   (v_e != v_e or v_e is None):
                                     continue
                                 
                                 if self.is_junk_row(row_dict, col_map): continue
@@ -545,11 +556,23 @@ class Consolidator:
         all_rows = []
         for d_str, sheets in res_by_date.items():
             for df, col_map, sh_name, header_idx in sheets:
+                c_col = col_map.get('customer')
+                a_col = col_map.get('amount')
+                i_col = col_map.get('income')
+                e_col = col_map.get('expense')
+
                 for idx, row_dict in df.to_dict('index').items():
-                    if pd.isna(row_dict.get(col_map.get('customer'))) and \
-                       pd.isna(row_dict.get(col_map.get('amount'))) and \
-                       pd.isna(row_dict.get(col_map.get('income'))) and \
-                       pd.isna(row_dict.get(col_map.get('expense'))): continue
+                    v_c = row_dict.get(c_col)
+                    v_a = row_dict.get(a_col)
+                    v_i = row_dict.get(i_col)
+                    v_e = row_dict.get(e_col)
+
+                    # PERFORMANCE: Python inline NaN check is significantly faster than pd.isna
+                    if (v_c != v_c or v_c is None) and \
+                       (v_a != v_a or v_a is None) and \
+                       (v_i != v_i or v_i is None) and \
+                       (v_e != v_e or v_e is None):
+                        continue
                     if self.is_junk_row(row_dict, col_map): continue
                     
                     # Excel row is index + 1
