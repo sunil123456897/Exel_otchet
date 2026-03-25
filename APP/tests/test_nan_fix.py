@@ -7,8 +7,9 @@ import tempfile
 from decimal import Decimal
 
 # Add APP and APP/src to sys.path to import consolidator and audit_logic
-sys.path.append(os.path.join(os.getcwd(), 'APP'))
-sys.path.append(os.path.join(os.getcwd(), 'APP', 'src'))
+_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _BASE)
+sys.path.insert(0, os.path.join(_BASE, 'src'))
 from consolidator import Consolidator
 
 def test_nan_fix():
