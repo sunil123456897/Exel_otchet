@@ -32,7 +32,11 @@ def mock_config_dict():
             'income_overrides': ['доп', 'доп сф', '% посред'],
             'return_keywords': ['возврат']
         },
-        'employees': ['EmpA', 'EmpB']
+        'employees': ['EmpA', 'EmpB'],
+        'employee_paths': {
+            'EmpA': ['./dummy/EmpA.xlsx'],
+            'EmpB': ['./dummy/EmpB.xlsx']
+        }
     }
 
 @pytest.fixture
@@ -69,9 +73,7 @@ def mock_row_dict_basic():
 
 @pytest.fixture
 def mock_audit(monkeypatch):
-    """Mocks the global audit object to prevent file writes during tests."""
+    """Patches the global audit object in consolidator to prevent file writes."""
     mock = MagicMock()
-    # Mock 'audit_logic.audit' - Since 'consolidator' does 'from audit_logic import audit',
-    # we might need to patch 'consolidator.audit' instead depending on how it's used.
-    # Usually better to patch at the point of use.
+    monkeypatch.setattr("consolidator.audit", mock)
     return mock

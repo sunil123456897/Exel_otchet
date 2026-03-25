@@ -2,7 +2,12 @@ import os
 from datetime import datetime
 
 class AuditLogger:
-    def __init__(self, audit_file="DEEP_AUDIT_REPORT.txt"):
+    def __init__(self, audit_file=None):
+        if audit_file is None:
+            audit_file = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "DEEP_AUDIT_REPORT.txt"
+            )
         self.audit_file = audit_file
         self.buffer = []
         self.start_time = datetime.now()
@@ -59,3 +64,5 @@ class AuditLogger:
 
 # Global singleton for easier access
 audit = AuditLogger()
+import atexit
+atexit.register(lambda: audit.save() if audit.buffer else None)
