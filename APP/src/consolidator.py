@@ -390,7 +390,9 @@ class Consolidator:
                 work_items.append((display_name, path))
 
         # PERFORMANCE: PARALLEL PROCESSING
-        with ThreadPoolExecutor() as executor:
+        import os
+        max_w = min(6, (os.cpu_count() or 2) + 2)
+        with ThreadPoolExecutor(max_workers=max_w) as executor:
             future_to_item = {executor.submit(self.reader.read_file, path, target_dates): (name, path) for name, path in work_items}
             
             for future in as_completed(future_to_item):
@@ -409,7 +411,14 @@ class Consolidator:
                             i_col = col_map.get('income')
                             e_col = col_map.get('expense')
 
-                            for idx, row_dict in df.to_dict('index').items():
+                            # Pre-filter: remove completely empty key columns
+                            key_cols = [col for col in [c_col, a_col, i_col, e_col] if col and col in df.columns]
+                            if key_cols:
+                                df = df.dropna(subset=key_cols, how='all')
+
+                            cols = df.columns
+                            for idx, row in enumerate(df.itertuples(index=False, name=None)):
+                                row_dict = dict(zip(cols, row))
                                 v_c = row_dict.get(c_col)
                                 v_a = row_dict.get(a_col)
                                 v_i = row_dict.get(i_col)
@@ -561,7 +570,14 @@ class Consolidator:
                 i_col = col_map.get('income')
                 e_col = col_map.get('expense')
 
-                for idx, row_dict in df.to_dict('index').items():
+                # Pre-filter: remove completely empty key columns
+                key_cols = [col for col in [c_col, a_col, i_col, e_col] if col and col in df.columns]
+                if key_cols:
+                    df = df.dropna(subset=key_cols, how='all')
+
+                cols = df.columns
+                for idx, row in enumerate(df.itertuples(index=False, name=None)):
+                    row_dict = dict(zip(cols, row))
                     v_c = row_dict.get(c_col)
                     v_a = row_dict.get(a_col)
                     v_i = row_dict.get(i_col)
