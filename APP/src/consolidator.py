@@ -154,13 +154,17 @@ class Template1Reader:
                     for key, marker in self.markers.items():
                         found_col = None
                         for col in df.columns:
-                            if marker.lower() in str(col).lower():
+                            col_str_lower = str(col).lower()
+                            if marker.lower() in col_str_lower:
+                                # FIXED: prevent 'комиссия' from matching 'комиссия посредника'
+                                if key == 'commission' and 'посредник' in col_str_lower:
+                                    continue
                                 found_col = col
                                 break
                         if found_col is None:
                             # FIXED: broker-aliases
                             alts = {
-                                'amount':      ['сумма платежа', 'бн рф руб', 'бн', 'приход', 'расход'],
+                                'amount':      ['сумма платежа', 'бн рф руб', 'бн', 'приход', 'расход'],  
                                 'income':      ['приход'],
                                 'expense':     ['расход'],
                                 'customer':    ['заказчик', 'агент'],
@@ -169,19 +173,22 @@ class Template1Reader:
                                 'commission':  ['комиссия', 'ставка/цена'],
                                 'percent_broker': ['% посредника', '%'],
                                 'broker1':     ['посредник 1(кэш)', 'посредник 1',
-                                                'комиссия посредника 1', 'приходный кассовый ордер'],
+                                                'комиссия посредника 1', 'приходный кассовый ордер'],     
                                 'broker2':     ['посредник 2', 'комиссия посредника 2', '%.1'],
                                 'filters':     ['фильтры', 'фильтр', 'filter'],
                             }
                             for alt in alts.get(key, []):
                                 for col in df.columns:
-                                    if alt.lower() in str(col).lower():
+                                    col_str_lower = str(col).lower()
+                                    if alt.lower() in col_str_lower:
+                                        # FIXED: prevent 'комиссия' from matching 'комиссия посредника'
+                                        if key == 'commission' and 'посредник' in col_str_lower:
+                                            continue
                                         found_col = col
                                         break
                                 if found_col: break
                         if found_col is not None:
-                            col_map[key] = found_col
-                    
+                            col_map[key] = found_col                    
                     if any(k in col_map for k in ['amount', 'income', 'expense']):
                         if hasattr(matched_date, 'strftime'):
                             date_key = matched_date.strftime("%d.%m.%Y")
