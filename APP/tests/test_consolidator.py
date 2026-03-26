@@ -141,9 +141,10 @@ def consolidator(tmp_path, mock_config_dict):
     (1234.567, Decimal('1234.57')), # float rounding ROUND_HALF_UP
     ("1234.", Decimal('1234.00')), # trailing dot
     ("1,234,567.89", Decimal('1234567.89')), # US format
-    ("1.234", Decimal('1234.00')),    # European thousands dot, 3 digits after
-    ("12.500", Decimal('12500.00')),  # European thousands dot, 3 digits after
-    ("1.000", Decimal('1000.00')),    # European thousands dot, 3 digits after
+        ("1.234", Decimal('1.23')),    # Decimal dot because len(int) <= 3
+        ("12.500", Decimal('12.50')),  # Decimal dot because len(int) <= 3
+        ("1.000", Decimal('1.00')),    # Decimal dot because len(int) <= 3
+        ("1234.500", Decimal('1234500.00')),  # Thousands dot because len(int) > 3
     ("1.23", Decimal('1.23')),        # Normal decimal dot, 2 digits — must stay
     ("(1234,56)", Decimal('-1234.56')),  # Accounting negative notation
     ("(500.00)", Decimal('-500.00')),    # Accounting negative notation with dot

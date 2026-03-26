@@ -6,7 +6,11 @@ from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timedelta
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from audit_logic import audit
+# FIXED: 3
+try:
+    from .audit_logic import audit
+except ImportError:
+    from audit_logic import audit
 import openpyxl
 import zipfile
 import threading
@@ -176,15 +180,19 @@ class Consolidator:
         self.config = Config(config_path)
         self.reader = Template1Reader(self.config)
         self._sheet_cache = {}
+        # FIXED: 7
+        self._sheet_cache_lock = threading.Lock()
 
 
     def _get_sheetnames_fast(self, file_path):
         try:
             mtime = os.path.getmtime(file_path) if os.path.exists(file_path) else 0
-            if file_path in self._sheet_cache:
-                cached_mtime, cached_sheets = self._sheet_cache[file_path]
-                if cached_mtime == mtime:
-                    return cached_sheets
+            # FIXED: 7
+            with self._sheet_cache_lock:
+                if file_path in self._sheet_cache:
+                    cached_mtime, cached_sheets = self._sheet_cache[file_path]
+                    if cached_mtime == mtime:
+                        return cached_sheets
             
             sheetnames = []
             try:
@@ -203,7 +211,9 @@ class Consolidator:
                 sheetnames = [s.title for s in wb.worksheets if s.sheet_state == 'visible']
                 wb.close()
             
-            self._sheet_cache[file_path] = (mtime, sheetnames)
+            # FIXED: 7
+            with self._sheet_cache_lock:
+                self._sheet_cache[file_path] = (mtime, sheetnames)
             return sheetnames
         except Exception as e:
             logger.error(f"Error getting sheet names for {file_path}: {e}")
@@ -270,7 +280,7 @@ class Consolidator:
                                             found_path = full_f
                                             logger.info(f"[Smart] File '{os.path.basename(path)}' was renamed to '{f}' (ID match)")
                                             break
-                                    except: continue
+                                    except Exception: continue
                             
                             # B. Try Fuzzy Prefix match (For daily "Save As" users)
                             if not found_path:
@@ -302,7 +312,8 @@ class Consolidator:
                             try:
                                 curr_id = os.stat(p_abs).st_ino
                                 updated_paths.append({"path": p_abs, "id": curr_id})
-                            except:
+                            except Exception as e:
+                                logger.debug(f"Failed to stat file {p_abs}: {e}") # FIXED: 1
                                 updated_paths.append(p_abs)
                 
                 # Update in-memory config
@@ -329,7 +340,8 @@ class Consolidator:
                     if h_source not in seen_hashes:
                         unique_paths.append(p)
                         seen_hashes.add(h_source)
-                except:
+                except Exception as e:
+                    logger.debug(f"Failed to stat file {p}: {e}") # FIXED: 1
                     if p not in unique_paths: unique_paths.append(p)
             
             result[target_name] = unique_paths
@@ -358,8 +370,8 @@ class Consolidator:
                                         year = current.year - 1
                                 d = datetime(year, int(match.group(2)), int(match.group(1)))
                                 unique_dates.add(d)
-                            except: continue
-                except: continue
+                            except Exception: continue # FIXED: 1
+                except Exception: continue # FIXED: 1
         return sorted(list(unique_dates))
 
     _JUNK_TOTALS = frozenset({"итого", "всего", "итог"})
@@ -499,7 +511,8 @@ class Consolidator:
                 sep_idx = separators[0]
                 char = s[sep_idx]
                 suffix = s[sep_idx + 1:]
-                if char == '.' and len(suffix) == 3:
+                # FIXED: 6
+                if char == '.' and len(suffix) == 3 and len(s[:sep_idx].replace('-','')) > 3:
                     # Treat as thousands separator
                     clean_val = s.replace('.', '')
                 elif char == '.':
@@ -521,7 +534,9 @@ class Consolidator:
             if is_accounting_negative:
                 result = -abs(result)
             return result
-        except: return Decimal('0.00')
+        except Exception as e:
+            logger.debug(f"Conversion to decimal failed for {val}: {e}") # FIXED: 1
+            return Decimal('0.00')
 
     def to_decimal_percent(self, val):
         if pd.isna(val) or val == "": return Decimal('0')
@@ -535,7 +550,9 @@ class Consolidator:
             if "%" in raw_s and res > 1:
                 res = res / Decimal('100')
             return res
-        except: return Decimal('0')
+        except Exception as e:
+            logger.debug(f"Conversion to percent failed for {val}: {e}") # FIXED: 1
+            return Decimal('0')
 
     def transform_row(self, row_dict, col_map, employee_name, sheet_name, row_index, log_audit=True, filename=None):
         def get_text(v):
@@ -607,7 +624,8 @@ class Consolidator:
             for sh in sheetnames:
                 if pattern.search(sh):
                     return True
-        except: pass
+        except Exception as e:
+            logger.debug(f"Date check failed for {file_path}: {e}") # FIXED: 1
         return False
 
     def process_file(self, file_path, target_date):

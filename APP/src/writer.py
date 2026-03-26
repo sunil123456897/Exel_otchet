@@ -170,9 +170,11 @@ class MasterWriter:
 
         sheet_names = sorted(wb.sheetnames, key=sheet_key)
         for i, name in enumerate(sheet_names):
-            sheet = wb[name]
-            wb._sheets.remove(sheet)
-            wb._sheets.insert(i, sheet)
+            # FIXED: 2
+            current_idx = wb.sheetnames.index(name)
+            offset = i - current_idx
+            if offset != 0:
+                wb.move_sheet(name, offset=offset)
 
     def _auto_adjust_columns(self, ws):
         max_row = ws.max_row
@@ -182,6 +184,17 @@ class MasterWriter:
             return
             
         col_max_lengths = [0] * max_col
+
+        # FIXED: 12
+        numeric_keywords = ['приход', 'расход', 'комиссия', 'итог', 'посредник']
+        numeric_cols = set()
+
+        # Determine numeric columns based on row 1 headers
+        for col_idx, cell in enumerate(ws[1], start=1):
+            if cell.value:
+                val_lower = str(cell.value).lower()
+                if any(kw in val_lower for kw in numeric_keywords):
+                    numeric_cols.add(col_idx)
 
         # Sample rows to avoid checking every cell in large sheets.
         # Check first 100 rows (headers, initial data) and last 100 rows (totals).
@@ -205,7 +218,7 @@ class MasterWriter:
             column_letter = get_column_letter(column_index)
             max_length = col_max_lengths[i]
 
-            if 5 <= column_index <= 11:
+            if column_index in numeric_cols:
                 # Numeric columns (Приход, Расход, Комиссия, ИТОГ, etc.)
                 # Use multiplier for thousand separators and larger margin for bold/formulas
                 width = (max_length * 1.1) + 6
@@ -262,21 +275,37 @@ class MasterWriter:
         fill_row_styles = [self.fill_odd, self.fill_even]
         font_row_styles = [self.font_standard, self.font_standard]
 
+        # FIXED: 12
+        numeric_keywords = ['приход', 'расход', 'комиссия', 'итог', 'посредник']
+        numeric_cols = set()
+        income_col = -1
+        expense_col = -1
+
+        for col_idx, cell in enumerate(ws[1], start=1):
+            if cell.value:
+                val_lower = str(cell.value).lower()
+                if any(kw in val_lower for kw in numeric_keywords):
+                    numeric_cols.add(col_idx)
+                if 'приход' in val_lower:
+                    income_col = col_idx
+                elif 'расход' in val_lower:
+                    expense_col = col_idx
+
         for r_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=max_row)):
             is_odd = (r_idx + 1) % 2 == 1
             fill_row = self.fill_odd if is_odd else self.fill_even
             num_fmt = '#,##0.00'
 
             for c_idx, cell in enumerate(row, start=1):
-                if 5 <= c_idx <= 11:
+                if c_idx in numeric_cols:
                     val = cell.value if cell.value else 0
-                    if c_idx == 5 and val > 0.01:
+                    if c_idx == income_col and val > 0.01:
                         cell.fill = self.fill_income
                         cell.font = self.font_income
                         cell.alignment = self.align_right
                         cell.border = self.border_thin
                         cell.number_format = num_fmt
-                    elif c_idx == 6 and abs(val) > 0.01:
+                    elif c_idx == expense_col and abs(val) > 0.01:
                         cell.fill = self.fill_expense
                         cell.font = self.font_expense
                         cell.alignment = self.align_right
@@ -299,14 +328,20 @@ class MasterWriter:
         total_label.font = self.font_total
         total_label.fill = self.fill_total
         total_label.border = self.border_medium
-        for c in range(5, 9):
-            let = get_column_letter(c)
-            cell = ws.cell(total_row, c)
-            cell.value = f"=SUM({let}2:{let}{total_row-1})"
-            cell.fill = self.fill_total
-            cell.font = self.font_total
-            cell.border = self.border_medium
-            cell.number_format = '#,##0.00'
+
+        # Apply formulas to numeric columns containing 'приход', 'расход', 'комиссия', 'итог'
+        for c in range(1, ws.max_column + 1):
+            if c in numeric_cols:
+                header_val = str(ws.cell(1, c).value).lower() if ws.cell(1, c).value else ""
+                if any(kw in header_val for kw in ['приход', 'расход', 'комиссия', 'итог']):
+                    let = get_column_letter(c)
+                    cell = ws.cell(total_row, c)
+                    cell.value = f"=SUM({let}2:{let}{total_row-1})"
+                    cell.fill = self.fill_total
+                    cell.font = self.font_total
+                    cell.border = self.border_medium
+                    cell.number_format = '#,##0.00'
+
         self._auto_adjust_columns(ws)
         
         if should_save:
