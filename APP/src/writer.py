@@ -37,14 +37,6 @@ class MasterWriter:
         self.fill_expense = PatternFill(start_color=self.clr_expense_bg, end_color=self.clr_expense_bg, fill_type="solid")
         self.fill_total = PatternFill(start_color=self.clr_total_bg, end_color=self.clr_total_bg, fill_type="solid")
         
-        # FIXED: zero-commission highlight
-        self.clr_warn_bg   = "FFEB9C"
-        self.clr_warn_text = "9C6500"
-        self.fill_warn  = PatternFill(start_color=self.clr_warn_bg,
-                                      end_color=self.clr_warn_bg,
-                                      fill_type="solid")
-        self.font_warn  = Font(color=self.clr_warn_text, bold=True, size=10)
-
         self.font_header = Font(color=self.clr_header_text, bold=True, size=11)
         self.font_standard = Font(size=10)
         self.font_bold = Font(bold=True, size=10)
@@ -297,6 +289,7 @@ class MasterWriter:
         income_col = -1
         expense_col = -1
         commission_col = -1
+        total_col = -1
 
         for col_idx, cell in enumerate(ws[1], start=1):
             if cell.value:
@@ -307,22 +300,33 @@ class MasterWriter:
                     income_col = col_idx
                 elif 'расход' in val_lower:
                     expense_col = col_idx
+                elif 'итог' in val_lower:
+                    total_col = col_idx
                 elif 'комисси' in val_lower and 'посред' not in val_lower:
                     commission_col = col_idx
 
-        for r_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=max_row)):
+        fill_yellow = PatternFill(patternType='solid', fgColor="FFFF00")
+
+        for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=max_row)):
             is_odd = (r_idx + 1) % 2 == 1
             fill_row = self.fill_odd if is_odd else self.fill_even
             num_fmt = '#,##0.00'
 
-            # FIXED: zero-commission highlight
-            comm_val   = row[commission_col - 1].value if commission_col > 0 else 1
-            amount_val = row[income_col - 1].value if income_col > 0 else 0
-            expense_v  = row[expense_col - 1].value if expense_col > 0 else 0
-            has_amount = abs(float(amount_val or 0)) > 0.01 or abs(float(expense_v or 0)) > 0.01
-            is_warn    = has_amount and abs(float(comm_val or 0)) < 0.01
+            commission_val = abs(float(row_cells[commission_col - 1].value or 0)) if commission_col > 0 else 0
+            income_val     = float(row_cells[income_col - 1].value or 0) if income_col > 0 else 0
+            expense_val    = abs(float(row_cells[expense_col - 1].value or 0)) if expense_col > 0 else 0
+            total_val      = abs(float(row_cells[total_col - 1].value or 0)) if total_col > 0 else 0
+            amount_val     = income_val if income_val != 0 else expense_val
 
-            for c_idx, cell in enumerate(row, start=1):
+            # YELLOW: commission=0 but amount != ИТОГ (math error)
+            is_yellow = (
+                commission_val == 0
+                and total_val > 0.02       # ИТОГ must be filled
+                and amount_val > 0.02      # amount must be filled
+                and abs(amount_val - total_val) > 0.02  # not equal (tolerance)
+            )
+
+            for c_idx, cell in enumerate(row_cells, start=1):
                 if c_idx in numeric_cols:
                     val = cell.value if cell.value else 0
                     if c_idx == income_col and val > 0.01:
@@ -338,9 +342,9 @@ class MasterWriter:
                         cell.border = self.border_thin
                         cell.number_format = num_fmt
                     else:
-                        if is_warn:
-                            cell.fill = self.fill_warn
-                            cell.font = self.font_warn
+                        if is_yellow and c_idx not in (income_col, expense_col):
+                            cell.fill = fill_yellow
+                            cell.font = self.font_standard
                         else:
                             cell.fill = fill_row
                             cell.font = self.font_standard
@@ -348,9 +352,9 @@ class MasterWriter:
                         cell.border = self.border_thin
                         cell.number_format = num_fmt
                 else:
-                    if is_warn:
-                        cell.fill = self.fill_warn
-                        cell.font = self.font_warn
+                    if is_yellow and c_idx not in (income_col, expense_col):
+                        cell.fill = fill_yellow
+                        cell.font = self.font_standard
                     else:
                         cell.fill = fill_row
                         cell.font = self.font_standard
