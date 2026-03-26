@@ -37,6 +37,14 @@ class MasterWriter:
         self.fill_expense = PatternFill(start_color=self.clr_expense_bg, end_color=self.clr_expense_bg, fill_type="solid")
         self.fill_total = PatternFill(start_color=self.clr_total_bg, end_color=self.clr_total_bg, fill_type="solid")
         
+        # FIXED: zero-commission highlight
+        self.clr_warn_bg   = "FFEB9C"
+        self.clr_warn_text = "9C6500"
+        self.fill_warn  = PatternFill(start_color=self.clr_warn_bg,
+                                      end_color=self.clr_warn_bg,
+                                      fill_type="solid")
+        self.font_warn  = Font(color=self.clr_warn_text, bold=True, size=10)
+
         self.font_header = Font(color=self.clr_header_text, bold=True, size=11)
         self.font_standard = Font(size=10)
         self.font_bold = Font(bold=True, size=10)
@@ -288,6 +296,7 @@ class MasterWriter:
         numeric_cols = set()
         income_col = -1
         expense_col = -1
+        commission_col = -1
 
         for col_idx, cell in enumerate(ws[1], start=1):
             if cell.value:
@@ -298,11 +307,20 @@ class MasterWriter:
                     income_col = col_idx
                 elif 'расход' in val_lower:
                     expense_col = col_idx
+                elif 'комисси' in val_lower and 'посред' not in val_lower:
+                    commission_col = col_idx
 
         for r_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=max_row)):
             is_odd = (r_idx + 1) % 2 == 1
             fill_row = self.fill_odd if is_odd else self.fill_even
             num_fmt = '#,##0.00'
+
+            # FIXED: zero-commission highlight
+            comm_val   = row[commission_col - 1].value if commission_col > 0 else 1
+            amount_val = row[income_col - 1].value if income_col > 0 else 0
+            expense_v  = row[expense_col - 1].value if expense_col > 0 else 0
+            has_amount = abs(float(amount_val or 0)) > 0.01 or abs(float(expense_v or 0)) > 0.01
+            is_warn    = has_amount and abs(float(comm_val or 0)) < 0.01
 
             for c_idx, cell in enumerate(row, start=1):
                 if c_idx in numeric_cols:
@@ -320,14 +338,22 @@ class MasterWriter:
                         cell.border = self.border_thin
                         cell.number_format = num_fmt
                     else:
-                        cell.fill = fill_row
-                        cell.font = self.font_standard
+                        if is_warn:
+                            cell.fill = self.fill_warn
+                            cell.font = self.font_warn
+                        else:
+                            cell.fill = fill_row
+                            cell.font = self.font_standard
                         cell.alignment = self.align_right
                         cell.border = self.border_thin
                         cell.number_format = num_fmt
                 else:
-                    cell.fill = fill_row
-                    cell.font = self.font_standard
+                    if is_warn:
+                        cell.fill = self.fill_warn
+                        cell.font = self.font_warn
+                    else:
+                        cell.fill = fill_row
+                        cell.font = self.font_standard
                     cell.alignment = self.align_left
                     cell.border = self.border_thin
 

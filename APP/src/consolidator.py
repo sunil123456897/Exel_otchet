@@ -158,18 +158,21 @@ class Template1Reader:
                                 found_col = col
                                 break
                         if found_col is None:
+                            # FIXED: broker-aliases
                             alts = {
-                                'amount':     ['сумма платежа', 'бн рф руб', 'бн', 'приход', 'расход'],
-                                'income':     ['приход'],
-                                'expense':    ['расход'],
-                                'customer':   ['заказчик', 'агент'],
-                                'contractor': ['исполнитель', 'вторая сторона'],
-                                'total':      ['итог', 'итоги дня', 'итог дня', 'формула'],
-                                'commission': ['комиссия', 'ставка/цена'],
-                                'broker1':    ['посредник 1(кэш)', 'посредник 1', 'приходный кассовый ордер'],
-                                'broker2':    ['посредник 2'],
-                                'filters':    ['фильтры', 'фильтр'],
-                            }  # FIXED: ivan-headers
+                                'amount':      ['сумма платежа', 'бн рф руб', 'бн', 'приход', 'расход'],
+                                'income':      ['приход'],
+                                'expense':     ['расход'],
+                                'customer':    ['заказчик', 'агент'],
+                                'contractor':  ['исполнитель', 'вторая сторона'],
+                                'total':       ['итог', 'итоги дня', 'итог дня', 'формула'],
+                                'commission':  ['комиссия', 'ставка/цена'],
+                                'percent_broker': ['% посредника', '%'],
+                                'broker1':     ['посредник 1(кэш)', 'посредник 1',
+                                                'комиссия посредника 1', 'приходный кассовый ордер'],
+                                'broker2':     ['посредник 2', 'комиссия посредника 2', '%.1'],
+                                'filters':     ['фильтры', 'фильтр', 'filter'],
+                            }
                             for alt in alts.get(key, []):
                                 for col in df.columns:
                                     if alt.lower() in str(col).lower():
@@ -387,9 +390,13 @@ class Consolidator:
                                 # If month is in the future relative to current month -> use previous year
                                 if not match.group(4):  # only when year is inferred
                                     candidate = datetime(current.year, int(match.group(2)), int(match.group(1)))
-                                    if candidate > current + timedelta(days=15):
+                                    # FIXED: year-guess
+                                    if candidate > current + timedelta(days=30):
                                         year = current.year - 1
                                 d = datetime(year, int(match.group(2)), int(match.group(1)))
+                                # FIXED: year-guess — игнорировать даты старше 2 лет
+                                if (current - d).days > 730:
+                                    continue
                                 unique_dates.add(d)
                             # FIXED: 6
                             except Exception as e:
@@ -439,6 +446,22 @@ class Consolidator:
                 marker_count += 1
                 if marker_count >= 2:
                     return True
+
+        # FIXED: broker-aliases — скипать повторные строки-заголовки
+        numeric_keys = ['amount', 'income', 'expense', 'commission',
+                        'total', 'percent_broker', 'broker1', 'broker2']
+        header_words = ['% посредника', 'заказчик', 'исполнитель',
+                        'сумма платежа', 'комиссия', 'итог', 'фильтры',
+                        'посредник', 'приход', 'расход']
+        for key in numeric_keys:
+            col = col_map.get(key)
+            if col:
+                val = row_dict.get(col)
+                if val is not None and val == val:
+                    val_str = str(val).strip().lower()
+                    if any(hw in val_str for hw in header_words):
+                        return True
+
         return False
 
     def consolidate_multiple(self, target_dates, employees=None):
