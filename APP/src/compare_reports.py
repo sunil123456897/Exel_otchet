@@ -81,6 +81,13 @@ def compare_excel_files(old_file, new_file):
                         check_exact=False,
                         rtol=1e-5
                     )
+                # FIXED: 11
+                str_cols = df_old.select_dtypes(include=['object']).columns
+                if len(str_cols) > 0:
+                    for col in str_cols:
+                        if not df_old[col].fillna('').equals(df_new[col].fillna('')):
+                            print(f"[!] Лист '{sheet}', колонка '{col}': текст отличается")
+                            all_match = False
                 print(f"[OK] Лист '{sheet}': ИДЕНТИЧЕН ({rows_old} строк)")
             except AssertionError as e:
                 print(f"[!] Лист '{sheet}': ЕСТЬ РАЗЛИЧИЯ ({rows_old} строк)")

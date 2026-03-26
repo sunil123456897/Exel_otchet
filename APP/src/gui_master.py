@@ -2,6 +2,8 @@ import os
 import threading
 import sys
 import logging
+import subprocess # FIXED: 5
+import platform # FIXED: 5
 from datetime import datetime
 from decimal import Decimal
 from ruamel.yaml import YAML
@@ -31,6 +33,15 @@ class TextHandler(logging.Handler):
             self.text_widget.configure(state='disabled')
             self.text_widget.yview(tk.END)
         self.text_widget.after(0, append)
+
+# FIXED: 5
+def open_path(path):
+    if platform.system() == "Windows":
+        os.startfile(path)
+    elif platform.system() == "Darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
 
 def get_base_path():
     """Returns the base path for the application, handling PyInstaller bundles."""
@@ -211,7 +222,7 @@ class GuiMaster:
     def open_master_folder(self):
         try:
             path = os.path.dirname(self.writer.master_path)
-            if os.path.exists(path): os.startfile(path)
+            if os.path.exists(path): open_path(path) # FIXED: 5
         except Exception as e: logging.error(f"Ошибка: {e}")
 
     def open_employee_folder(self):
@@ -219,14 +230,14 @@ class GuiMaster:
         if not sel: return
         name = self.tree.item(sel[0])['values'][0]
         paths = getattr(self, '_cached_employees', {}).get(name, [])
-        if paths: os.startfile(os.path.dirname(paths[0]))
+        if paths: open_path(os.path.dirname(paths[0])) # FIXED: 5
 
     def open_employee_file(self):
         sel = self.tree.selection()
         if not sel: return
         name = self.tree.item(sel[0])['values'][0]
         paths = getattr(self, '_cached_employees', {}).get(name, [])
-        if paths: os.startfile(paths[0])
+        if paths: open_path(paths[0]) # FIXED: 5
 
     def show_context_menu(self, event):
         item = self.tree.identify_row(event.y)
@@ -255,10 +266,13 @@ class GuiMaster:
 
     def filter_tree(self):
         query = self.search_var.get().lower()
-        for item in self.tree.get_children(): self.tree.delete(item)
-        for n, s, p, t in self.all_employee_data:
-            if query in n.lower() or query in s.lower() or query in p.lower():
-                self.tree.insert('', tk.END, values=(n, s, p), tags=(t,))
+        # FIXED: 4 - Thread safety
+        def _update():
+            for item in self.tree.get_children(): self.tree.delete(item)
+            for n, s, p, t in self.all_employee_data:
+                if query in n.lower() or query in s.lower() or query in p.lower():
+                    self.tree.insert('', tk.END, values=(n, s, p), tags=(t,))
+        self.root.after(0, _update)
 
     def update_stats(self, ready_count, total_count, total_income, total_expense, error_count=0):
         text = f"Готово: {ready_count}/{total_count}\nПриход: {total_income:,.2f}\nРасход: {total_expense:,.2f}\nОшибки: {error_count}"
@@ -267,13 +281,16 @@ class GuiMaster:
     def refresh_status(self):
         """Refreshes the status of all employees for the selected date."""
         selected_date = self.date_entry.get_date()
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        self.progress_var.set(0)
+        # FIXED: 4 - Thread safety
+        def _clear_tree():
+            for item in self.tree.get_children():
+                self.tree.delete(item)
+            self.progress_var.set(0)
+        self.root.after(0, _clear_tree)
             
         def task():
             try:
-                self.refresh_btn.config(state='disabled')
+                self.root.after(0, lambda: self.refresh_btn.config(state='disabled')) # FIXED: 4
                 
                 # Get aggregated mapping once to avoid redundant disk I/O
                 employees_map = self.consolidator.get_employees()
@@ -436,7 +453,7 @@ class GuiMaster:
     def run_consolidation_all_dates(self):
         def task():
             try:
-                self.consolidate_all_btn.config(state='disabled')
+                self.root.after(0, lambda: self.consolidate_all_btn.config(state='disabled')) # FIXED: 4
                 logging.info("Поиск всех доступных дат в файлах...")
                 all_dates = self.consolidator.get_all_available_dates()
                 if not all_dates:
@@ -466,7 +483,7 @@ class GuiMaster:
 
                 def on_success():
                     if messagebox.askyesno("Успех", "Сборка завершена! Открыть файл?"):
-                        os.startfile(self.writer.master_path)
+                        open_path(self.writer.master_path) # FIXED: 5
 
                 self.root.after(0, on_success)
             except Exception as e:
@@ -483,9 +500,9 @@ class GuiMaster:
 
         def task():
             try:
-                self.consolidate_btn.config(state='disabled')
+                self.root.after(0, lambda: self.consolidate_btn.config(state='disabled')) # FIXED: 4
                 logging.info(f"--- Сборка за {selected_date.strftime('%d.%m')} ---")
-                self.progress_var.set(20)
+                self.root.after(0, lambda: self.progress_var.set(20)) # FIXED: 4
                 
                 # 1. Consolidate employee data
                 results = self.consolidator.consolidate_multiple([selected_date])
@@ -494,15 +511,15 @@ class GuiMaster:
                     logging.warning("Нет данных за выбранную дату."); return
                 
                 # 2. Write data to Excel
-                self.progress_var.set(60)
+                self.root.after(0, lambda: self.progress_var.set(60)) # FIXED: 4
                 self.writer.write_daily_data(selected_date, all_data)
                 
-                self.progress_var.set(100)
+                self.root.after(0, lambda: self.progress_var.set(100)) # FIXED: 4
                 logging.info("Успешно!")
 
                 def on_done():
                     if messagebox.askyesno("Успех", f"Консолидация завершена!\n\nОткрыть файл?"):
-                        os.startfile(self.writer.master_path)
+                        open_path(self.writer.master_path) # FIXED: 5
                 self.root.after(0, on_done)
             except Exception as e:
                 logging.error(f"Ошибка: {e}")
