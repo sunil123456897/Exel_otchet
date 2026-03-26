@@ -144,8 +144,11 @@ def consolidator(tmp_path, mock_config_dict):
         ("1.234", Decimal('1.23')),    # Decimal dot because len(int) <= 3
         ("12.500", Decimal('12.50')),  # Decimal dot because len(int) <= 3
         ("1.000", Decimal('1.00')),    # Decimal dot because len(int) <= 3
-        ("1234.500", Decimal('1234500.00')),  # Thousands dot because len(int) > 3
+    ("1234.500", Decimal('1234.50')),  # Thousands dot removed
     ("1.23", Decimal('1.23')),        # Normal decimal dot, 2 digits — must stay
+    ("128807,096", Decimal("128807.10")), # Comma as decimal
+    ("128807.096", Decimal("128807.10")), # Dot as decimal
+    ("-3220177,40", Decimal("-3220177.40")), # Comma as decimal, negative
     ("(1234,56)", Decimal('-1234.56')),  # Accounting negative notation
     ("(500.00)", Decimal('-500.00')),    # Accounting negative notation with dot
 ])
@@ -203,6 +206,18 @@ def test_junk_case_insensitive(consolidator, mock_col_map):
     assert consolidator.is_junk_row(row, mock_col_map) is True
 
 # --- transform_row ---
+@patch('consolidator.audit.log_action')
+def test_transform_row_percent_broker_not_scaled(mock_log, consolidator, mock_col_map):
+    """percent_broker should NOT be multiplied by 100 (-0.04 -> -0.04)"""
+    row = {
+        mock_col_map['amount']: '100',
+        mock_col_map['filters']: '',
+        mock_col_map['percent_broker']: '-0,04'
+    }
+    res = consolidator.transform_row(row, mock_col_map, 'Emp', 'Sheet1', 1)
+    assert res['% посредника'] == Decimal('-0.04')
+
+
 @patch('consolidator.audit.log_action')
 def test_positive_amount_becomes_income(mock_log, consolidator, mock_col_map):
     """amount=500, no special filters -> income=500, expense=0"""
