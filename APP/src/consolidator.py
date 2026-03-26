@@ -65,7 +65,13 @@ class Template1Reader:
         self.markers = config.sh1.get('markers', {})
 
     def find_header_row(self, rows):
-        markers = ["дата", "заказчик", "исполнитель", "приход", "расход", "сумма платежа", "комиссия", "итог"]
+        markers = [
+            "дата", "заказчик", "исполнитель", "приход", "расход",
+            "сумма платежа", "комиссия", "итог",
+            # FIXED: ivan-headers
+            "агент", "вторая сторона", "бн рф руб",
+            "ставка/цена", "формула", "приходный кассовый",
+        ]
         best_score = 0
         best_idx = None
         # Scan first 150 rows
@@ -94,7 +100,7 @@ class Template1Reader:
             if target_dates:
                 for d in target_dates:
                     # Pattern: (start or non-digit) (optional zero) (day) . (optional zero) (month) (end or non-digit)
-                    pattern = re.compile(rf"(^|[^0-9])0?{d.day}\.0?{d.month}([^0-9]|$)")
+                    pattern = re.compile(rf"(^|[^0-9])0?{d.day}[.,]0?{d.month}([^0-9]|$)")  # FIXED: comma-dates
                     date_patterns.append((d, pattern))
 
             to_process = []
@@ -152,7 +158,18 @@ class Template1Reader:
                                 found_col = col
                                 break
                         if found_col is None:
-                            alts = {'amount': ['сумма платежа', 'приход', 'расход'], 'income': ['приход'], 'expense': ['расход']}
+                            alts = {
+                                'amount':     ['сумма платежа', 'бн рф руб', 'бн', 'приход', 'расход'],
+                                'income':     ['приход'],
+                                'expense':    ['расход'],
+                                'customer':   ['заказчик', 'агент'],
+                                'contractor': ['исполнитель', 'вторая сторона'],
+                                'total':      ['итог', 'итоги дня', 'итог дня', 'формула'],
+                                'commission': ['комиссия', 'ставка/цена'],
+                                'broker1':    ['посредник 1(кэш)', 'посредник 1', 'приходный кассовый ордер'],
+                                'broker2':    ['посредник 2'],
+                                'filters':    ['фильтры', 'фильтр'],
+                            }  # FIXED: ivan-headers
                             for alt in alts.get(key, []):
                                 for col in df.columns:
                                     if alt.lower() in str(col).lower():
@@ -355,7 +372,7 @@ class Consolidator:
     def get_all_available_dates(self):
         employees = self.get_employees()
         unique_dates = set()
-        date_pattern = re.compile(r'(\d{1,2})\.(\d{1,2})(\.(\d{4}))?')
+        date_pattern = re.compile(r'(\d{1,2})[.,](\d{1,2})([.,](\d{4}))?')  # FIXED: comma-dates
         for name, paths in employees.items():
             for path in paths:
                 try:
