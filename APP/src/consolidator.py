@@ -699,7 +699,7 @@ class Consolidator:
             day = target_date.day
             month = target_date.month
             # Pattern: (start or non-digit) (optional zero) (day) . (optional zero) (month) (end or non-digit)
-            pattern = re.compile(rf"(^|[^0-9])0?{day}\.0?{month}([^0-9]|$)")
+            pattern = re.compile(rf"(^|[^0-9])0?{day}[.,]0?{month}([^0-9]|$)")  # FIXED: comma-dates
             
             for sh in sheetnames:
                 if pattern.search(sh):

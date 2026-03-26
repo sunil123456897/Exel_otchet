@@ -447,3 +447,21 @@ def test_date_not_found(mock_fast, consolidator):
     """no matching sheet -> False"""
     mock_fast.return_value = ["01.04"]
     assert consolidator.check_date_exists("dummy.xlsx", datetime(2026, 3, 25)) is False
+
+@patch.object(Consolidator, '_get_sheetnames_fast')
+def test_check_date_exists_comma_match(mock_fast, consolidator):
+    """sheet named 'Роман В (25,03)' matches day=25, month=3"""
+    mock_fast.return_value = ["Роман В (25,03)"]
+    assert consolidator.check_date_exists("dummy.xlsx", datetime(2026, 3, 25)) is True
+
+@patch.object(Consolidator, '_get_sheetnames_fast')
+def test_check_date_exists_dot_match(mock_fast, consolidator):
+    """sheet named 'Роман В (25.03)' matches day=25, month=3"""
+    mock_fast.return_value = ["Роман В (25.03)"]
+    assert consolidator.check_date_exists("dummy.xlsx", datetime(2026, 3, 25)) is True
+
+@patch.object(Consolidator, '_get_sheetnames_fast')
+def test_check_date_exists_no_partial_match(mock_fast, consolidator):
+    """sheet named 'Роман В (16.03)' does not match day=25, month=3"""
+    mock_fast.return_value = ["Роман В (16.03)"]
+    assert consolidator.check_date_exists("dummy.xlsx", datetime(2026, 3, 25)) is False
