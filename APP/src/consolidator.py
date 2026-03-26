@@ -382,7 +382,9 @@ class Consolidator:
     def get_all_available_dates(self):
         employees = self.get_employees()
         unique_dates = set()
-        date_pattern = re.compile(r'(\d{1,2})[.,](\d{1,2})([.,](\d{4}))?')  # FIXED: comma-dates
+        date_pattern = re.compile(
+            r'(^|[^0-9])(\d{1,2})[.,](\d{1,2})([.,](\d{4}))?([^0-9]|$)'
+        )  # FIXED: boundary-dates
         for name, paths in employees.items():
             for path in paths:
                 try:
@@ -393,14 +395,14 @@ class Consolidator:
                         if match:
                             try:
                                 current = datetime.now()
-                                year = int(match.group(4)) if match.group(4) else current.year
+                                year = int(match.group(5)) if match.group(5) else current.year
                                 # If month is in the future relative to current month -> use previous year
-                                if not match.group(4):  # only when year is inferred
-                                    candidate = datetime(current.year, int(match.group(2)), int(match.group(1)))
+                                if not match.group(5):  # only when year is inferred
+                                    candidate = datetime(current.year, int(match.group(3)), int(match.group(2)))
                                     # FIXED: year-guess
                                     if candidate > current + timedelta(days=30):
                                         year = current.year - 1
-                                d = datetime(year, int(match.group(2)), int(match.group(1)))
+                                d = datetime(year, int(match.group(3)), int(match.group(2)))
                                 # FIXED: year-guess — игнорировать даты старше 2 лет
                                 if (current - d).days > 730:
                                     continue

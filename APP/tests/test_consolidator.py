@@ -465,3 +465,20 @@ def test_check_date_exists_no_partial_match(mock_fast, consolidator):
     """sheet named 'Роман В (16.03)' does not match day=25, month=3"""
     mock_fast.return_value = ["Роман В (16.03)"]
     assert consolidator.check_date_exists("dummy.xlsx", datetime(2026, 3, 25)) is False
+
+@patch.object(Consolidator, 'get_employees')
+@patch.object(Consolidator, '_get_sheetnames_fast')
+def test_get_all_available_dates_no_phantom_dates(mock_fast, mock_employees, consolidator):
+    """sheet named '125.03' should not leak '25.03'."""
+    mock_employees.return_value = {"dummy": ["dummy.xlsx"]}
+    
+    # Test with 125.03
+    mock_fast.return_value = ["125.03"]
+    dates = consolidator.get_all_available_dates()
+    current_year = datetime.now().year
+    assert datetime(current_year, 3, 25) not in dates
+    
+    # Test with 25.03 (should work)
+    mock_fast.return_value = ["25.03"]
+    dates = consolidator.get_all_available_dates()
+    assert datetime(current_year, 3, 25) in dates
