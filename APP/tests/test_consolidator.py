@@ -221,11 +221,11 @@ def test_negative_amount_becomes_expense(mock_log, consolidator, mock_col_map):
 
 @patch('consolidator.audit.log_action')
 def test_return_keyword_becomes_expense(mock_log, consolidator, mock_col_map):
-    """filters contains 'возврат', amount=200 -> expense=200"""
+    """filters contains 'возврат', amount=200 -> expense=-200"""
     row = {mock_col_map['amount']: '200', mock_col_map['filters']: 'возврат средств'}
     res = consolidator.transform_row(row, mock_col_map, 'Emp', 'Sheet1', 1)
     assert res['сумма платежа ПРИХОД'] == Decimal('0.00')
-    assert res['сумма платежа РАСХОД'] == Decimal('200.00')
+    assert res['сумма платежа РАСХОД'] == Decimal('-200.00')
 
 @patch('consolidator.audit.log_action')
 def test_additional_income_override(mock_log, consolidator, mock_col_map):

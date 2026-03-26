@@ -594,7 +594,7 @@ class Consolidator:
         income = Decimal('0.00'); expense = Decimal('0.00')
         if is_additional: income = raw_amount
         elif any(kw.lower() in filters_val for kw in return_keywords): 
-            expense = abs(raw_amount)
+            expense = -abs(raw_amount)  # FIXED: bug4
         elif raw_amount < 0: expense = abs(raw_amount)
         else: income = raw_amount
 
@@ -611,6 +611,26 @@ class Consolidator:
         if filename:
             emp_label = f"{emp_label} [{filename}]"
 
+        # FIXED: bug6 convert fraction (0.24) → percent (24.00) for output
+        _comm_raw = self.to_decimal_percent(
+            row_dict.get(col_map.get('commission'), 0)
+        )
+        _commission = (
+            _comm_raw * 100
+            if _comm_raw != Decimal('0') and abs(_comm_raw) <= Decimal('1')
+            else _comm_raw
+        ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+        # FIXED: bug6 convert broker % fraction → percent with 2 decimal places
+        _broker_pct_raw = self.to_decimal_percent(
+            row_dict.get(col_map.get('percent_broker'))
+        )
+        _broker_pct = (
+            _broker_pct_raw * 100
+            if _broker_pct_raw != Decimal('0') and abs(_broker_pct_raw) <= Decimal('1')
+            else _broker_pct_raw
+        ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
         res = {
             'Дата': get_text(sheet_name),
             'Сотрудник': f"{emp_label} (стр. {row_index})",
@@ -618,9 +638,9 @@ class Consolidator:
             'ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)': sanitize(contractor_val),
             'сумма платежа ПРИХОД': income,
             'сумма платежа РАСХОД': expense,
-            'комиссия': self.to_decimal_percent(row_dict.get(col_map.get('commission'), 0)),
+            'комиссия': _commission,
             'ИТОГ': source_total,
-            '% посредника': self.to_decimal_percent(row_dict.get(col_map.get('percent_broker'))),
+            '% посредника': _broker_pct,
             'посредник 1(кэш)': self.to_decimal(row_dict.get(col_map.get('broker1'))),
             'посредник 2': self.to_decimal(row_dict.get(col_map.get('broker2'))),
             'фильтры': sanitize(filters_val),
