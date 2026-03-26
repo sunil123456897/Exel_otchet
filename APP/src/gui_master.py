@@ -317,9 +317,14 @@ class GuiMaster:
                     progress = ((i + 1) / total_count) * 100
                     self.root.after(0, lambda v=progress: self.progress_var.set(v))
                     
-                    paths = employees_map.get(name, [])
+                    raw_paths = employees_map.get(name, [])
+                    # Normalize: extract string path from dict entries if needed
+                    paths = [p['path'] if isinstance(p, dict) else p for p in raw_paths]
+                    paths = [p for p in paths if isinstance(p, str) and os.path.exists(p)]
                     
-                    if not paths:
+                    if not raw_paths:
+                        status, tag, path_str = "🔴 НЕТ ФАЙЛА", 'missing', "---"
+                    elif not paths:
                         status, tag, path_str = "🔴 НЕТ ФАЙЛА", 'missing', "---"
                     else:
                         # Aggregated status logic: check if any file has the selected date

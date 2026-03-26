@@ -82,6 +82,11 @@ class TestUiRefreshLogic(unittest.TestCase):
         
         self.app.consolidator.check_date_exists.side_effect = mock_check_date
         
+        # Mock os.path.exists since the test uses fake file paths
+        patcher_exists = patch('gui_master.os.path.exists', return_value=True)
+        self.addCleanup(patcher_exists.stop)
+        patcher_exists.start()
+
         # 2. Capture the task function passed to threading.Thread
         self.app.refresh_status()
         
