@@ -229,8 +229,11 @@ class MasterWriter:
                 width = (max_length * 1.1) + 6
                 ws.column_dimensions[column_letter].width = max(width, 15)
             else:
-                # Standard columns: increased margin from +2 to +4
-                ws.column_dimensions[column_letter].width = max_length + 4
+                # Standard columns: increased margin from +2 to +4, but limit max width for compactness
+                width = max_length + 4
+                # Column 3 (Заказчик) and 4 (Исполнитель) can be very long, cap them at 35. 
+                # Other text columns also capped at 35 to maintain a compact, beautiful report.
+                ws.column_dimensions[column_letter].width = min(width, 35)
 
     def write_daily_data(self, date, employee_rows, wb=None):
         """
