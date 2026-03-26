@@ -124,10 +124,15 @@ class MasterWriter:
 
     def _get_workbook(self):
         if os.path.exists(self.master_path):
-            try: return openpyxl.load_workbook(self.master_path)
-            except: return openpyxl.Workbook()
+            try:
+                return openpyxl.load_workbook(self.master_path)
+            except Exception as e:
+                # FIXED: bare except
+                logger.warning(f"Workbook corrupted or unreadable: {e}, creating new.")
+                return openpyxl.Workbook()
         wb = openpyxl.Workbook()
-        if "Sheet" in wb.sheetnames: wb.remove(wb["Sheet"])
+        if "Sheet" in wb.sheetnames:
+            wb.remove(wb["Sheet"])
         return wb
 
     def _save_workbook(self, wb):
