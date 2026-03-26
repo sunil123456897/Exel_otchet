@@ -475,7 +475,10 @@ class GuiMaster:
                 if not user_confirmed[0]:
                     return
 
-                results_by_date = self.consolidator.consolidate_multiple(all_dates)
+                # FIXED: 7
+                results_by_date = self.consolidator.consolidate_multiple(
+                    all_dates, employees=getattr(self, '_cached_employees', None)
+                )
                 if not results_by_date: return
 
                 self.writer.write_all_days(results_by_date)
@@ -505,7 +508,10 @@ class GuiMaster:
                 self.root.after(0, lambda: self.progress_var.set(20)) # FIXED: 4
                 
                 # 1. Consolidate employee data
-                results = self.consolidator.consolidate_multiple([selected_date])
+                # FIXED: 7
+                results = self.consolidator.consolidate_multiple(
+                    [selected_date], employees=getattr(self, '_cached_employees', None)
+                )
                 all_data = results.get(selected_date.strftime("%d.%m.%Y"), [])
                 if not all_data:
                     logging.warning("Нет данных за выбранную дату."); return

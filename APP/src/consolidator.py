@@ -1,12 +1,12 @@
 import os
 import pandas as pd
 import re
-import hashlib
+# FIXED: 3
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timedelta
 import logging
+import logging.handlers as _lh # FIXED: 2
 from concurrent.futures import ThreadPoolExecutor, as_completed
-# FIXED: 3
 try:
     from .audit_logic import audit
 except ImportError:
@@ -17,15 +17,19 @@ import threading
 from xml.etree import ElementTree
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("consolidation.log", encoding='utf-8')
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__) # FIXED: 1
+
+# FIXED: 2
+if not logger.handlers:
+    _h = _lh.RotatingFileHandler(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "consolidation.log"),
+        maxBytes=5*1024*1024, backupCount=2, encoding='utf-8'
+    )
+    _h.setFormatter(logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s'))
+    logger.addHandler(_h)
+    logger.setLevel(logging.INFO)
 
 class Config:
     def __init__(self, config_path):
@@ -370,33 +374,44 @@ class Consolidator:
                                         year = current.year - 1
                                 d = datetime(year, int(match.group(2)), int(match.group(1)))
                                 unique_dates.add(d)
-                            except Exception: continue # FIXED: 1
-                except Exception: continue # FIXED: 1
+                            # FIXED: 6
+                            except Exception as e:
+                                logger.debug(
+                                    f"Could not parse date from sheet '{sheet_name}' "
+                                    f"in {path}: {e}"
+                                )
+                                continue
+                # FIXED: 6
+                except Exception as e:
+                    logger.debug(f"Skipping file {path} in get_all_available_dates: {e}")
+                    continue
         return sorted(list(unique_dates))
 
     _JUNK_TOTALS = frozenset({"итого", "всего", "итог"})
     _JUNK_MARKERS = ("заказчик", "исполнитель", "приход", "расход")
 
+    # FIXED: 4
     def is_junk_row(self, row_dict, col_map):
-        # Handle pandas Series gracefully during transition
-        vals = row_dict.values() if isinstance(row_dict, dict) else row_dict.tolist()
+        # Normalize: always work with a plain dict
+        if not isinstance(row_dict, dict):
+            row_dict = dict(zip(row_dict.index, row_dict.values))
 
         v_strs = []
-        for val in vals:
-            if pd.isna(val): continue
+        for val in row_dict.values():
+            if val is None or (val != val):  # None or NaN
+                continue
             v_str = str(val).lower()
             if v_str.strip(': ') in self._JUNK_TOTALS:
                 return True
             v_strs.append(v_str)
 
-        # STRICT FILTER: If there is no text context at all, it's a floating calculator number
         c_val = row_dict.get(col_map.get('customer'))
         contr_val = row_dict.get(col_map.get('contractor'))
         f_val = row_dict.get(col_map.get('filters'))
-        
+
         def is_empty(val):
-            return pd.isna(val) or str(val).strip() == ''
-            
+            return val is None or (val != val) or str(val).strip() == ''
+
         if is_empty(c_val) and is_empty(contr_val) and is_empty(f_val):
             return True
 
@@ -409,11 +424,13 @@ class Consolidator:
                     return True
         return False
 
-    def consolidate_multiple(self, target_dates):
+    def consolidate_multiple(self, target_dates, employees=None):
         """
         HIGH PERFORMANCE: Multi-threaded file reading + batch processing.
         """
-        employees = self.get_employees()
+        # FIXED: 7
+        if employees is None:
+            employees = self.get_employees()
         results_by_date = {}
         results_lock = threading.Lock()
         
@@ -560,7 +577,9 @@ class Consolidator:
             return str(v)
 
         raw_val = row_dict.get(col_map.get('amount'))
-        filters_val = get_text(row_dict.get(col_map.get('filters', ''), '')).lower()
+        # FIXED: 5
+        filters_key = col_map.get('filters')
+        filters_val = get_text(row_dict.get(filters_key, '') if filters_key else '').lower()
         income_overrides = self.config.logic.get('income_overrides', ['доп', 'доп сф', '% посред'])
         return_keywords = self.config.logic.get('return_keywords', ['возврат'])
         
