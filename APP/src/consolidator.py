@@ -577,17 +577,13 @@ class Consolidator:
             if len(separators) == 1:
                 sep_idx = separators[0]
                 char = s[sep_idx]
-                suffix = s[sep_idx + 1:]
-                # FIXED: 6
-                if char == '.' and len(suffix) == 3 and len(s[:sep_idx].replace('-','')) > 3:
-                    # Treat as thousands separator
-                    clean_val = s.replace('.', '')
-                elif char == '.':
-                    # Treat as decimal point
-                    clean_val = s
-                elif char == ',':
-                    # Always treat as decimal point
+                if char == ',':
+                    # Russian decimal comma → convert to dot
                     clean_val = s.replace(',', '.')
+                elif char == '.':
+                    # Always treat as decimal point
+                    # (thousands spaces already stripped above)
+                    clean_val = s
                 else:
                     clean_val = s
             elif len(separators) >= 2:
@@ -671,14 +667,9 @@ class Consolidator:
         ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
         # FIXED: bug6 convert broker % fraction → percent with 2 decimal places
-        _broker_pct_raw = self.to_decimal_percent(
+        _broker_pct = self.to_decimal(
             row_dict.get(col_map.get('percent_broker'))
         )
-        _broker_pct = (
-            _broker_pct_raw * 100
-            if _broker_pct_raw != Decimal('0') and abs(_broker_pct_raw) <= Decimal('1')
-            else _broker_pct_raw
-        ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
         res = {
             'Дата': get_text(sheet_name),
