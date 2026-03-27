@@ -92,8 +92,7 @@ class Template1Reader:
         then loading data with Pandas using dtype=str for precision.
         """
         try:
-            # 1. Scan headers with openpyxl (fast, low memory)
-            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            is_xlsb = file_path.lower().endswith('.xlsb')
             
             # Prepare robust regex patterns for target dates
             date_patterns = []
@@ -104,44 +103,80 @@ class Template1Reader:
                     date_patterns.append((d, pattern))
 
             to_process = []
-            for ws in wb.worksheets:
-                if ws.sheet_state != 'visible':
-                    continue
-                
-                sh = ws.title
-                clean_sh = sh.strip()
-                matched_date = None
-                
-                if not target_dates:
-                    if not (sh.startswith('_') or sh == "АНАЛИТИКА" or sh == "СВОД"):
-                        matched_date = sh
-                else:
-                    for d_obj, p in date_patterns:
-                        if p.search(clean_sh):
-                            matched_date = d_obj
-                            break
-                
-                if not matched_date:
-                    continue
-
-                # Read first 150 rows for header detection
-                rows_preview = []
-                for i, row in enumerate(ws.iter_rows(max_row=150, values_only=True)):
-                    rows_preview.append(row)
-                
-                header_idx = self.find_header_row(rows_preview)
-                if header_idx is not None:
-                    to_process.append((sh, matched_date, header_idx))
-                else:
-                    logger.warning(f"Header not found in file {file_path} sheet {sh}. Skipping.")
             
-            wb.close()
+            if is_xlsb:
+                import pandas as pd
+                xl = pd.ExcelFile(file_path, engine='pyxlsb')
+                for sh in xl.sheet_names:
+                    clean_sh = sh.strip()
+                    matched_date = None
+                    
+                    if not target_dates:
+                        if not (sh.startswith('_') or sh == "АНАЛИТИКА" or sh == "СВОД"):
+                            matched_date = sh
+                    else:
+                        for d_obj, p in date_patterns:
+                            if p.search(clean_sh):
+                                matched_date = d_obj
+                                break
+                    
+                    if not matched_date:
+                        continue
+
+                    # Read first 150 rows for header detection
+                    df_preview = pd.read_excel(xl, sheet_name=sh, nrows=150, header=None)
+                    df_preview = df_preview.where(pd.notnull(df_preview), None)
+                    rows_preview = df_preview.values.tolist()
+                    
+                    header_idx = self.find_header_row(rows_preview)
+                    if header_idx is not None:
+                        to_process.append((sh, matched_date, header_idx))
+                    else:
+                        logger.warning(f"Header not found in file {file_path} sheet {sh}. Skipping.")
+                xl.close()
+            else:
+                # 1. Scan headers with openpyxl (fast, low memory)
+                wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+                
+                for ws in wb.worksheets:
+                    if ws.sheet_state != 'visible':
+                        continue
+                    
+                    sh = ws.title
+                    clean_sh = sh.strip()
+                    matched_date = None
+                    
+                    if not target_dates:
+                        if not (sh.startswith('_') or sh == "АНАЛИТИКА" or sh == "СВОД"):
+                            matched_date = sh
+                    else:
+                        for d_obj, p in date_patterns:
+                            if p.search(clean_sh):
+                                matched_date = d_obj
+                                break
+                    
+                    if not matched_date:
+                        continue
+
+                    # Read first 150 rows for header detection
+                    rows_preview = []
+                    for i, row in enumerate(ws.iter_rows(max_row=150, values_only=True)):
+                        rows_preview.append(row)
+                    
+                    header_idx = self.find_header_row(rows_preview)
+                    if header_idx is not None:
+                        to_process.append((sh, matched_date, header_idx))
+                    else:
+                        logger.warning(f"Header not found in file {file_path} sheet {sh}. Skipping.")
+                
+                wb.close()
 
             if not to_process:
                 return None
 
             # 2. Load data with Pandas
-            xl = pd.ExcelFile(file_path, engine='openpyxl')
+            engine = 'pyxlsb' if is_xlsb else 'openpyxl'
+            xl = pd.ExcelFile(file_path, engine=engine)
             all_dfs_by_date = {}
 
             try:
@@ -226,21 +261,32 @@ class Consolidator:
                         return cached_sheets
             
             sheetnames = []
-            try:
-                with zipfile.ZipFile(file_path, 'r') as zf:
-                    if 'xl/workbook.xml' in zf.namelist():
-                        with zf.open('xl/workbook.xml') as f:
-                            tree = ElementTree.parse(f)
-                            root = tree.getroot()
-                            for sheet in root.findall('.//{*}sheet'):
-                                state = sheet.attrib.get('state', 'visible')
-                                if state == 'visible':
-                                    sheetnames.append(sheet.attrib.get('name'))
-            except Exception as zip_e:
-                logger.debug(f"Fast zip parsing failed for {file_path} ({zip_e}), falling back to openpyxl")
-                wb = openpyxl.load_workbook(file_path, read_only=True, keep_links=False)
-                sheetnames = [s.title for s in wb.worksheets if s.sheet_state == 'visible']
-                wb.close()
+            is_xlsb = file_path.lower().endswith('.xlsb')
+            
+            if is_xlsb:
+                import pandas as pd
+                try:
+                    xl = pd.ExcelFile(file_path, engine='pyxlsb')
+                    sheetnames = xl.sheet_names
+                    xl.close()
+                except Exception as e:
+                    logger.debug(f"Failed to read xlsb sheets for {file_path}: {e}")
+            else:
+                try:
+                    with zipfile.ZipFile(file_path, 'r') as zf:
+                        if 'xl/workbook.xml' in zf.namelist():
+                            with zf.open('xl/workbook.xml') as f:
+                                tree = ElementTree.parse(f)
+                                root = tree.getroot()
+                                for sheet in root.findall('.//{*}sheet'):
+                                    state = sheet.attrib.get('state', 'visible')
+                                    if state == 'visible':
+                                        sheetnames.append(sheet.attrib.get('name'))
+                except Exception as zip_e:
+                    logger.debug(f"Fast zip parsing failed for {file_path} ({zip_e}), falling back to openpyxl")
+                    wb = openpyxl.load_workbook(file_path, read_only=True, keep_links=False)
+                    sheetnames = [s.title for s in wb.worksheets if s.sheet_state == 'visible']
+                    wb.close()
             
             # FIXED: 7
             with self._sheet_cache_lock:
@@ -258,7 +304,7 @@ class Consolidator:
 
         for root, dirs, files in os.walk(source_root):
             for file in files:
-                if "шаблон" in file.lower() or file.startswith('~$') or not file.endswith('.xlsx'):
+                if "шаблон" in file.lower() or file.startswith('~$') or not (file.endswith('.xlsx') or file.endswith('.xlsb')):
                     continue
                 file_name_no_ext = os.path.splitext(file)[0]
                 parent_dir = os.path.basename(root)
@@ -323,7 +369,7 @@ class Consolidator:
                                 if len(prefix) >= 3:
                                     candidates = []
                                     for f in os.listdir(parent):
-                                        if f.lower().startswith(prefix) and f.endswith('.xlsx') and not f.startswith('~$'):
+                                        if f.lower().startswith(prefix) and (f.endswith('.xlsx') or f.endswith('.xlsb')) and not f.startswith('~$'):
                                             candidates.append(os.path.join(parent, f))
                                     
                                     if candidates:
