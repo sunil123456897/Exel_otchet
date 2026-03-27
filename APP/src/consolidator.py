@@ -261,6 +261,15 @@ class Consolidator:
         # FIXED: 7
         self._sheet_cache_lock = threading.Lock()
 
+    def _get_file_fingerprint(self, path):
+        """Returns MD5 hex of first 8192 bytes. Fast and reliable."""
+        try:
+            import hashlib
+            with open(path, 'rb') as f:
+                return hashlib.md5(f.read(8192)).hexdigest()
+        except Exception:
+            return None
+
 
     def _get_sheetnames_fast(self, file_path):
         try:
@@ -316,14 +325,25 @@ class Consolidator:
 
         for root, dirs, files in os.walk(source_root):
             for file in files:
-                if "шаблон" in file.lower() or file.startswith('~$') or not (file.endswith('.xlsx') or file.endswith('.xlsb')):
+                if "шаблон" in file.lower() or file.startswith('~$') or not file.endswith(('.xlsx', '.xlsb')):
                     continue
                 file_name_no_ext = os.path.splitext(file)[0]
                 parent_dir = os.path.basename(root)
                 name = file_name_no_ext if root == source_root else parent_dir
                 if name not in employee_map:
                     employee_map[name] = []
-                employee_map[name].append(os.path.join(root, file))
+
+                full_path = os.path.join(root, file)
+                try:
+                    file_id = os.stat(full_path).st_ino
+                except Exception:
+                    file_id = None
+
+                employee_map[name].append({
+                    "path": full_path,
+                    "id": file_id,
+                    "fp": self._get_file_fingerprint(full_path)
+                })
         return employee_map
 
     def get_employees(self):
@@ -389,6 +409,28 @@ class Consolidator:
                                         found_path = max(candidates, key=os.path.getmtime)
                                         logger.info(f"[Smart] File '{old_name}' not found. Using newest substitute: '{os.path.basename(found_path)}'")
                             
+                            # C. Fingerprint match (Windows-safe, works even if name changed)
+                            if not found_path:
+                                stored_fp = entry.get('fp') if isinstance(entry, dict) else None
+                                if stored_fp and os.path.exists(parent):
+                                    for f in os.listdir(parent):
+                                        full_f = os.path.join(parent, f)
+                                        if not f.endswith(('.xlsx', '.xlsb')) or f.startswith('~$'):
+                                            continue
+                                        if not os.path.isfile(full_f):
+                                            continue
+                                        try:
+                                            candidate_fp = self._get_file_fingerprint(full_f)
+                                            if candidate_fp and candidate_fp == stored_fp:
+                                                found_path = full_f
+                                                logger.info(
+                                                    f"[Smart] File '{os.path.basename(path)}' "
+                                                    f"found by fingerprint: '{f}'"
+                                                )
+                                                break
+                                        except Exception:
+                                            continue
+
                             if found_path:
                                 p_abs = found_path
                                 self.rename_detected = True
@@ -400,7 +442,8 @@ class Consolidator:
                             seen_for_emp.add(p_abs)
                             try:
                                 curr_id = os.stat(p_abs).st_ino
-                                updated_paths.append({"path": p_abs, "id": curr_id})
+                                curr_fp = self._get_file_fingerprint(p_abs)
+                                updated_paths.append({"path": p_abs, "id": curr_id, "fp": curr_fp})
                             except Exception as e:
                                 logger.debug(f"Failed to stat file {p_abs}: {e}") # FIXED: 1
                                 updated_paths.append(p_abs)
@@ -413,7 +456,8 @@ class Consolidator:
             t_lower = target_name.lower()
             for d_name, paths in discovered.items():
                 if t_lower == d_name.lower():
-                    for p in paths:
+                    for entry in paths:
+                        p = entry['path'] if isinstance(entry, dict) else entry
                         p_abs = os.path.abspath(p)
                         if p_abs not in seen_for_emp:
                             paths_for_emp.append(p_abs)
