@@ -321,9 +321,11 @@ class MasterWriter:
             # YELLOW: commission=0 but amount != ИТОГ (math error)
             is_yellow = (
                 commission_val == 0
-                and total_val > 0.02       # ИТОГ must be filled
-                and amount_val > 0.02      # amount must be filled
-                and abs(amount_val - total_val) > 0.02  # not equal (tolerance)
+                and amount_val > 0.02      # row has income or expense
+                and (
+                    total_val < 0.02       # ИТОГ is empty → error
+                    or abs(amount_val - total_val) > 0.02  # ИТОГ ≠ amount → error
+                )
             )
 
             for c_idx, cell in enumerate(row_cells, start=1):
