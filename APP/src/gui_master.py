@@ -389,11 +389,35 @@ class GuiMaster:
             emp_name = lb.get(sel[0])
             file_paths = filedialog.askopenfilenames(
                 title=f"Выберите файлы отчетов для {emp_name}",
-                filetypes=[("Excel files", "*.xlsx")]
+                filetypes=[
+                    ("Excel files", "*.xlsx *.xlsb"),
+                    ("Excel Workbook", "*.xlsx"),
+                    ("Excel Binary Workbook", "*.xlsb"),
+                    ("All files", "*.*"),
+                ]
             )
             
             if file_paths:
-                abs_paths = [os.path.abspath(fp) for fp in file_paths]
+                import hashlib
+                def _fingerprint(p):
+                    try:
+                        with open(p, 'rb') as f:
+                            return hashlib.md5(f.read(8192)).hexdigest()
+                    except Exception:
+                        return None
+
+                abs_paths = []
+                for fp in file_paths:
+                    p_abs = os.path.abspath(fp)
+                    try:
+                        file_id = os.stat(p_abs).st_ino
+                    except Exception:
+                        file_id = None
+                    abs_paths.append({
+                        "path": p_abs,
+                        "id": file_id,
+                        "fp": _fingerprint(p_abs)
+                    })
                 
                 # Get current paths (handle potential dict/object format for tracking)
                 current_raw = self.config.data.get('employee_paths', {}).get(emp_name, [])
