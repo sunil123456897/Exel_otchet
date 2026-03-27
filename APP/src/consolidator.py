@@ -71,6 +71,7 @@ class Template1Reader:
             # FIXED: ivan-headers
             "агент", "вторая сторона", "бн рф руб",
             "ставка/цена", "формула", "приходный кассовый",
+            "фильтр", "посредник"
         ]
         best_score = 0
         best_idx = None
@@ -105,7 +106,6 @@ class Template1Reader:
             to_process = []
             
             if is_xlsb:
-                import pandas as pd
                 xl = pd.ExcelFile(file_path, engine='pyxlsb')
                 for sh in xl.sheet_names:
                     clean_sh = sh.strip()
@@ -172,7 +172,10 @@ class Template1Reader:
                 wb.close()
 
             if not to_process:
+                logger.debug(f"to_process is empty for {file_path}")
                 return None
+            else:
+                logger.debug(f"to_process has {len(to_process)} items for {file_path}")
 
             # 2. Load data with Pandas
             engine = 'pyxlsb' if is_xlsb else 'openpyxl'
@@ -224,6 +227,15 @@ class Template1Reader:
                                 if found_col: break
                         if found_col is not None:
                             col_map[key] = found_col                    
+                    
+                    # FALLBACK FOR MISSING HEADERS
+                    if 'amount' not in col_map and 'income' not in col_map and 'expense' not in col_map:
+                        if len(df.columns) >= 3:
+                            # If amount is completely missing but we have columns, assume standard template order
+                            if 'customer' not in col_map: col_map['customer'] = df.columns[0]
+                            if 'contractor' not in col_map: col_map['contractor'] = df.columns[1]
+                            col_map['amount'] = df.columns[2]
+
                     if any(k in col_map for k in ['amount', 'income', 'expense']):
                         if hasattr(matched_date, 'strftime'):
                             date_key = matched_date.strftime("%d.%m.%Y")
