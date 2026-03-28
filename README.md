@@ -1,14 +1,38 @@
-# Master Report Consolidator
+# Master Report Consolidator v6.0
 
-Financial automation system designed to consolidate diverse employee reports into a centralized Excel Master Report.
+Система автоматизации финансовых отчетов для консолидации данных из сотен Excel-файлов сотрудников в единый мастер-отчет.
 
-## Requirements
-* Python 3.12+
-* Python dependencies: `openpyxl`, `pandas`, `pyyaml`, `ruamel.yaml`, `tkcalendar`. Can be installed with `pip install -r requirements.txt`. Note: `tkinter` is required, which usually comes pre-installed with Python, but depending on your OS/distribution you might need to install it via your system package manager (e.g. `sudo apt install python3-tk`).
+## Ключевые особенности (v6.0)
+*   **Гибридная схема (SQL + Excel)**: Использует SQLite в качестве вычислительного ядра для молниеносной агрегации данных, сохраняя Excel как удобный интерфейс.
+*   **Умное отслеживание (Smart Tracking)**: Детекция изменений файлов по `inode` и `MD5` хэшам (не перечитывает файлы, которые не менялись).
+*   **Сетевая устойчивость**: Встроенные механизмы повторных попыток (Retries) и WAL-режим БД для стабильной работы на общих сетевых дисках.
+*   **Финансовая точность**: Все расчеты выполняются через тип `Decimal` с нулевой погрешностью округления.
 
-## How to run
-* **Windows**: Execute the `ЗАПУСК.bat` script.
-* **Linux/Mac**:
-  1. Install dependencies: `pip install -r requirements.txt`
-  2. Change directory: `cd APP`
-  3. Run the main script: `python3 main.py`
+## Требования
+*   Python 3.12+
+*   Зависимости: `openpyxl`, `pyxlsb`, `pyyaml`, `tkcalendar`. Установка: `pip install -r requirements.txt`.
+
+## Настройка (`APP/config.yaml`)
+В новой версии добавлены секции для управления базой данных и блокировками:
+
+```yaml
+# Настройка базы данных кэша
+database:
+  path: "APP/cache.db"
+  use_wal: true      # Включить режим WAL для работы в сети
+  timeout: 30.0      # Таймаут ожидания разблокировки БД
+
+# Настройка сетевых блокировок
+locking:
+  retry_count: 5     # Количество попыток при блокировке файла
+  retry_backoff: 2.0 # Пауза между попытками (сек)
+```
+
+## Как запустить
+*   **Windows**: Запустите файл `ЗАПУСК.bat`.
+*   **Другие ОС**:
+    1. Установите зависимости: `pip install -r requirements.txt`
+    2. Перейдите в папку `APP`: `cd APP`
+    3. Запустите: `python3 main.py`
+
+Подробная информация об архитектуре доступна в [APP/docs/README_TECHNICAL.md](APP/docs/README_TECHNICAL.md).

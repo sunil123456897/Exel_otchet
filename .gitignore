@@ -5,3 +5,12 @@ APP/__pycache__/
 APP/src/__pycache__/
 APP/tests/__pycache__/
 APP/src/consolidation.log
+APP/cache.db
+APP/*.log
+*.log
+startup_log.txt
+~$*.xlsx
+~$*.xlsb
+REPORTS/
+docs/maestro/state/active-session.md
+
