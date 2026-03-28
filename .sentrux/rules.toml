@@ -1,0 +1,27 @@
+[architecture]
+layers = [
+    "APP/src/components",
+    "APP/src/controllers",
+    "APP/src/logic_service",
+    "APP/src/ingestion",
+    "APP/src/writer",
+    "APP/src/sqlite_manager"
+]
+
+[[rules]]
+name = "UI should not depend on DB directly"
+from = "APP/src/components"
+to = "APP/src/sqlite_manager"
+allowed = false
+
+[[rules]]
+name = "UI should not depend on logic directly"
+from = "APP/src/components"
+to = "APP/src/logic_service"
+allowed = false
+
+[[rules]]
+name = "UI should not depend on ingestion directly"
+from = "APP/src/components"
+to = "APP/src/ingestion"
+allowed = false

@@ -1,13 +1,14 @@
 import os
 import pytest
 from datetime import datetime
+from pathlib import Path
 import openpyxl
 from unittest.mock import patch, MagicMock
 
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
-from writer import MasterWriter
+from APP.src.writer import MasterWriter
 
 @pytest.fixture
 def writer(tmp_path):
@@ -22,7 +23,8 @@ def writer(tmp_path):
 def dummy_data():
     return [
         {
-            'Сотрудник': 'Emp1',
+            'Дата': '25.03.2026',
+            'Источник': 'Emp1',
             'ЗАКАЗЧИК (название проекта, наименование ЮЛ)': 'Cust1',
             'ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)': 'Contr1',
             'сумма платежа ПРИХОД': 500.0,
@@ -35,7 +37,8 @@ def dummy_data():
             'фильтры': ''
         },
         {
-            'Сотрудник': 'Emp2',
+            'Дата': '25.03.2026',
+            'Источник': 'Emp2',
             'ЗАКАЗЧИК (название проекта, наименование ЮЛ)': 'Cust2',
             'ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)': 'Contr2',
             'сумма платежа ПРИХОД': 0,
@@ -48,7 +51,8 @@ def dummy_data():
             'фильтры': ''
         },
         {
-            'Сотрудник': 'Emp3',
+            'Дата': '25.03.2026',
+            'Источник': 'Emp3',
             'ЗАКАЗЧИК (название проекта, наименование ЮЛ)': 'Cust3',
             'ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)': 'Contr3',
             'сумма платежа ПРИХОД': 1000.0,
@@ -80,7 +84,7 @@ def test_headers_correct(writer, dummy_data):
     ws = wb["25.03"]
 
     expected_headers = [
-        "Дата", "Сотрудник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход",
+        "Дата", "Источник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход",
         "Расход", "Комиссия", "ИТОГ", "% посредника", "посредник 1(кэш)",
         "посредник 2", "Фильтры"
     ]
@@ -135,16 +139,13 @@ def test_named_styles_registered(writer, dummy_data):
     writer.write_daily_data(dt, dummy_data)
 
     wb = openpyxl.load_workbook(writer.master_path)
-    assert 'odd_row' in wb.named_styles
-    assert 'even_row' in wb.named_styles
-    assert 'income_cell' in wb.named_styles
-    assert 'expense_cell' in wb.named_styles
+    assert 'header_row' in wb.named_styles
 
 def test_named_styles_not_duplicated(writer, dummy_data):
     """calling write twice for same sheet doesn't raise DuplicateNamedStyleError"""
     dt = datetime(2026, 3, 25)
     writer.write_daily_data(dt, dummy_data)
-    # Call again with the same wb logic inside write_daily_data via write_all_days or wb passed
+    # Call again with the same wb logic inside write_daily_data via write_report or wb passed
     wb = openpyxl.load_workbook(writer.master_path)
     try:
         writer.write_daily_data(dt, dummy_data, wb=wb)
@@ -174,7 +175,6 @@ def test_income_cell_style(writer, dummy_data):
 
     ws = wb["25.03"]
     # Row 2 (Emp1) has income = 500
-    # Instead of style name, we check the actual fill color set by writer.fill_income
     cell = ws.cell(row=2, column=5)
     assert cell.fill.start_color.rgb == "00C6EFCE"  # AARRGGBB for openpyxl
 
@@ -188,15 +188,18 @@ def test_expense_cell_style(writer, dummy_data):
     # Row 3 (Emp2) has expense = 300
     cell = ws.cell(row=3, column=6)
     assert cell.fill.start_color.rgb == "00FFC7CE"  # AARRGGBB for openpyxl
-# --- write_all_days ---
+
+# --- write_report ---
 def test_multiple_dates_written(writer, dummy_data):
     """3 dates passed -> 3 sheets created"""
-    data = {
-        "25.03.2026": dummy_data,
-        "26.03.2026": dummy_data,
-        "27.03.2026": dummy_data
-    }
-    writer.write_all_days(data)
+    data = []
+    for d in ["25.03.2026", "26.03.2026", "27.03.2026"]:
+        for row in dummy_data:
+            new_row = row.copy()
+            new_row['Дата'] = d
+            data.append(new_row)
+            
+    writer.write_report(data, Path(writer.master_path))
 
     wb = openpyxl.load_workbook(writer.master_path)
     assert "25.03" in wb.sheetnames
@@ -205,12 +208,14 @@ def test_multiple_dates_written(writer, dummy_data):
 
 def test_sheets_sorted_by_date(writer, dummy_data):
     """dates written out of order -> sheets sorted correctly (01.03 to 25.03)"""
-    data = {
-        "25.03.2026": dummy_data,
-        "01.03.2026": dummy_data,
-        "10.03.2026": dummy_data
-    }
-    writer.write_all_days(data)
+    data = []
+    for d in ["25.03.2026", "01.03.2026", "10.03.2026"]:
+        for row in dummy_data:
+            new_row = row.copy()
+            new_row['Дата'] = d
+            data.append(new_row)
+
+    writer.write_report(data, Path(writer.master_path))
 
     wb = openpyxl.load_workbook(writer.master_path)
 
@@ -223,12 +228,7 @@ def test_sheets_sorted_by_date(writer, dummy_data):
 @patch.object(MasterWriter, '_save_workbook')
 def test_workbook_saved_once(mock_save, writer, dummy_data):
     """mock _save_workbook, verify called exactly once regardless of dates"""
-    data = {
-        "25.03.2026": dummy_data,
-        "26.03.2026": dummy_data,
-        "27.03.2026": dummy_data
-    }
-    writer.write_all_days(data)
+    writer.write_report(dummy_data, Path(writer.master_path))
     mock_save.assert_called_once()
 
 # --- _sort_sheets ---

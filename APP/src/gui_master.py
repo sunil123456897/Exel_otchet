@@ -1,23 +1,18 @@
 import os
-import threading
-import sys
 import logging
-import subprocess # FIXED: 5
-import platform # FIXED: 5
-from datetime import datetime
-from decimal import Decimal
-from ruamel.yaml import YAML
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, simpledialog, filedialog
-from tkcalendar import DateEntry
+from tkinter import ttk, messagebox, simpledialog, filedialog
+from pathlib import Path
+from typing import List, Dict, Any, Optional
 
-# Ensure we can import from the parent 'src' package
-try:
-    from .consolidator import Consolidator, Config
-    from .writer import MasterWriter
-except (ImportError, ValueError):
-    from consolidator import Consolidator, Config
-    from writer import MasterWriter
+from .components.sidebar import Sidebar
+from .components.employee_table import EmployeeTable
+from .components.stats_panel import StatsPanel
+from .components.log_panel import LogPanel
+from .theme import ThemeManager
+from .controllers.app_controller import AppController
+from .controllers.config_controller import ConfigController
+from .utils.helpers import open_path
 
 class TextHandler(logging.Handler):
     """Custom logging handler to redirect logs to a Tkinter ScrolledText widget."""
@@ -34,346 +29,149 @@ class TextHandler(logging.Handler):
             self.text_widget.yview(tk.END)
         self.text_widget.after(0, append)
 
-# FIXED: 5
-def open_path(path):
-    if platform.system() == "Windows":
-        os.startfile(path)
-    elif platform.system() == "Darwin":
-        subprocess.Popen(["open", path])
-    else:
-        subprocess.Popen(["xdg-open", path])
-
-def get_base_path():
-    """Returns the base path for the application, handling PyInstaller bundles."""
-    if getattr(sys, 'frozen', False):
-        # Running as PyInstaller bundle
-        return os.path.dirname(sys.executable)
-    else:
-        # Running as normal Python script (src/gui_master.py)
-        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
 class GuiMaster:
-    def __init__(self, root, config_path=None):
+    def __init__(self, root: tk.Tk, config_controller: ConfigController, app_controller: AppController):
         self.root = root
+        self.config_controller = config_controller
+        self.app_controller = app_controller
+        
         self.root.title("🚀 Master-Report v5.5 | Financial Consolidator")
         self.root.geometry("1200x900")
         self.root.configure(bg='#f0f2f5')
-        
-        # Initialize YAML
-        self.yaml = YAML(typ='safe')
-        self.yaml.indent(mapping=2, sequence=4, offset=2)
-        
-        # Colors & Styles
-        self.colors = {
-            'primary': '#1f4e79',    # Deep Blue
-            'success': '#28a745',    # Green
-            'danger': '#dc3545',     # Red
-            'warning': '#ffc107',    # Yellow/Orange
-            'info': '#17a2b8',       # Teal
-            'bg_light': '#f8f9fa',
-            'sidebar': '#ffffff',
-            'text': '#212529'
-        }
-        
-        # Robust path resolution for config.yaml
-        if config_path:
-            self.config_path = config_path
-        else:
-            base_path = get_base_path()
-            self.config_path = os.path.join(base_path, 'config.yaml')
-        
-        if not os.path.exists(self.config_path):
-            messagebox.showerror("Ошибка", f"Файл конфигурации 'config.yaml' не найден по пути:\n{self.config_path}")
-            self.root.destroy()
-            return
-            
-        self.consolidator = Consolidator(self.config_path)
-        self.writer = MasterWriter(self.consolidator.config)
-        self.config = self.consolidator.config
         
         # State
         self.all_employee_data = [] # Cache for filtering
         self._cached_employees = {}
         
-        self._apply_styles()
+        ThemeManager.apply_styles()
         self.setup_ui()
         self.setup_logging()
         
         # Initial status refresh
         self.root.after(100, self.refresh_status)
 
-    def _apply_styles(self):
-        """Defines modern ttk styles for the application."""
-        style = ttk.Style()
-        style.theme_use('clam')
-        style.configure('Main.TFrame', background='#f0f2f5')
-        style.configure('Sidebar.TFrame', background=self.colors['sidebar'], relief='flat')
-        style.configure('TLabel', background='#f0f2f5', foreground=self.colors['text'], font=('Segoe UI', 10))
-        style.configure('Sidebar.TLabel', background=self.colors['sidebar'], font=('Segoe UI', 10))
-        style.configure('Header.TLabel', font=('Segoe UI', 12, 'bold'), foreground=self.colors['primary'])
-        style.configure('TButton', font=('Segoe UI', 10), padding=5)
-        style.configure('Action.TButton', background=self.colors['primary'], foreground='white')
-        style.map('Action.TButton', background=[('active', '#153654')])
-        style.configure('Success.TButton', background=self.colors['success'], foreground='white')
-        style.map('Success.TButton', background=[('active', '#218838')])
-        style.configure('Audit.TButton', background=self.colors['info'], foreground='white')
-        style.map('Audit.TButton', background=[('active', '#138496')])
-        style.configure('TLabelframe', background=self.colors['sidebar'], relief='groove', borderwidth=1)
-        style.configure('TLabelframe.Label', background=self.colors['sidebar'], foreground=self.colors['primary'], font=('Segoe UI', 9, 'bold'))
-        style.configure('Treeview', font=('Segoe UI', 10), rowheight=30)
-        style.configure('Treeview.Heading', font=('Segoe UI', 10, 'bold'), background='#e9ecef')
-        style.map('Treeview', background=[('selected', self.colors['primary'])], foreground=[('selected', 'white')])
-        style.configure('TProgressbar', thickness=15, troughcolor='#e9ecef', background=self.colors['primary'])
-
     def setup_ui(self):
-        """Sets up the main user interface with improved layout."""
-        self.sidebar = ttk.Frame(self.root, width=320, padding="15", style='Sidebar.TFrame')
+        # Sidebar
+        self.sidebar = Sidebar(self.root, self)
         self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
-        self.sidebar.pack_propagate(False)
         
+        # Main Area
         self.main_area = ttk.Frame(self.root, padding="15", style='Main.TFrame')
         self.main_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
-        # --- SIDEBAR CONTENT ---
-        ttk.Label(self.sidebar, text="📊 ПАНЕЛЬ УПРАВЛЕНИЯ", style='Header.TLabel', background=self.colors['sidebar']).pack(pady=(0, 20), anchor=tk.W)
+        # Stats Panel (inside Sidebar)
+        self.stats_panel = StatsPanel(self.sidebar, self)
+        self.stats_panel.pack(fill=tk.X, pady=(0, 10))
         
-        # Group 1: Calendar
-        date_frame = ttk.LabelFrame(self.sidebar, text="📅 ВЫБОР ДАТЫ", padding=10)
-        date_frame.pack(fill=tk.X, pady=(0, 10))
-        self.date_entry = DateEntry(date_frame, width=12, background=self.colors['primary'],
-                                    foreground='white', borderwidth=2, date_pattern='dd.mm.yyyy')
-        self.date_entry.pack(pady=(0, 10), fill=tk.X)
-        self.date_entry.bind("<<DateEntrySelected>>", lambda e: self.refresh_status())
-        self.refresh_btn = ttk.Button(date_frame, text="🔄 Обновить статус", command=self.refresh_status)
-        self.refresh_btn.pack(fill=tk.X)
+        # Log Panel (inside Sidebar)
+        self.log_panel = LogPanel(self.sidebar, self)
+        self.log_panel.pack(fill=tk.BOTH, expand=True)
         
-        # Group 2: Employee Management
-        emp_frame = ttk.LabelFrame(self.sidebar, text="👤 СОТРУДНИКИ", padding=10)
-        emp_frame.pack(fill=tk.X, pady=(0, 10))
-        ttk.Button(emp_frame, text="➕ Добавить", command=self.add_employee_dialog).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        ttk.Button(emp_frame, text="📎 Привязать", command=self.attach_file_dialog).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        # Group 3: Consolidation Actions
-        action_frame = ttk.LabelFrame(self.sidebar, text="🚀 СБОРКА", padding=10)
-        action_frame.pack(fill=tk.X, pady=(0, 10))
-        self.consolidate_btn = ttk.Button(action_frame, text="⚡ СОБРАТЬ ДЕНЬ", style='Action.TButton', command=self.run_consolidation)
-        self.consolidate_btn.pack(fill=tk.X, pady=(0, 5))
-        self.consolidate_all_btn = ttk.Button(action_frame, text="🌍 СОБРАТЬ ВСЕ ДАТЫ", command=self.run_consolidation_all_dates)
-        self.consolidate_all_btn.pack(fill=tk.X)
-        
-        # Group 4: Progress & Stats
-        stats_frame = ttk.LabelFrame(self.sidebar, text="📈 СТАТИСТИКА ДНЯ", padding=10)
-        stats_frame.pack(fill=tk.X, pady=(0, 10))
-        self.stats_label = ttk.Label(stats_frame, text="Сотрудников: 0\nОтчетов готово: 0\nОшибок: 0", justify=tk.LEFT, background=self.colors['sidebar'])
-        self.stats_label.pack(fill=tk.X)
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(stats_frame, variable=self.progress_var, maximum=100)
-        self.progress_bar.pack(fill=tk.X, pady=(10, 0))
-        
-        # Log Area
-        log_label_frame = ttk.Frame(self.sidebar, style='Sidebar.TFrame')
-        log_label_frame.pack(fill=tk.X, pady=(10, 2))
-        ttk.Label(log_label_frame, text="📝 Логи:", font=('Segoe UI', 9), background=self.colors['sidebar']).pack(side=tk.LEFT)
-        ttk.Button(log_label_frame, text="🧹", width=3, command=self.clear_logs).pack(side=tk.RIGHT)
-        self.log_area = scrolledtext.ScrolledText(self.sidebar, height=12, state='disabled', font=('Consolas', 8), borderwidth=1, relief='solid')
-        self.log_area.pack(fill=tk.BOTH, expand=True)
-
-        # --- MAIN AREA ---
-        header_frame = ttk.Frame(self.main_area, style='Main.TFrame')
-        header_frame.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(header_frame, text="📋 СТАТУС ГОТОВНОСТИ ОТЧЕТОВ", style='Header.TLabel').pack(side=tk.LEFT)
-        btn_frame = ttk.Frame(header_frame, style='Main.TFrame')
-        btn_frame.pack(side=tk.RIGHT)
-        ttk.Button(btn_frame, text="📂 Папка Master", command=self.open_master_folder).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="📋 Копировать должников", command=self.copy_missing_to_clipboard).pack(side=tk.LEFT)
-        
-        # Search & Treeview
-        search_frame = ttk.Frame(self.main_area, style='Main.TFrame')
-        search_frame.pack(fill=tk.X, pady=(0, 5))
-        self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *args: self.filter_tree())
-        ttk.Entry(search_frame, textvariable=self.search_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        self.tree_frame = ttk.Frame(self.main_area)
-        self.tree_frame.pack(fill=tk.BOTH, expand=True)
-        self.tree = ttk.Treeview(self.tree_frame, columns=("Employee", "Status", "Path"), show='headings', selectmode='browse')
-        self.tree.heading("Employee", text="Сотрудник"); self.tree.heading("Status", text="Статус"); self.tree.heading("Path", text="Файл отчета")
-        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        # Context menu
-        self.menu = tk.Menu(self.tree, tearoff=0)
-        self.menu.add_command(label="📁 Открыть папку", command=self.open_employee_folder)
-        self.menu.add_command(label="📊 Открыть файл", command=self.open_employee_file)
-        self.menu.add_separator()
-        self.menu.add_command(label="❌ Удалить сотрудника", command=self.delete_employee)
-        self.tree.bind("<Button-3>", self.show_context_menu)
-        self.tree.bind("<Double-1>", lambda e: self.open_employee_file())
+        # Employee Table (inside Main Area)
+        self.employee_table = EmployeeTable(self.main_area, self)
+        self.employee_table.pack(fill=tk.BOTH, expand=True)
 
     def setup_logging(self):
-        self.text_handler = TextHandler(self.log_area)
+        self.text_handler = TextHandler(self.log_panel.get_widget())
         self.text_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s', datefmt='%H:%M:%S'))
         root_logger = logging.getLogger()
         root_logger.addHandler(self.text_handler)
         root_logger.setLevel(logging.INFO)
 
-    def clear_logs(self):
-        self.log_area.configure(state='normal'); self.log_area.delete('1.0', tk.END); self.log_area.configure(state='disabled')
-
-    def open_master_folder(self):
-        try:
-            path = os.path.dirname(self.writer.master_path)
-            if os.path.exists(path): open_path(path) # FIXED: 5
-        except Exception as e: logging.error(f"Ошибка: {e}")
-
-    def open_employee_folder(self):
-        sel = self.tree.selection()
-        if not sel: return
-        name = self.tree.item(sel[0])['values'][0]
-        paths = getattr(self, '_cached_employees', {}).get(name, [])
-        if paths: open_path(os.path.dirname(paths[0])) # FIXED: 5
-
-    def open_employee_file(self):
-        sel = self.tree.selection()
-        if not sel: return
-        name = self.tree.item(sel[0])['values'][0]
-        paths = getattr(self, '_cached_employees', {}).get(name, [])
-        if paths: open_path(paths[0]) # FIXED: 5
-
-    def show_context_menu(self, event):
-        item = self.tree.identify_row(event.y)
-        if item: 
-            self.tree.selection_set(item)
-            self.menu.post(event.x_root, event.y_root)
-
-    def delete_employee(self):
-        sel = self.tree.selection()
-        if sel:
-            name = self.tree.item(sel[0], 'values')[0]
-            if messagebox.askyesno("Удалить", f"Удалить '{name}'?"):
-                curr = self.config.get('employees', [])
-                if name in curr:
-                    curr.remove(name)
-                    self.config.data['employees'] = curr
-                
-                # ALSO remove from employee_paths to avoid leaks in config.yaml
-                custom_paths = self.config.get('employee_paths', {})
-                if name in custom_paths:
-                    del custom_paths[name]
-                    self.config.data['employee_paths'] = custom_paths
-                    
-                self.save_config()
-                self.refresh_status()
-
-    def filter_tree(self):
-        query = self.search_var.get().lower()
-        # FIXED: 4 - Thread safety
-        def _update():
-            for item in self.tree.get_children(): self.tree.delete(item)
-            for n, s, p, t in self.all_employee_data:
-                if query in n.lower() or query in s.lower() or query in p.lower():
-                    self.tree.insert('', tk.END, values=(n, s, p), tags=(t,))
-        self.root.after(0, _update)
-
-    def update_stats(self, ready_count, total_count, total_income, total_expense, error_count=0):
-        text = f"Готово: {ready_count}/{total_count}\nПриход: {total_income:,.2f}\nРасход: {total_expense:,.2f}\nОшибки: {error_count}"
-        self.stats_label.config(text=text)
-
     def refresh_status(self):
         """Refreshes the status of all employees for the selected date."""
-        selected_date = self.date_entry.get_date()
-        # FIXED: 4 - Thread safety
-        def _clear_tree():
-            for item in self.tree.get_children():
-                self.tree.delete(item)
-            self.progress_var.set(0)
-        self.root.after(0, _clear_tree)
+        selected_date = self.sidebar.get_date()
+        self.sidebar.set_refresh_state('disabled')
+        self.employee_table.clear_tree()
+        self.stats_panel.set_progress(0)
             
-        def task():
-            try:
-                self.root.after(0, lambda: self.refresh_btn.config(state='disabled')) # FIXED: 4
+        def on_progress(progress):
+            self.root.after(0, lambda: self.stats_panel.set_progress(progress))
+            
+        def on_complete(local_data, employees_map, rename_detected):
+            def finalize():
+                self.all_employee_data = local_data
+                self._cached_employees = employees_map
+                self.filter_tree()
                 
-                # Get aggregated mapping once to avoid redundant disk I/O
-                employees_map = self.consolidator.get_employees()
+                ready_count = sum(1 for d in local_data if "🟢 ГОТОВО" in d[1])
+                self.stats_panel.update_stats(ready_count, len(local_data))
+                self.stats_panel.set_progress(100)
+                self.sidebar.set_refresh_state('normal')
                 
-                # Get unique sorted list of employees from config
-                config_employees = self.config.get('employees', [])
-                if config_employees:
-                    # Use set to ensure uniqueness if config has duplicates
-                    unique_names = sorted(list(set(config_employees)))
-                else:
-                    # Fallback to discovered employees if config is empty
-                    unique_names = sorted(employees_map.keys())
-
-                if not unique_names:
-                    self.root.after(0, lambda: [self.update_stats(0, 0, Decimal('0'), Decimal('0')), self.progress_var.set(100)])
-                    return
-
-                ready_count = 0
-                local_data = [] # Use local list to prevent race conditions and duplicates
-                total_count = len(unique_names)
-                
-                for i, name in enumerate(unique_names):
-                    # Update progress bar in UI thread
-                    progress = ((i + 1) / total_count) * 100
-                    self.root.after(0, lambda v=progress: self.progress_var.set(v))
-                    
-                    raw_paths = employees_map.get(name, [])
-                    # Normalize: extract string path from dict entries if needed
-                    paths = [p['path'] if isinstance(p, dict) else p for p in raw_paths]
-                    paths = [p for p in paths if isinstance(p, str) and os.path.exists(p)]
-                    
-                    if not raw_paths:
-                        status, tag, path_str = "🔴 НЕТ ФАЙЛА", 'missing', "---"
-                    elif not paths:
-                        status, tag, path_str = "🔴 НЕТ ФАЙЛА", 'missing', "---"
-                    else:
-                        # Aggregated status logic: check if any file has the selected date
-                        path_str = os.path.basename(paths[0]) if len(paths) == 1 else f"[{len(paths)} файлов]"
-                        status, tag = "🟠 НЕТ ДАТЫ", 'partial'
-                        try:
-                            for p in paths:
-                                if self.consolidator.check_date_exists(p, selected_date):
-                                    status, tag = "🟢 ГОТОВО", 'ready'
-                                    ready_count += 1
-                                    break
-                        except Exception as e:
-                            logging.error(f"Ошибка проверки даты для {name}: {e}")
-                            status, tag = "❌ ОШИБКА", 'missing'
-                    
-                    local_data.append((name, status, path_str, tag))
-                
-                # Final UI update on main thread
-                def finalize():
-                    self.all_employee_data = local_data
-                    self._cached_employees = employees_map
-                    self.filter_tree()
-                    self.update_stats(ready_count, total_count, Decimal('0'), Decimal('0'))
-                    self.progress_var.set(100)
-                    
-                    # NEW: Auto-save config if smart tracking recovered a file
-                    if getattr(self.consolidator, 'rename_detected', False):
-                        logging.info("Автоматическое сохранение новых путей (файлы были переименованы)")
-                        self.save_config()
-                
-                self.root.after(0, finalize)
-                
-            except Exception as e:
-                logging.error(f"Ошибка при обновлении статуса: {e}")
-            finally:
-                self.root.after(0, lambda: self.refresh_btn.config(state='normal'))
+                if rename_detected:
+                    logging.info("Автоматическое сохранение новых путей (файлы были переименованы)")
+                    self.config_controller.save_config()
+            
+            self.root.after(0, finalize)
         
-        threading.Thread(target=task, daemon=True).start()
+        self.app_controller.refresh_status(selected_date, on_progress, on_complete)
+
+    def run_consolidation(self):
+        selected_date = self.sidebar.get_date()
+        missing = [n for n, s, p, t in self.all_employee_data if "🟢 ГОТОВО" not in s]
+        if missing:
+            if not messagebox.askyesno("Предупреждение", f"Не сдано отчетов: {len(missing)}. Продолжить?"): 
+                return
+
+        self.sidebar.set_consolidate_state('disabled')
+        
+        def on_progress(progress):
+            self.root.after(0, lambda: self.stats_panel.set_progress(progress))
+            
+        def on_complete(success, message, master_path):
+            def finalize():
+                self.sidebar.set_consolidate_state('normal')
+                self.stats_panel.set_progress(100)
+                if success:
+                    logging.info("Успешно!")
+                    if messagebox.askyesno("Успех", f"Консолидация завершена!\n\nОткрыть файл?"):
+                        open_path(str(master_path))
+                else:
+                    logging.error(f"Ошибка: {message}")
+                    messagebox.showerror("Ошибка", f"Произошла ошибка:\n{message}")
+            
+            self.root.after(0, finalize)
+
+        self.app_controller.run_consolidation(selected_date, on_progress, on_complete)
+
+    def run_consolidation_all_dates(self):
+        self.sidebar.set_consolidate_all_state('disabled')
+        
+        def on_progress(progress):
+            self.root.after(0, lambda: self.stats_panel.set_progress(progress))
+            
+        def on_complete(success, message, master_path):
+            def finalize():
+                self.sidebar.set_consolidate_all_state('normal')
+                self.stats_panel.set_progress(100)
+                if success:
+                    logging.info("Глобальная сборка завершена!")
+                    if messagebox.askyesno("Успех", "Сборка завершена! Открыть файл?"):
+                        open_path(str(master_path))
+                else:
+                    logging.error(f"Ошибка: {message}")
+                    messagebox.showerror("Ошибка", f"Произошла ошибка:\n{message}")
+            
+            self.root.after(0, finalize)
+
+        self.app_controller.run_consolidation_all_dates(on_progress, on_complete)
+
+    def add_employee_dialog(self):
+        name = simpledialog.askstring("Добавить", "Имя сотрудника:")
+        if name:
+            self.config_controller.add_employee(name)
+            self.refresh_status()
 
     def attach_file_dialog(self):
-        employees = self.config.get('employees', [])
+        employees = self.config_controller.get_employees()
         dialog = tk.Toplevel(self.root)
-        dialog.title("Привязать файлы (без копирования)")
+        dialog.title("Привязать файлы")
         dialog.geometry("450x400")
         
-        ttk.Label(dialog, text="Выберите сотрудника для привязки файлов:", padding=10).pack()
-        
+        ttk.Label(dialog, text="Выберите сотрудника:", padding=10).pack()
         lb = tk.Listbox(dialog)
-        for e in employees:
+        for e in employees: 
             lb.insert(tk.END, e)
         lb.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
@@ -382,188 +180,71 @@ class GuiMaster:
         
         def pick():
             sel = lb.curselection()
-            if not sel:
-                messagebox.showwarning("Внимание", "Сначала выберите сотрудника из списка")
+            if not sel: 
                 return
-            
             emp_name = lb.get(sel[0])
-            file_paths = filedialog.askopenfilenames(
-                title=f"Выберите файлы отчетов для {emp_name}",
-                filetypes=[
-                    ("Excel files", "*.xlsx *.xlsb"),
-                    ("Excel Workbook", "*.xlsx"),
-                    ("Excel Binary Workbook", "*.xlsb"),
-                    ("All files", "*.*"),
-                ]
-            )
-            
+            file_paths = filedialog.askopenfilenames(title=f"Файлы для {emp_name}")
             if file_paths:
-                import hashlib
-                def _fingerprint(p):
-                    try:
-                        with open(p, 'rb') as f:
-                            return hashlib.md5(f.read(8192)).hexdigest()
-                    except Exception:
-                        return None
-
-                abs_paths = []
-                for fp in file_paths:
-                    p_abs = os.path.abspath(fp)
-                    try:
-                        file_id = os.stat(p_abs).st_ino
-                    except Exception:
-                        file_id = None
-                    abs_paths.append({
-                        "path": p_abs,
-                        "id": file_id,
-                        "fp": _fingerprint(p_abs)
-                    })
-                
-                # Get current paths (handle potential dict/object format for tracking)
-                current_raw = self.config.data.get('employee_paths', {}).get(emp_name, [])
-                if isinstance(current_raw, str): current_raw = [current_raw]
-                
-                # Combine
-                if append_var.get():
-                    # Keep existing objects/strings
-                    combined = current_raw + abs_paths
-                else:
-                    combined = abs_paths
-                
-                # Deduplicate based on path while preserving tracking info if exists
-                final_paths = []
-                seen_paths = set()
-                for item in combined:
-                    p = item['path'] if isinstance(item, dict) else item
-                    if p not in seen_paths:
-                        final_paths.append(item)
-                        seen_paths.add(p)
-                
-                if 'employee_paths' not in self.config.data:
-                    self.config.data['employee_paths'] = {}
-                
-                self.config.data['employee_paths'][emp_name] = final_paths
-                self.save_config()
-                
-                logging.info(f"Обновлена привязка для {emp_name}: {len(final_paths)} файлов")
-                messagebox.showinfo("Успех", f"Файлы для {emp_name} успешно привязаны!")
+                self.config_controller.attach_files(emp_name, list(file_paths), append_var.get())
                 dialog.destroy()
                 self.refresh_status()
         
         btn_frame = ttk.Frame(dialog, padding=10)
         btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="📊 Выбрать ФАЙЛЫ", command=pick).pack(side=tk.RIGHT)
+        ttk.Button(btn_frame, text="Выбрать файлы", command=pick).pack(side=tk.RIGHT)
         ttk.Button(btn_frame, text="Отмена", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
+
+    def open_master_folder(self):
+        try:
+            master_file = self.config_controller.get_paths().get('master_file', 'Master_Report.xlsx')
+            master_path = Path(master_file)
+            if not master_path.is_absolute():
+                master_path = Path(self.config_controller.config_path).parent / master_path
+            
+            path = master_path.parent
+            if path.exists(): 
+                open_path(str(path))
+        except Exception as e: 
+            logging.error(f"Ошибка: {e}")
 
     def copy_missing_to_clipboard(self):
         missing = [n for n, s, p, t in self.all_employee_data if "🟢 ГОТОВО" not in s]
         if missing:
-            text = f"Должники за {self.date_entry.get_date().strftime('%d.%m')}:\n" + "\n".join([f"- {m}" for m in missing])
-            self.root.clipboard_clear(); self.root.clipboard_append(text); messagebox.showinfo("Успех", "Скопировано")
+            text = f"Должники за {self.sidebar.get_date().strftime('%d.%m')}:\n" + "\n".join([f"- {m}" for m in missing])
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            messagebox.showinfo("Успех", "Скопировано")
 
-    def add_employee_dialog(self):
-        name = simpledialog.askstring("Добавить", "Имя сотрудника:")
+    def filter_tree(self):
+        query = self.employee_table.get_search_query()
+        def _update():
+            self.employee_table.clear_tree()
+            for n, s, p, t in self.all_employee_data:
+                if query in n.lower() or query in s.lower() or query in p.lower():
+                    self.employee_table.insert_row((n, s, p), t)
+        self.root.after(0, _update)
+
+    def open_employee_folder(self):
+        name = self.employee_table.get_selected_employee()
+        if not name: 
+            return
+        metas = self._cached_employees.get(name, [])
+        if metas:
+            p = metas[0]['path'] if isinstance(metas[0], dict) else metas[0]
+            open_path(str(Path(p).parent))
+
+    def open_employee_file(self):
+        name = self.employee_table.get_selected_employee()
+        if not name: 
+            return
+        metas = self._cached_employees.get(name, [])
+        if metas:
+            p = metas[0]['path'] if isinstance(metas[0], dict) else metas[0]
+            open_path(p)
+
+    def delete_employee(self):
+        name = self.employee_table.get_selected_employee()
         if name:
-            curr = self.config.get('employees', [])
-            if name.strip() not in curr: curr.append(name.strip()); self.config.data['employees'] = sorted(curr); self.save_config(); self.refresh_status()
-
-    def save_config(self):
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                config_to_save = self.yaml.load(f)
-            if config_to_save is None:
-                config_to_save = {}
-            config_to_save['employees'] = self.config.data.get('employees', [])
-            config_to_save['employee_paths'] = self.config.data.get('employee_paths', {})
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                self.yaml.dump(config_to_save, f)
-        except Exception as e: logging.error(f"Ошибка сохранения: {e}")
-
-    def run_consolidation_all_dates(self):
-        def task():
-            try:
-                self.root.after(0, lambda: self.consolidate_all_btn.config(state='disabled')) # FIXED: 4
-                logging.info("Поиск всех доступных дат в файлах...")
-                all_dates = self.consolidator.get_all_available_dates()
-                if not all_dates:
-                    logging.warning("Даты не найдены.")
-                    return
-                
-                user_confirmed = [False]
-                confirm_event = threading.Event()
-
-                def ask_confirm():
-                    user_confirmed[0] = messagebox.askyesno(
-                        "Найдено дат: " + str(len(all_dates)),
-                        f"Найдено {len(all_dates)} дат. Начать полную сборку отчетов кураторов?"
-                    )
-                    confirm_event.set()
-
-                self.root.after(0, ask_confirm)
-                confirm_event.wait()
-                if not user_confirmed[0]:
-                    return
-
-                # FIXED: 7
-                results_by_date = self.consolidator.consolidate_multiple(
-                    all_dates, employees=getattr(self, '_cached_employees', None)
-                )
-                if not results_by_date: return
-
-                self.writer.write_all_days(results_by_date)
-                logging.info("Глобальная сборка завершена!")
-
-                def on_success():
-                    if messagebox.askyesno("Успех", "Сборка завершена! Открыть файл?"):
-                        open_path(self.writer.master_path) # FIXED: 5
-
-                self.root.after(0, on_success)
-            except Exception as e:
-                logging.error(f"Ошибка: {e}")
-            finally:
-                self.root.after(0, lambda: self.consolidate_all_btn.config(state='normal'))
-        threading.Thread(target=task, daemon=True).start()
-
-    def run_consolidation(self):
-        selected_date = self.date_entry.get_date()
-        missing = [n for n, s, p, t in self.all_employee_data if "🟢 ГОТОВО" not in s]
-        if missing:
-            if not messagebox.askyesno("Предупреждение", f"Не сдано отчетов: {len(missing)}. Продолжить?"): return
-
-        def task():
-            try:
-                self.root.after(0, lambda: self.consolidate_btn.config(state='disabled')) # FIXED: 4
-                logging.info(f"--- Сборка за {selected_date.strftime('%d.%m')} ---")
-                self.root.after(0, lambda: self.progress_var.set(20)) # FIXED: 4
-                
-                # 1. Consolidate employee data
-                # FIXED: 7
-                results = self.consolidator.consolidate_multiple(
-                    [selected_date], employees=getattr(self, '_cached_employees', None)
-                )
-                all_data = results.get(selected_date.strftime("%d.%m.%Y"), [])
-                if not all_data:
-                    logging.warning("Нет данных за выбранную дату."); return
-                
-                # 2. Write data to Excel
-                self.root.after(0, lambda: self.progress_var.set(60)) # FIXED: 4
-                self.writer.write_daily_data(selected_date, all_data)
-                
-                self.root.after(0, lambda: self.progress_var.set(100)) # FIXED: 4
-                logging.info("Успешно!")
-
-                def on_done():
-                    if messagebox.askyesno("Успех", f"Консолидация завершена!\n\nОткрыть файл?"):
-                        open_path(self.writer.master_path) # FIXED: 5
-                self.root.after(0, on_done)
-            except Exception as e:
-                logging.error(f"Ошибка: {e}")
-                self.root.after(0, lambda: messagebox.showerror("Ошибка", f"Произошла ошибка:\n{e}"))
-            finally: self.root.after(0, lambda: self.consolidate_btn.config(state='normal'))
-
-        threading.Thread(target=task, daemon=True).start()
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = GuiMaster(root)
-    root.mainloop()
+            if messagebox.askyesno("Удалить", f"Удалить '{name}'?"):
+                self.config_controller.delete_employee(name)
+                self.refresh_status()
