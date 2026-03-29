@@ -33,7 +33,7 @@ class MasterWriter(IExporter):
         self.clr_expense_bg = "FFC7CE"
         self.clr_expense_text = "9C0006"
         self.clr_total_bg = "D9E1F2"
-        self.clr_warning_bg = "FFCC00" # Orange for template warnings
+        self.clr_warning_bg = "FFFF0000" # Solid Red for template warnings
         
         self.fill_header = PatternFill(start_color=self.clr_header_bg, end_color=self.clr_header_bg, fill_type="solid")
         self.fill_odd = PatternFill(start_color=self.clr_row_odd, end_color=self.clr_row_odd, fill_type="solid")

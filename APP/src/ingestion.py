@@ -151,28 +151,30 @@ class IngestionEngine(IDataSource):
 
                 rows_iter = ws.iter_rows(values_only=True)
                 active_col_map = None
-                
+                header_count = 0
+
                 for i, row in enumerate(rows_iter):
                     if not row: continue
-                    
+
                     # Check if this row looks like a header
                     row_values_str = [str(v).lower() for v in row if v is not None]
                     header_score = 0
                     for m in self.aliases.values():
                         if any(alias.lower() in " ".join(row_values_str) for alias in m):
                             header_score += 1
-                    
+
                     # If it's a header, update the mapping and skip processing this row as data
                     if header_score >= 4:
                         active_col_map = self._map_columns(row)
+                        header_count += 1
                         continue
-                    
+
                     # If we have a mapping, process the row
                     if active_col_map:
                         row_dict = self._process_row(row, active_col_map, ws.title, i + 1, str(file_path))
                         if row_dict:
+                            row_dict['is_template_warning'] = (header_count > 1)
                             all_rows.append(row_dict)
-            wb.close()
         except Exception as e:
             logger.error(f"Error reading XLSX {file_path}: {e}")
         return all_rows
@@ -218,15 +220,18 @@ class IngestionEngine(IDataSource):
         """Detects header row index based on markers."""
         best_score = 0
         best_idx = None
-        
+
         # Combine markers and some aliases for detection
         detection_markers = set()
         for m in self.markers.values():
-            detection_markers.add(m.lower())
+            if isinstance(m, list):
+                for item in m:
+                    detection_markers.add(str(item).lower())
+            else:
+                detection_markers.add(str(m).lower())
         for alist in self.aliases.values():
             for a in alist:
-                detection_markers.add(a.lower())
-
+                detection_markers.add(str(a).lower())
         for i, row in enumerate(rows):
             if not row: continue
             row_values = [str(val).lower() for val in row if val is not None]
@@ -246,11 +251,12 @@ class IngestionEngine(IDataSource):
         
         for key, marker in self.markers.items():
             found_idx = None
-            marker_lower = marker.lower()
+            marker_list = marker if isinstance(marker, list) else [marker]
+            marker_lowers = [str(m).lower() for m in marker_list]
             
             # Try exact or partial match with marker
             for idx, val in enumerate(header_values):
-                if marker_lower in val:
+                if any(m in val for m in marker_lowers):
                     # Special case for commission to avoid matching broker commission
                     if key == 'commission' and 'посредник' in val:
                         continue
