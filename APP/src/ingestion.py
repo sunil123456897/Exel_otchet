@@ -102,6 +102,7 @@ class IngestionEngine(IDataSource):
                 
                 full_path = Path(root) / file
                 try:
+                    full_path = full_path.resolve()
                     stat = os.stat(full_path)
                     file_id = stat.st_ino
                     

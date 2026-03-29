@@ -52,6 +52,8 @@ class AppController:
         for target_name in target_names:
             paths_for_emp = []
             seen_paths = set()
+            seen_ids = set()
+            seen_fps = set()
             
             # 1. Check custom paths from config
             if target_name in custom_paths:
@@ -63,7 +65,13 @@ class AppController:
                     path_str = entry['path'] if isinstance(entry, dict) else entry
                     file_id = entry.get('id') if isinstance(entry, dict) else None
                     file_hash = entry.get('fp') if isinstance(entry, dict) else None
-                    p_abs = Path(path_str).absolute()
+                    
+                    # Convert to absolute path
+                    p_abs = Path(path_str)
+                    if not p_abs.is_absolute():
+                        # Use parent of config file as base for relative paths
+                        p_base = Path(self.config_controller.config_path).parent
+                        p_abs = (p_base / p_abs).absolute()
                     
                     # SMART RECOVERY
                     if not p_abs.exists():
@@ -89,6 +97,7 @@ class AppController:
                     else:
                         # File exists, update metadata
                         try:
+                            p_abs = p_abs.resolve()
                             stat = os.stat(p_abs)
                             # Fast MD5
                             with open(p_abs, 'rb') as f:
@@ -100,10 +109,20 @@ class AppController:
                             updated_paths.append({"path": str(p_abs)})
 
                 for meta in updated_paths:
-                    p = meta['path'] if isinstance(meta, dict) else meta
-                    if p not in seen_paths:
+                    p = str(meta['path']) if isinstance(meta, dict) else str(meta)
+                    fid = meta.get('id') if isinstance(meta, dict) else None
+                    fp = meta.get('fp') if isinstance(meta, dict) else None
+                    
+                    is_new = True
+                    if p in seen_paths: is_new = False
+                    if fid and fid in seen_ids: is_new = False
+                    if fp and fp in seen_fps: is_new = False
+                    
+                    if is_new:
                         paths_for_emp.append(meta)
                         seen_paths.add(p)
+                        if fid: seen_ids.add(fid)
+                        if fp: seen_fps.add(fp)
                 
                 # Update in-memory config
                 config.setdefault('employee_paths', {})[target_name] = updated_paths
@@ -113,9 +132,20 @@ class AppController:
             for d_name, files in discovered_map.items():
                 if t_lower == d_name.lower():
                     for f in files:
-                        if f['path'] not in seen_paths:
+                        p = str(f['path'])
+                        fid = f.get('id')
+                        fp = f.get('fp')
+                        
+                        is_new = True
+                        if p in seen_paths: is_new = False
+                        if fid and fid in seen_ids: is_new = False
+                        if fp and fp in seen_fps: is_new = False
+                        
+                        if is_new:
                             paths_for_emp.append(f)
-                            seen_paths.add(f['path'])
+                            seen_paths.add(p)
+                            if fid: seen_ids.add(fid)
+                            if fp: seen_fps.add(fp)
             
             result[target_name] = paths_for_emp
             

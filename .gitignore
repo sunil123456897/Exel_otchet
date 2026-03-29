@@ -13,4 +13,5 @@ startup_log.txt
 ~$*.xlsb
 REPORTS/
 docs/maestro/state/active-session.md
+temp_destructive_env/
 
