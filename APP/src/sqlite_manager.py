@@ -3,15 +3,18 @@ import decimal
 import json
 import logging
 import time
+import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from .interfaces import IPersistence
 
 class DecimalEncoder(json.JSONEncoder):
-    """Custom JSON encoder to handle Decimal objects for SQLite storage."""
+    """Custom JSON encoder to handle Decimal and Date objects for SQLite storage."""
     def default(self, obj):
         if isinstance(obj, decimal.Decimal):
             return str(obj)
+        if hasattr(obj, 'isoformat'):
+            return obj.isoformat()
         return super(DecimalEncoder, self).default(obj)
 
 class SQLiteManager(IPersistence):
@@ -111,6 +114,18 @@ class SQLiteManager(IPersistence):
             return ids
         return self._execute_with_retry(_save)
 
+    def _sanitize_data(self, data: Any) -> Any:
+        """Recursively converts non-serializable objects into strings/standard types."""
+        if isinstance(data, dict):
+            return {str(k): self._sanitize_data(v) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [self._sanitize_data(i) for i in data]
+        elif isinstance(data, (decimal.Decimal, datetime.date, datetime.datetime)):
+            return str(data) if isinstance(data, decimal.Decimal) else data.isoformat()
+        elif hasattr(data, 'isoformat'):
+            return data.isoformat()
+        return data
+
     def save_staging_data(self, file_id: int, rows: List[Dict[str, Any]]) -> None:
         """Bulk inserts raw data rows into staging_data table."""
         if not rows:
@@ -125,11 +140,14 @@ class SQLiteManager(IPersistence):
                 amt = row.get('amount', 0)
                 if not isinstance(amt, decimal.Decimal):
                     amt = decimal.Decimal(str(amt))
+                
+                # Pre-sanitize row to avoid JSON serialization errors
+                sanitized_row = self._sanitize_data(row)
                     
                 data_to_insert.append((
                     file_id,
-                    row.get('_row_index'), # Fixed: added underscore to match IngestionEngine
-                    json.dumps(row, ensure_ascii=False, cls=DecimalEncoder),
+                    row.get('_row_index'),
+                    json.dumps(sanitized_row, ensure_ascii=False),
                     row.get('date'),
                     amt,
                     row.get('employee_name'),

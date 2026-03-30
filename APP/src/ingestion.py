@@ -150,31 +150,41 @@ class IngestionEngine(IDataSource):
                 if ws.title.startswith('_') or ws.title in ("АНАЛИТИКА", "СВОД"):
                     continue
 
-                rows_iter = ws.iter_rows(values_only=True)
-                active_col_map = None
-                header_count = 0
+                rows = list(ws.iter_rows(values_only=True))
+                
+                # Pre-scan to find the standard template keys for this sheet
+                standard_keys = set()
+                max_score = 0
+                for row in rows:
+                    if not row: continue
+                    row_values_str = [str(v).lower() for v in row if v is not None]
+                    header_score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
+                    if header_score >= 4 and header_score > max_score:
+                        max_score = header_score
+                        standard_keys = set(self._map_columns(row).keys())
 
-                for i, row in enumerate(rows_iter):
+                active_col_map = None
+                current_is_warning = False
+
+                for i, row in enumerate(rows):
                     if not row: continue
 
                     # Check if this row looks like a header
                     row_values_str = [str(v).lower() for v in row if v is not None]
-                    header_score = 0
-                    for m in self.aliases.values():
-                        if any(alias.lower() in " ".join(row_values_str) for alias in m):
-                            header_score += 1
+                    header_score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
 
-                    # If it's a header, update the mapping and skip processing this row as data
+                    # If it's a header, update the mapping
                     if header_score >= 4:
                         active_col_map = self._map_columns(row)
-                        header_count += 1
+                        current_keys = set(active_col_map.keys())
+                        current_is_warning = (current_keys != standard_keys)
                         continue
 
                     # If we have a mapping, process the row
                     if active_col_map:
                         row_dict = self._process_row(row, active_col_map, ws.title, i + 1, str(file_path))
                         if row_dict:
-                            row_dict['is_template_warning'] = (header_count > 1)
+                            row_dict['is_template_warning'] = current_is_warning
                             all_rows.append(row_dict)
         except Exception as e:
             logger.error(f"Error reading XLSX {file_path}: {e}")
@@ -189,29 +199,40 @@ class IngestionEngine(IDataSource):
                         continue
                     
                     with wb.get_sheet(sheet_name) as ws:
-                        rows_iter = ws.rows()
-                        active_col_map = None
-                        header_count = 0
+                        rows_objs_list = list(ws.rows())
                         
-                        for i, row_objs in enumerate(rows_iter):
+                        # Pre-scan to find the standard template keys for this sheet
+                        standard_keys = set()
+                        max_score = 0
+                        for row_objs in rows_objs_list:
+                            row = [cell.v for cell in row_objs]
+                            if not row: continue
+                            row_values_str = [str(v).lower() for v in row if v is not None]
+                            header_score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
+                            if header_score >= 4 and header_score > max_score:
+                                max_score = header_score
+                                standard_keys = set(self._map_columns(row).keys())
+
+                        active_col_map = None
+                        current_is_warning = False
+                        
+                        for i, row_objs in enumerate(rows_objs_list):
                             row = [cell.v for cell in row_objs]
                             if not row: continue
                             
                             row_values_str = [str(v).lower() for v in row if v is not None]
-                            header_score = 0
-                            for m in self.aliases.values():
-                                if any(alias.lower() in " ".join(row_values_str) for alias in m):
-                                    header_score += 1
+                            header_score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
                             
                             if header_score >= 4:
                                 active_col_map = self._map_columns(row)
-                                header_count += 1
+                                current_keys = set(active_col_map.keys())
+                                current_is_warning = (current_keys != standard_keys)
                                 continue
                                 
                             if active_col_map:
                                 row_dict = self._process_row(row, active_col_map, sheet_name, i + 1, str(file_path))
                                 if row_dict:
-                                    row_dict['is_template_warning'] = (header_count > 1)
+                                    row_dict['is_template_warning'] = current_is_warning
                                     all_rows.append(row_dict)
         except Exception as e:
             logger.error(f"Error reading XLSB {file_path}: {e}")
@@ -285,6 +306,24 @@ class IngestionEngine(IDataSource):
     def _process_row(self, row: List[Any], col_map: Dict[str, int], sheet_name: str, row_idx: int, file_path: str) -> Optional[Dict[str, Any]]:
         """Converts a raw row into a dictionary with mapped keys and Decimal values."""
         if not row: return None
+        
+        # Check if row consists ONLY of numbers (which means it's a totals/summary row)
+        non_empty_vals = [v for v in row if v is not None and str(v).strip() != '']
+        if non_empty_vals:
+            is_only_numbers = True
+            for v in non_empty_vals:
+                if isinstance(v, (int, float, Decimal)):
+                    continue
+                s = str(v).replace(' ', '').replace(',', '.').replace('-', '')
+                if not s:
+                    continue
+                try:
+                    float(s)
+                except ValueError:
+                    is_only_numbers = False
+                    break
+            if is_only_numbers:
+                return None
         
         # Check if row is empty in key columns
         has_data = False
