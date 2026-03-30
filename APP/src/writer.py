@@ -237,7 +237,9 @@ class MasterWriter(IExporter):
                     # ORANGE HIGHLIGHT for Source cell if warning
                     if is_warning and c_idx == 2: # "Источник" column
                         cell.fill = self.fill_warning
-                    cell.alignment, cell.number_format = self.align_right, num_fmt
+                    
+                    fmt = '0.00"%"' if c_idx == commission_col else num_fmt
+                    cell.alignment, cell.number_format = self.align_right, fmt
                 else:
                     cell.fill = fill_yellow if is_math_error and c_idx not in (income_col, expense_col) else fill_row
                     # ORANGE HIGHLIGHT for Source cell if warning
@@ -251,7 +253,7 @@ class MasterWriter(IExporter):
         for c in range(1, ws.max_column + 1):
             if c in numeric_cols:
                 header_val = str(ws.cell(1, c).value).lower() if ws.cell(1, c).value else ""
-                if any(kw in header_val for kw in ['приход', 'расход', 'комиссия', 'итог']):
+                if any(kw in header_val for kw in ['приход', 'расход', 'итог', 'посредник']):
                     let = get_column_letter(c)
                     cell = ws.cell(total_row, c)
                     cell.value = f"=SUM({let}2:{let}{total_row-1})"
