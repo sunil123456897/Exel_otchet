@@ -253,7 +253,7 @@ class MasterWriter(IExporter):
         for c in range(1, ws.max_column + 1):
             if c in numeric_cols:
                 header_val = str(ws.cell(1, c).value).lower() if ws.cell(1, c).value else ""
-                if any(kw in header_val for kw in ['приход', 'расход', 'итог', 'посредник']):
+                if any(kw in header_val for kw in ['приход', 'расход', 'итог', 'посредник']) and '%' not in header_val:
                     let = get_column_letter(c)
                     cell = ws.cell(total_row, c)
                     cell.value = f"=SUM({let}2:{let}{total_row-1})"
