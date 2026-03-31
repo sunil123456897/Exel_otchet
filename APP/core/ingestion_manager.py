@@ -8,8 +8,11 @@ from typing import List, Dict, Any, Optional
 import openpyxl
 from pyxlsb import open_workbook as open_xlsb
 
-
 from core.interfaces import IDataSource
+from core.utils_helpers import to_decimal
+
+logger = logging.getLogger(__name__)
+
 class IngestionEngine(IDataSource):
     def __init__(self, config_markers: Dict[str, str]):
         self.markers = config_markers
@@ -65,9 +68,6 @@ Description: Part of the Master-Report v5.5 architecture.
 This module provides specialized functionality for the financial consolidation system.
 Maintained for high modularity, testability, and structural integrity.
 """
-import re
-from datetime import datetime, timedelta
-from typing import Optional
 
 def extract_date_from_sheet(sheet_name: str) -> Optional[str]:
     pat = re.compile(r'(^|[^0-9])(\d{1,2})[.,](\d{1,2})([.,](\d{4}))?([^0-9]|$)')
@@ -86,10 +86,6 @@ def extract_date_from_sheet(sheet_name: str) -> Optional[str]:
 
 
 
-
-from core.utils_helpers import to_decimal
-
-logger = logging.getLogger(__name__)
 
 class ExcelReader:
     def __init__(self, markers: Dict[str, Any], aliases: Dict[str, List[str]]):
