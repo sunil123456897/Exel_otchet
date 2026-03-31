@@ -14,7 +14,7 @@ from core.theme import ThemeManager
 from core.app_controller import AppController
 from core.config_controller import ConfigController
 from core.utils_helpers import open_path
-from ingestion_service_logging import setup_gui_logging
+from core.utils_logging import setup_gui_logging
 
 class GuiMaster:
     def __init__(self, root: tk.Tk, config_controller: ConfigController, app_controller: AppController):

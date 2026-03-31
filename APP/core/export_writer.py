@@ -98,24 +98,47 @@ class MasterWriter(IExporter):
             
             c_val = abs(float(row_cells[cols['комиссия']-1].value or 0)) if cols['комиссия']>0 else 0
             i_val = float(row_cells[cols['приход']-1].value or 0) if cols['приход']>0 else 0
-            e_val = abs(float(row_cells[cols['расход']-1].value or 0)) if cols['расход']>0 else 0
-            t_val = abs(float(row_cells[cols['итог']-1].value or 0)) if cols['итог']>0 else 0
+            e_val = float(row_cells[cols['расход']-1].value or 0) if cols['расход']>0 else 0
+            t_val = float(row_cells[cols['итог']-1].value or 0) if cols['итог']>0 else 0
             amt = i_val if i_val != 0 else e_val
-            is_math_err = (c_val == 0 and amt > 0.02 and (t_val < 0.02 or abs(amt - t_val) > 0.02))
+            is_math_err = (c_val == 0 and abs(amt) > 0.02 and (abs(t_val) < 0.02 or abs(amt - t_val) > 0.02))
 
             for c_idx, cell in enumerate(row_cells, 1):
                 cell.border = self.st.border_thin
+                
+                # Base fill and font
+                if is_math_err:
+                    cell.fill = fill_yellow
+                else:
+                    cell.fill = fill_row
+                cell.font = self.st.font_standard
+
                 if c_idx in num_indices:
                     val = cell.value or 0
-                    if c_idx == cols['приход'] and val > 0.01: cell.fill, cell.font = self.st.fill_income, self.st.font_income
-                    elif c_idx == cols['расход'] and abs(val) > 0.01: cell.fill, cell.font = self.st.fill_expense, self.st.font_expense
-                    else: cell.fill, cell.font = (fill_yellow if is_math_err and c_idx not in (cols['приход'], cols['расход']) else fill_row), self.st.font_standard
-                    if is_warning and c_idx == 2: cell.fill = self.st.fill_warning
-                    fmt = '0.00"%"' if c_idx == cols.get('% посредника', -1) or '%' in str(ws.cell(1, c_idx).value) else '#,##0.00'
+                    if c_idx == cols['приход'] and val > 0.01:
+                        cell.fill, cell.font = self.st.fill_income, self.st.font_income
+                    elif c_idx == cols['расход'] and abs(val) > 0.01:
+                        cell.fill, cell.font = self.st.fill_expense, self.st.font_expense
+                    
+                    if is_warning and c_idx == 2:
+                        cell.fill = self.st.fill_warning
+                    
+                    # Formatting rules: % for commission, standard for others
+                    h = str(ws.cell(1, c_idx).value or "").lower()
+                    if 'комиссия' in h:
+                        fmt = '0.00"%"'
+                    elif '%' in h and 'посред' in h:
+                        fmt = '#,##0.00'  # No % for broker percentage per user request
+                    elif '%' in h:
+                        fmt = '0.00"%"'
+                    else:
+                        fmt = '#,##0.00'
+                        
                     cell.alignment, cell.number_format = self.st.align_right, fmt
                 else:
-                    cell.fill = self.st.fill_warning if is_warning and c_idx == 2 else fill_row
-                    cell.font, cell.alignment = self.st.font_standard, self.st.align_left
+                    if is_warning and c_idx == 2:
+                        cell.fill = self.st.fill_warning
+                    cell.alignment = self.st.align_left
 
         total_row = ws.max_row + 1
         total_label = ws.cell(total_row, 1, "ИТОГО:")

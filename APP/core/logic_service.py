@@ -44,7 +44,21 @@ class LogicService(ILogicService):
             is_add, is_ret = any(kw in f_val for kw in self.inc_over), any(kw in f_val for kw in self.ret_kw)
             amt, tot = to_decimal(r.get('amount')), to_decimal(r.get('total', 0))
             if amt == 0 and tot == 0 and not is_add: continue
-            inc, exp = (amt, Decimal('0.00')) if is_add else (Decimal('0.00'), abs(amt)) if (is_ret or amt < 0) else (amt, Decimal('0.00'))
+            
+            # Financial routing:
+            # - is_add (keywords like 'доп'): goes to INCOME
+            # - is_ret (keywords like 'возврат'): goes to EXPENSE as NEGATIVE
+            # - amt < 0 (standard expense): goes to EXPENSE as POSITIVE
+            # - standard: goes to INCOME
+            if is_add:
+                inc, exp = amt, Decimal('0.00')
+            elif is_ret:
+                inc, exp = Decimal('0.00'), -abs(amt)
+            elif amt < 0:
+                inc, exp = Decimal('0.00'), abs(amt)
+            else:
+                inc, exp = amt, Decimal('0.00')
+                
             c_raw = to_decimal_percent(r.get('commission', 0))
             comm = (c_raw * 100 if c_raw != 0 and abs(c_raw) <= 1 else c_raw).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             is_warn = r.get('is_template_warning', False)
