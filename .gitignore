@@ -15,3 +15,8 @@ REPORTS/
 docs/maestro/state/active-session.md
 temp_destructive_env/
 
+*.xlsx
+*.xlsb
+*.db
+APP/cache.db
+config.yaml

@@ -33,7 +33,8 @@ class IngestionEngine(IDataSource):
                     for s in wb.sheets:
                         d = extract_date_from_sheet(s)
                         if d: dates.add(d)
-        except: pass
+        except Exception as e:
+            logger.warning(f"Error parsing dates: {e}")
         return sorted(list(dates))
 
     def scan_directory(self, root_path: Path) -> List[Dict[str, Any]]:
@@ -47,7 +48,8 @@ class IngestionEngine(IDataSource):
                     stat = os.stat(p)
                     with open(p, 'rb') as f_io: fp = hashlib.md5(f_io.read(8192)).hexdigest()
                     res.append({"path": str(p), "id": stat.st_ino, "fp": fp, "size": stat.st_size, "mtime": stat.st_mtime})
-                except: pass
+                except Exception as e:
+                    logger.warning(f"Error scanning file {p}: {e}")
         return res
 
     def read_file(self, file_path: Path) -> List[Dict[str, Any]]:
@@ -77,18 +79,13 @@ def extract_date_from_sheet(sheet_name: str) -> Optional[str]:
             y = int(m.group(5)) if m.group(5) else curr.year
             if not m.group(5) and datetime(curr.year, month, d) > curr + timedelta(days=30): y = curr.year - 1
             return datetime(y, month, d).strftime("%d.%m.%Y")
-        except: return None
+        except Exception as e:
+            logger.warning(f"Error extracting date from sheet name: {e}")
+            return None
     return None
 
 
 
-
-import os
-import logging
-from pathlib import Path
-from typing import List, Dict, Any, Optional
-import openpyxl
-from pyxlsb import open_workbook as open_xlsb
 
 from core.utils_helpers import to_decimal
 
@@ -152,6 +149,37 @@ class ExcelReader:
             else: res[key] = None
         return res if has_data else None
 
+    def _process_sheet_rows(self, rows: List[List[Any]], sheet_name: str, file_path: str) -> List[Dict[str, Any]]:
+        all_rows = []
+        standard_keys, max_score = set(), 0
+
+        # Pass 1: find best header row
+        for row in rows:
+            if not row: continue
+            row_values_str = [str(v).lower() for v in row if v is not None]
+            score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
+            if score >= 4 and score > max_score:
+                max_score = score
+                standard_keys = set(self._map_columns(row).keys())
+
+        # Pass 2: process rows
+        active_col_map, current_is_warning = None, False
+        for i, row in enumerate(rows):
+            if not row: continue
+            row_values_str = [str(v).lower() for v in row if v is not None]
+            score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
+            if score >= 4:
+                active_col_map = self._map_columns(row)
+                current_is_warning = (set(active_col_map.keys()) != standard_keys)
+                continue
+            if active_col_map:
+                row_dict = self._process_row(row, active_col_map, sheet_name, i + 1, file_path)
+                if row_dict:
+                    row_dict['is_template_warning'] = current_is_warning
+                    all_rows.append(row_dict)
+
+        return all_rows
+
 class XlsxReader(ExcelReader):
     def read(self, file_path: Path) -> List[Dict[str, Any]]:
         all_rows = []
@@ -160,28 +188,7 @@ class XlsxReader(ExcelReader):
             for ws in wb.worksheets:
                 if ws.sheet_state != 'visible' or ws.title.startswith('_') or ws.title in ("АНАЛИТИКА", "СВОД"): continue
                 rows = list(ws.iter_rows(values_only=True))
-                standard_keys, max_score = set(), 0
-                for row in rows:
-                    if not row: continue
-                    row_values_str = [str(v).lower() for v in row if v is not None]
-                    score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
-                    if score >= 4 and score > max_score:
-                        max_score = score
-                        standard_keys = set(self._map_columns(row).keys())
-                active_col_map, current_is_warning = None, False
-                for i, row in enumerate(rows):
-                    if not row: continue
-                    row_values_str = [str(v).lower() for v in row if v is not None]
-                    score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
-                    if score >= 4:
-                        active_col_map = self._map_columns(row)
-                        current_is_warning = (set(active_col_map.keys()) != standard_keys)
-                        continue
-                    if active_col_map:
-                        row_dict = self._process_row(row, active_col_map, ws.title, i + 1, str(file_path))
-                        if row_dict:
-                            row_dict['is_template_warning'] = current_is_warning
-                            all_rows.append(row_dict)
+                all_rows.extend(self._process_sheet_rows(rows, ws.title, str(file_path)))
         except Exception as e: logger.error(f"Error XLSX {file_path}: {e}")
         return all_rows
 
@@ -193,31 +200,8 @@ class XlsbReader(ExcelReader):
                 for sheet_name in wb.sheets:
                     if sheet_name.startswith('_') or sheet_name in ("АНАЛИТИКА", "СВОД"): continue
                     with wb.get_sheet(sheet_name) as ws:
-                        rows_objs_list = list(ws.rows())
-                        standard_keys, max_score = set(), 0
-                        for row_objs in rows_objs_list:
-                            row = [cell.v for cell in row_objs]
-                            if not row: continue
-                            row_values_str = [str(v).lower() for v in row if v is not None]
-                            score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
-                            if score >= 4 and score > max_score:
-                                max_score = score
-                                standard_keys = set(self._map_columns(row).keys())
-                        active_col_map, current_is_warning = None, False
-                        for i, row_objs in enumerate(rows_objs_list):
-                            row = [cell.v for cell in row_objs]
-                            if not row: continue
-                            row_values_str = [str(v).lower() for v in row if v is not None]
-                            score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
-                            if score >= 4:
-                                active_col_map = self._map_columns(row)
-                                current_is_warning = (set(active_col_map.keys()) != standard_keys)
-                                continue
-                            if active_col_map:
-                                row_dict = self._process_row(row, active_col_map, sheet_name, i + 1, str(file_path))
-                                if row_dict:
-                                    row_dict['is_template_warning'] = current_is_warning
-                                    all_rows.append(row_dict)
+                        rows = [[cell.v for cell in row_objs] for row_objs in ws.rows()]
+                        all_rows.extend(self._process_sheet_rows(rows, sheet_name, str(file_path)))
         except Exception as e: logger.error(f"Error XLSB {file_path}: {e}")
         return all_rows
 
