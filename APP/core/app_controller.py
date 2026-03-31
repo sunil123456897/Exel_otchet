@@ -85,6 +85,15 @@ class AppController:
         processed_files = 0
         if total_files == 0: return False
 
+        date_range_start_str = self.config_controller.config.get('logic', {}).get('date_range_start', None)
+        date_range_start = None
+        if date_range_start_str:
+            try:
+                from datetime import datetime
+                date_range_start = datetime.strptime(date_range_start_str, "%d.%m.%Y")
+            except Exception:
+                date_range_start = None
+
         for emp_name, metas in employees_map.items():
             for meta in metas:
                 path_str = meta['path'] if isinstance(meta, dict) else meta
@@ -94,6 +103,15 @@ class AppController:
                 rows = self.ingestion.read_file(Path(path_str))
                 valid_rows = []
                 for row in rows:
+                    row_date_str = row.get('date')
+                    if date_range_start and row_date_str:
+                        try:
+                            from datetime import datetime
+                            row_date = datetime.strptime(row_date_str, "%d.%m.%Y")
+                            if row_date < date_range_start:
+                                continue  # Skip rows from previous years
+                        except Exception:
+                            pass
                     if (not target_date_str or row.get('date') == target_date_str) and self.validator.validate_row(row):
                         row['employee_name'] = emp_name
                         valid_rows.append(row)
