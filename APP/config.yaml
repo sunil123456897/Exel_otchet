@@ -1,159 +1,161 @@
-database: {isolation_level: EXCLUSIVE, path: E:/Для Даши/Версия 5/APP/cache.db, 
-    schema_path: E:/Для Даши/Версия 5/APP/src/db_schema.sql, timeout: 30.0, 
-    use_wal: true}
+# IMPORTANT: Replace \SERVER\share\REPORTS_SYSTEM with your actual network root path before running.
+database: {isolation_level: EXCLUSIVE, path:
+    \\SERVER\share\REPORTS_SYSTEM\\APP\cache.db, schema_path:
+    \\SERVER\share\REPORTS_SYSTEM\\APP\src\db_schema.sql, timeout: 30.0, use_wal:
+    true}
 employee_paths:
   Адам:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Адам К\отчет Адам 
-        стафф.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Адам К\отчет
+        Адам стафф.xlsx
       id: 3659174697613460
       fp: cee210c00b2e2076aae334b8b4914f19
   Александра П:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Александра П\отчет 
-        Александра П 2026.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Александра
+        П\отчет Александра П 2026.xlsx
       id: 5066549581166741
       fp: 6848b54aa8e4afb160091f1954ba743d
   Алексей:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Алексей\Отчет Стафф 
-        Алексей.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
+        3\Алексей\Отчет Стафф Алексей.xlsx
       id: 3659174697613464
       fp: cf9a2e34328afb68d5b25e25cfb8ad33
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Алексей\Отчёт 
-        Алексей.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
+        3\Алексей\Отчёт Алексей.xlsx
       id: 3659174697613462
       fp: 2863e353164399fa782f4f32776e3367
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Алексей\Отчет Гетворк
-        Алексей Актуальный.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
+        3\Алексей\Отчет Гетворк Алексей Актуальный.xlsx
       id: 5066549581166743
       fp: 9af9ab890a028365aa0d467ede156f7b
   Алиса С:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Алиса С\отчет 2026 
-        Алиса С.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Алиса
+        С\отчет 2026 Алиса С.xlsx
       id: 5066549581166745
       fp: f12ad70c0c4cc19a7a3d1ad6a6840182
   Алиса Ю:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Алиса Ю\Отчет Алиса Ю
-        Корень с 06.03.26.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Алиса
+        Ю\Отчет Алиса Ю Корень с 06.03.26.xlsx
       id: 3659174697613466
       fp: 7241f0008534964804c249f1f95d71aa
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Алиса Ю\Отчет Корень 
-        Фонд Алиса Ю.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Алиса
+        Ю\Отчет Корень Фонд Алиса Ю.xlsx
       id: 5066549581166747
       fp: ea056ed8599718d65f6e4381a44c5ee9
   Амалия:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 1\Амалия\Отчет  ОПТ  
-        Амали  22.03.2026.xlsb
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Амалия\Отчет
+        ОПТ Амали  22.03.2026.xlsb
       id: 3659174697613424
       fp: e28a73cf91b71d99800cc6777d2c521b
       size: 2381418
       mtime: 1774632920.748485
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 1\Амалия\Отчет стафф 
-        Амиля 20.03.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Амалия\Отчет
+        стафф Амиля 20.03.xlsx
       id: 5066549581166703
       fp: 9a00cbcd300615e6eadc2a9a094a9d75
   Антон К:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 1\Антон\Ежедневный 
-        отчет Антон 25.03 ОПТ.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
+        1\Антон\Ежедневный отчет Антон 25.03 ОПТ.xlsx
       id: 3659174697613426
       fp: dc8a962c1a4a75a098bd46fe20ba8325
   Арина Т:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Арина Т\Отчет Арина Т
-        Новый (корень).xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Арина
+        Т\Отчет Арина Т Новый (корень).xlsx
       id: 3659174697613468
       fp: bad4793ec132eb86fbba349e9643f6df
   Богдан Л:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Богдан Л\Отчёт Богдан
-        Л.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Богдан
+        Л\Отчёт Богдан Л.xlsx
       id: 5066549581166749
       fp: 4ab3424e0ff56760eb71cc44a7102548
   Борис Ж:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 2\Борис Ж\Отчёт Борис 
-        Ж.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Борис
+        Ж\Отчёт Борис Ж.xlsx
       id: 5066549581166721
       fp: 42d9afa6250d0b942bd8f5507264f47c
   Гена Ц:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Гена Ц Отчет\Отчет 
-        Гена Ц.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Гена Ц
+        Отчет\Отчет Гена Ц.xlsx
       id: 3659174697613470
       fp: 5547db37bd8650e9963e3c34b3a076f8
   Дамир:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 2\ДАМИР\Отчет 
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\ДАМИР\Отчет
         Дамир.xlsx
       id: 3659174697613442
       fp: d37ade469117f23f7349564dc072a8ec
   Иван П:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 1\Иван\Отчет новый Иван
-        .xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Иван\Отчет
+        новый Иван .xlsx
       id: 5066549581166707
       fp: 232e1bbeb2233e2e3f3af629d9bc9ff0
   Кира В:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Кира В\отчет кира 
-        стафф1.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Кира В\отчет
+        кира стафф1.xlsx
       id: 5066549581166751
       fp: 2ebeddbb1684fd815994d9c776cc0227
   Лев Е:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 2\Лев Е\Отчёт ЛЕВ Е 
-        !!!.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Лев Е\Отчёт
+        ЛЕВ Е !!!.xlsx
       id: 5066549581166723
       fp: 13ab2208383127c987a5ed8a165774a1
   Марго:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 1\Марго\Отчет Марго 
-        СТАФФ.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Марго\Отчет
+        Марго СТАФФ.xlsx
       id: 5066549581166709
       fp: fb54a9c7e3416c6309cb0c448b98cdb1
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 1\Марго\Отчет 
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Марго\Отчет
         Марго.xlsx
       id: 3659174697613428
       fp: de4f84befc2a66f66ea4ad654e2278ef
   Марьяна Г:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 2\Марьяна Г\Отчет 
-        Марьяна Г.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Марьяна
+        Г\Отчет Марьяна Г.xlsx
       id: 3659174697613444
       fp: 0b856e1d671f4289c5a8d57af011045d
   Матвей Т:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 2\Матвей Т\Ежедневый 
-        отчет_Матвей.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Матвей
+        Т\Ежедневый отчет_Матвей.xlsx
       id: 5066549581166725
       fp: ac1481229d405e4fbb9247724fcfe781
   Надежда:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Надежда Р\отчет стафф
-        проекты Надежда Р.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Надежда
+        Р\отчет стафф проекты Надежда Р.xlsx
       id: 3659174697613472
       fp: 9e7ec9a863c4334150ebe62be97adb2d
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 3\Надежда Р\Отчеты 
-        Надежда.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Надежда
+        Р\Отчеты Надежда.xlsx
       id: 5066549581166753
       fp: 2afbcfa500b10b219ceb8c0ad1f22686
   Николай С:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 2\Николай С\Отчет 
-        Коля.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Николай
+        С\Отчет Коля.xlsx
       id: 3659174697613446
       fp: 5e8a3f8a13a04adf8005393ed6bf6e49
   Оливия:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 1\Оливия\Ежедневый 
-        отчет Оливия Г.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
+        1\Оливия\Ежедневый отчет Оливия Г.xlsx
       id: 5066549581166711
       fp: 28cc71022e90a61a18039a58a75b614d
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 1\Оливия\Ележневный 
-        отчет Оливия Стафф.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
+        1\Оливия\Ележневный отчет Оливия Стафф.xlsx
       id: 3659174697613430
       fp: 489aedb2c5b23914b7b103f659362fb6
   Роман В:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 2\Роман В\День отчёт 
-        Роман В (Стафф) Верная.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Роман В\День
+        отчёт Роман В (Стафф) Верная.xlsx
       id: 5066549581166727
       fp: c4aeabe45d5ced12679dd73bb6e96fb4
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 2\Роман В\День отчет 
-        Роман.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Роман В\День
+        отчет Роман.xlsx
       id: 3659174697613448
       fp: 1728de8cdad952ec9fbf11b78aca30e3
   Юнона:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 2\Юнона А\Отчет Юнона 
-        А.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Юнона
+        А\Отчет Юнона А.xlsx
       id: 5066549581166729
       fp: 3b2dff1b7c0889baf37c64987ceb2e15
   Яна А:
-    - path: E:\Для Даши\Версия 5\REPORTS\Отчет кураторов 1\Яна А\Отчет Яна 
-        А.xlsx
+    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Яна А\Отчет
+        Яна А.xlsx
       id: 3659174697613432
       fp: 0fe8815f316b8b9d216429ad31f45ca7
 employees: [Адам, Александра П, Алексей, Алиса С, Алиса Ю, Амалия, Антон К, 
@@ -163,8 +165,9 @@ locking: {retry_backoff: 2.0, retry_count: 5, use_semaphores: true}
 logic:
   income_overrides: [доп, доп сф, '% посред']
   return_keywords: [возврат]
-paths: {archive_dir: ./backups, master_file: E:\Для Даши\Версия 
-    5\Master_Report.xlsx, source_root: E:\Для Даши\Версия 5\REPORTS}
+paths: {archive_dir: ./backups, master_file:
+    \\SERVER\share\REPORTS_SYSTEM\Master_Report.xlsx, source_root:
+    \\SERVER\share\REPORTS_SYSTEM\REPORTS}
 sh1:
   markers: {amount: сумма платежа, broker1: посредник 1(кэш), broker2: посредник
       2, commission: комиссия, contractor: Исполнитель, customer: Заказчик, 
