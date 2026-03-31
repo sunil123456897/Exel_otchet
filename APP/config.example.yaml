@@ -188,6 +188,7 @@ locking: {retry_backoff: 2.0, retry_count: 5, use_semaphores: true}
 logic:
   income_overrides: [доп, доп сф, '% посред']
   return_keywords: [возврат]
+  date_range_start: "01.01.2026"   # Skip any rows with dates before this date
 paths: {archive_dir: ./backups, master_file:
     \\SERVER\share\REPORTS_SYSTEM\Master_Report.xlsx, source_root:
     \\SERVER\share\REPORTS_SYSTEM\REPORTS}

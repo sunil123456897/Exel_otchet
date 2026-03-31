@@ -63,7 +63,7 @@ class LogicService(ILogicService):
             comm = (c_raw * 100 if c_raw != 0 and abs(c_raw) <= 1 else c_raw).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             is_warn = r.get('is_template_warning', False)
             if is_warn: logger.warning(f"Template warning: {r.get('_source_info')}")
-            res.append({'Дата': r.get('date', ''), 'Источник': r.get('_source_info', 'Unknown'), 'ЗАКАЗЧИК (название проекта, наименование ЮЛ)': self._sanitize(r.get('customer', '')), 'ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)': self._sanitize(r.get('contractor', '')), 'сумма платежа ПРИХОД': inc, 'сумма платежа РАСХОД': exp, 'комиссия': comm, 'ИТОГ': tot, '% посредника': to_decimal(r.get('percent_broker')), 'посредник 1(кэш)': to_decimal(r.get('broker1')), 'посредник 2': to_decimal(r.get('broker2')), 'фильтры': self._sanitize(r.get('filters', '')), 'is_critical': False, 'is_template_warning': is_warn})
+            res.append({'Дата': r.get('date', ''), 'Источник': r.get('_source_info', 'Unknown'), 'ЗАКАЗЧИК (название проекта, наименование ЮЛ)': self._sanitize(r.get('customer', '')), 'ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)': self._sanitize(r.get('contractor', '')), 'сумма платежа ПРИХОД': inc, 'сумма платежа РАСХОД': exp, 'комиссия': comm, 'ИТОГ': tot, '% посредника': to_decimal_percent(r.get('percent_broker')), 'посредник 1(кэш)': to_decimal(r.get('broker1')), 'посредник 2': to_decimal(r.get('broker2')), 'фильтры': self._sanitize(r.get('filters', '')), 'is_critical': False, 'is_template_warning': is_warn})
         return res
 
     def consolidate(self, session_id: str) -> List[Dict[str, Any]]:

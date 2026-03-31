@@ -38,14 +38,8 @@ def to_decimal(val: Any) -> Decimal:
     except: return Decimal('0.00')
 
 def to_decimal_percent(val: Any) -> Decimal:
-    if val is None or val == "" or (isinstance(val, float) and val != val): return Decimal('0')
-    if isinstance(val, (int, float, Decimal)): return Decimal(str(val))
-    try:
-        raw = str(val)
-        s = re.sub(r"[^\d.,-]", "", raw)
-        if not s: return Decimal('0')
-        res = Decimal(s.replace(',', '.'))
-        if "%" in raw and res > 1: res = res / Decimal('100')
-        return res
-    except: return Decimal('0')
+    d = to_decimal(val)
+    if d != 0 and abs(d) <= 1:
+        return d * 100
+    return d
 
