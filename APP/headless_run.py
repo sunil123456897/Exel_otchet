@@ -7,7 +7,7 @@ from pathlib import Path
 app_root = Path(__file__).parent.absolute()
 if str(app_root) not in sys.path: sys.path.insert(0, str(app_root))
 
-from src.bootstrap import Bootstrap
+from core.bootstrap import Bootstrap
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

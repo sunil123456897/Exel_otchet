@@ -6,8 +6,8 @@ from pathlib import Path
 app_root = Path(__file__).parent.absolute()
 if str(app_root) not in sys.path: sys.path.insert(0, str(app_root))
 
-from src.bootstrap import Bootstrap
-from src.frontend.gui_master import GuiMaster
+from core.bootstrap import Bootstrap
+from gui_master import GuiMaster
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', handlers=[logging.FileHandler(app_root / "startup_log.txt", encoding='utf-8'), logging.StreamHandler()])
