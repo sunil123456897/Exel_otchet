@@ -42,15 +42,15 @@ class AppController:
                 
                 def check_employee(name):
                     metas = employees_map.get(name, [])
-                    paths_with_meta = [(m['path'] if isinstance(m, dict) else m, m.get('year') if isinstance(m, dict) else None) for m in metas]
-                    paths_with_meta = [(p, y) for p, y in paths_with_meta if os.path.exists(p)]
+                    paths = [m['path'] if isinstance(m, dict) else m for m in metas]
+                    paths = [p for p in paths if os.path.exists(p)]
                     
-                    if not paths_with_meta: return (name, "🔴 НЕТ ФАЙЛА", "---", 'missing')
+                    if not paths: return (name, "🔴 НЕТ ФАЙЛА", "---", 'missing')
                     
-                    path_str = os.path.basename(paths_with_meta[0][0]) if len(paths_with_meta) == 1 else f"[{len(paths_with_meta)} файлов]"
+                    path_str = os.path.basename(paths[0]) if len(paths) == 1 else f"[{len(paths)} файлов]"
                     status, tag = "🟠 НЕТ ДАТЫ", 'partial'
                     try:
-                        for p, forced_year in paths_with_meta:
+                        for p in paths:
                             p_path = Path(p)
                             stat = os.stat(p_path)
                             cache = self.persistence.get_file_cache(str(p_path))
@@ -59,18 +59,6 @@ class AppController:
                                 available = cache['dates']
                             else:
                                 available = self.ingestion.get_available_dates(p_path)
-                                # If year is forced, recalculate available dates using that year
-                                if forced_year:
-                                    from core.infra.ingestion_utils import extract_date_from_sheet
-                                    from python_calamine import CalamineWorkbook
-                                    wb = CalamineWorkbook.from_path(str(p_path))
-                                    available = []
-                                    for s in wb.sheet_names:
-                                        if not s.startswith('_') and s not in ("АНАЛИТИКА", "СВОД"):
-                                            d = extract_date_from_sheet(s, file_path=str(p_path), fallback_year=forced_year)
-                                            if d: available.append(d)
-                                    available = sorted(list(set(available)))
-                                
                                 self.persistence.save_file_cache(str(p_path), stat.st_mtime, stat.st_size, available)
                             
                             if target_date in available:
@@ -164,4 +152,3 @@ class AppController:
                 else: on_complete(False, "Ошибка записи", None)
             except Exception as e: logging.error(f"Error: {e}"); on_complete(False, str(e), None)
         threading.Thread(target=task, daemon=True).start()
-

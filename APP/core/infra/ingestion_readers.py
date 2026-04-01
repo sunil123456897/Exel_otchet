@@ -46,17 +46,6 @@ class CalamineReader:
             if found_idx is not None: col_map[key] = found_idx
         return col_map, used_aliases
 
-    def _detect_year_from_header(self, rows: List[List[Any]]) -> Optional[int]:
-        """Scans the first 20 rows of a sheet to detect a 4-digit year."""
-        import re
-        for row in rows[:20]:
-            for cell in row:
-                if cell is not None:
-                    # Look for 4-digit years between 2020 and 2035 in the cell content
-                    m = re.search(r'\b(202[0-9]|203[0-5])\b', str(cell))
-                    if m: return int(m.group(1))
-        return None
-
     def read(self, file_path: Path) -> List[Dict[str, Any]]:
         all_rows = []
         f_path_abs = os.path.abspath(str(file_path))
@@ -79,9 +68,6 @@ class CalamineReader:
                 
                 rows = wb.get_sheet_by_name(sheet_name).to_python()
                 if not rows: continue
-                
-                # Detect year from the top of the sheet for disambiguation
-                sheet_year = self._detect_year_from_header(rows)
                 
                 # First pass: find standard keys (scan first 200 rows)
                 standard_keys, max_score = set(), 0
@@ -110,7 +96,7 @@ class CalamineReader:
                             '_sheet_name': sheet_name, 
                             '_row_index': i + 1, 
                             '_file_path': f_path_abs, 
-                            'date': extract_date_from_sheet(sheet_name, file_path=f_path_abs, fallback_year=sheet_year)
+                            'date': extract_date_from_sheet(sheet_name)
                         }
                         
                         has_data, has_financial = False, False
