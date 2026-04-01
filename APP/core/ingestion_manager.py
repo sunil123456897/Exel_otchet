@@ -13,6 +13,8 @@ from core.utils_helpers import to_decimal
 
 logger = logging.getLogger(__name__)
 
+_ai_extractor = None
+
 class IngestionEngine(IDataSource):
     def __init__(self, config_markers: Dict[str, str]):
         self.markers = config_markers
@@ -157,6 +159,25 @@ class ExcelReader:
             if score >= 4 and score > max_score:
                 max_score = score
                 standard_keys = set(self._map_columns(row).keys())
+
+        if max_score == 0:
+            try:
+                from core.ai_extractor import LFMExtractor
+                global _ai_extractor
+                if _ai_extractor is None:
+                    _ai_extractor = LFMExtractor()
+
+                if _ai_extractor.is_available():
+                    flat_text = "\n".join([" | ".join([str(c) for c in r if c is not None]) for r in rows[:20]])
+                    extracted = _ai_extractor.extract_fields(flat_text, schema={"column_name": "str", "column_type": "str"})
+
+                    if extracted:
+                        logger.info(f"AI fallback used for sheet: {sheet_name}")
+                    else:
+                        logger.warning(f"AI fallback failed to extract data for sheet: {sheet_name}")
+                        return []
+            except ImportError:
+                pass
 
         # Pass 2: process rows
         active_col_map, current_is_warning = None, False
