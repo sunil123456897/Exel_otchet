@@ -3,8 +3,7 @@ import hashlib
 import logging
 from pathlib import Path
 from typing import List, Dict, Any
-import openpyxl
-from pyxlsb import open_workbook as open_xlsb
+from python_calamine import CalamineWorkbook
 
 from core.domain.interfaces import IDataSource
 from core.infra.ingestion_readers import CalamineReader
