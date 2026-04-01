@@ -7,7 +7,7 @@ import openpyxl
 from pyxlsb import open_workbook as open_xlsb
 
 from core.domain.interfaces import IDataSource
-from core.infra.ingestion_readers import XlsxReader, XlsbReader
+from core.infra.ingestion_readers import CalamineReader
 from core.infra.ingestion_utils import extract_date_from_sheet
 
 logger = logging.getLogger(__name__)
@@ -28,25 +28,17 @@ class IngestionEngine(IDataSource):
             'broker2': ['посредник 2', 'комиссия посредника 2', '%.1'], 
             'filters': ['фильтры', 'фильтр', 'filter']
         }
-        self.xlsx_reader = XlsxReader(self.markers, self.aliases)
-        self.xlsb_reader = XlsbReader(self.markers, self.aliases)
+        self.reader = CalamineReader(self.markers, self.aliases)
 
     def get_available_dates(self, file_path: Path) -> List[str]:
         dates = set()
         try:
-            suffix = file_path.suffix.lower()
-            if suffix == '.xlsx':
-                wb = openpyxl.load_workbook(file_path, read_only=True, keep_links=False)
-                for ws in wb.worksheets:
-                    if ws.sheet_state == 'visible':
-                        d = extract_date_from_sheet(ws.title)
-                        if d: dates.add(d)
-                wb.close()
-            elif suffix == '.xlsb':
-                with open_xlsb(str(file_path)) as wb:
-                    for s in wb.sheets:
-                        d = extract_date_from_sheet(s)
-                        if d: dates.add(d)
+            # Calamine is much faster for just reading sheet names
+            wb = CalamineWorkbook.from_path(str(file_path))
+            for s in wb.sheet_names:
+                if s.startswith('_') or s in ("АНАЛИТИКА", "СВОД"): continue
+                d = extract_date_from_sheet(s, file_path=str(file_path))
+                if d: dates.add(d)
         except Exception as e:
             logger.error(f"Error getting dates from {file_path}: {e}")
         return sorted(list(dates))
@@ -77,7 +69,4 @@ class IngestionEngine(IDataSource):
 
     def read_file(self, file_path: Path) -> List[Dict[str, Any]]:
         if not file_path.exists(): return []
-        s = file_path.suffix.lower()
-        if s == '.xlsx': return self.xlsx_reader.read(file_path)
-        if s == '.xlsb': return self.xlsb_reader.read(file_path)
-        return []
+        return self.reader.read(file_path)

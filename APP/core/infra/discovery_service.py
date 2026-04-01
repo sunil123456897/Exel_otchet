@@ -84,6 +84,7 @@ class DiscoveryService:
                 for meta in updated_paths:
                     p = str(meta.get('path'))
                     if p not in seen_paths:
+                        # Carry over the 'year' override if present
                         paths_for_emp.append(meta); seen_paths.add(p)
                 
                 config.setdefault('employee_paths', {})[target_name] = updated_paths

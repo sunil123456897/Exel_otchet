@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 from core.infra.discovery_service import DiscoveryService
 
+import concurrent.futures
+
 class AppController:
     def __init__(self, config_controller, ingestion, persistence, validator, logic_service, writer):
         self.config_controller = config_controller
@@ -36,36 +38,57 @@ class AppController:
                     on_complete([], {}, False); return
 
                 local_data, total_count = [], len(unique_names)
-                for i, name in enumerate(unique_names):
-                    on_progress(((i + 1) / total_count) * 100)
+                target_date = selected_date.strftime("%d.%m.%Y")
+                
+                def check_employee(name):
                     metas = employees_map.get(name, [])
-                    paths = [m['path'] if isinstance(m, dict) else m for m in metas]
-                    paths = [p for p in paths if os.path.exists(p)]
+                    paths_with_meta = [(m['path'] if isinstance(m, dict) else m, m.get('year') if isinstance(m, dict) else None) for m in metas]
+                    paths_with_meta = [(p, y) for p, y in paths_with_meta if os.path.exists(p)]
                     
-                    if not paths: status, tag, path_str = "🔴 НЕТ ФАЙЛА", 'missing', "---"
-                    else:
-                        path_str = os.path.basename(paths[0]) if len(paths) == 1 else f"[{len(paths)} файлов]"
-                        status, tag = "🟠 НЕТ ДАТЫ", 'partial'
-                        try:
-                            target_date = selected_date.strftime("%d.%m.%Y")
-                            for p in paths:
-                                p_path = Path(p)
-                                stat = os.stat(p_path)
-                                cache = self.persistence.get_file_cache(str(p_path))
+                    if not paths_with_meta: return (name, "🔴 НЕТ ФАЙЛА", "---", 'missing')
+                    
+                    path_str = os.path.basename(paths_with_meta[0][0]) if len(paths_with_meta) == 1 else f"[{len(paths_with_meta)} файлов]"
+                    status, tag = "🟠 НЕТ ДАТЫ", 'partial'
+                    try:
+                        for p, forced_year in paths_with_meta:
+                            p_path = Path(p)
+                            stat = os.stat(p_path)
+                            cache = self.persistence.get_file_cache(str(p_path))
+                            
+                            if cache and cache['mtime'] == stat.st_mtime and cache['size'] == stat.st_size:
+                                available = cache['dates']
+                            else:
+                                available = self.ingestion.get_available_dates(p_path)
+                                # If year is forced, recalculate available dates using that year
+                                if forced_year:
+                                    from core.infra.ingestion_utils import extract_date_from_sheet
+                                    from python_calamine import CalamineWorkbook
+                                    wb = CalamineWorkbook.from_path(str(p_path))
+                                    available = []
+                                    for s in wb.sheet_names:
+                                        if not s.startswith('_') and s not in ("АНАЛИТИКА", "СВОД"):
+                                            d = extract_date_from_sheet(s, file_path=str(p_path), fallback_year=forced_year)
+                                            if d: available.append(d)
+                                    available = sorted(list(set(available)))
                                 
-                                if cache and cache['mtime'] == stat.st_mtime and cache['size'] == stat.st_size:
-                                    available = cache['dates']
-                                else:
-                                    available = self.ingestion.get_available_dates(p_path)
-                                    self.persistence.save_file_cache(str(p_path), stat.st_mtime, stat.st_size, available)
-                                
-                                if target_date in available:
-                                    status, tag = "🟢 ГОТОВО", 'ready'
-                                    break
-                                logging.info(f"🗓️ {os.path.basename(p)}: {available}")
-                        except Exception as e:
-                            logging.error(f"Error {name}: {e}"); status, tag = "❌ ОШИБКА", 'missing'
-                    local_data.append((name, status, path_str, tag))
+                                self.persistence.save_file_cache(str(p_path), stat.st_mtime, stat.st_size, available)
+                            
+                            if target_date in available:
+                                status, tag = "🟢 ГОТОВО", 'ready'
+                                break
+                    except Exception as e:
+                        logging.error(f"Error {name}: {e}"); status, tag = "❌ ОШИБКА", 'missing'
+                    return (name, status, path_str, tag)
+
+                # Use ThreadPoolExecutor for parallel network scanning
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                    futures = {executor.submit(check_employee, name): name for name in unique_names}
+                    for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                        local_data.append(future.result())
+                        on_progress(((i + 1) / total_count) * 100)
+                
+                # Restore original order
+                local_data.sort(key=lambda x: x[0])
                 self._cached_employees = employees_map
                 on_complete(local_data, employees_map, self.rename_detected)
             except Exception as e: 
