@@ -2,8 +2,6 @@ import os
 import logging
 import threading
 import uuid
-import tkinter as tk
-from tkinter import messagebox, filedialog
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
@@ -20,26 +18,6 @@ class AppController:
         
         self.discovery = DiscoveryService(config_controller, ingestion)
         self._cached_employees = {}
-        self.validate_startup_paths()
-
-    def validate_startup_paths(self):
-        source_root = self.config_controller.config.get('paths', {}).get('source_root', '')
-        if not source_root or not os.path.exists(source_root):
-            temp_root = tk.Tk()
-            temp_root.withdraw()
-            messagebox.showwarning("Внимание", "Путь к папке REPORTS не найден. Пожалуйста, выберите корректную папку.")
-            new_dir = filedialog.askdirectory(title="Выберите папку REPORTS")
-            if new_dir:
-                if 'paths' not in self.config_controller.config:
-                    self.config_controller.config['paths'] = {}
-                self.config_controller.config['paths']['source_root'] = new_dir
-
-                # Update master_file to point to parent of chosen folder
-                parent_dir = os.path.dirname(new_dir)
-                master_file = os.path.join(parent_dir, 'Master_Report.xlsx')
-                self.config_controller.config['paths']['master_file'] = master_file
-                self.config_controller.save_config()
-            temp_root.destroy()
 
     @property
     def rename_detected(self):

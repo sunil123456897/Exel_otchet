@@ -66,42 +66,40 @@ class MasterWriter(IExporter):
             if any(kw in header for kw in numeric_keywords): ws.column_dimensions[let].width = max((max_len * 1.1) + 6, 15)
             else: ws.column_dimensions[let].width = min(max_len + 4, 35)
 
-    def _write_headers(self, ws, headers):
-        ws.append(headers)
-        self._apply_header_style(ws)
-        ws.freeze_panes = 'A2'
-
-    def _write_rows(self, ws, rows, date):
+    def write_daily_data(self, date, rows, wb=None):
+        should_save = False
+        if wb is None: wb = self._get_workbook(); should_save = True
+        sh_name = date.strftime("%d.%m")
+        if sh_name in wb.sheetnames: del wb[sh_name]
+        ws = wb.create_sheet(sh_name)
+        
+        headers = ["Дата", "Источник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход", "Комиссия", "ИТОГ", "% посредника", "посредник 1(кэш)", "посредник 2", "Фильтры"]
+        ws.append(headers); self._apply_header_style(ws); ws.freeze_panes = 'A2'
+        
         warning_rows = []
         for r in rows:
-            if r.get('is_template_warning'):
-                warning_rows.append(ws.max_row + 1)
-            ws.append([
-                date.strftime("%d.%m.%Y"),
-                r.get('Источник', ''),
-                r.get('ЗАКАЗЧИК (название проекта, наименование ЮЛ)', ''),
-                r.get('ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)', ''),
-                float(r.get('сумма платежа ПРИХОД', 0)),
-                float(r.get('сумма платежа РАСХОД', 0)),
-                float(r.get('комиссия', 0)),
-                float(r.get('ИТОГ', 0)),
-                float(r.get('% посредника', 0)),
-                float(r.get('посредник 1(кэш)', 0)),
-                float(r.get('посредник 2', 0)),
-                r.get('фильтры', '')
-            ])
-        return warning_rows
+            if r.get('is_template_warning'): warning_rows.append(ws.max_row + 1)
+            ws.append([date.strftime("%d.%m.%Y"), r.get('Источник', ''), r.get('ЗАКАЗЧИК (название проекта, наименование ЮЛ)', ''), r.get('ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)', ''), float(r.get('сумма платежа ПРИХОД', 0)), float(r.get('сумма платежа РАСХОД', 0)), float(r.get('комиссия', 0)), float(r.get('ИТОГ', 0)), float(r.get('% посредника', 0)), float(r.get('посредник 1(кэш)', 0)), float(r.get('посредник 2', 0)), r.get('фильтры', '')])
 
-    def _apply_cell_styles(self, ws, warning_rows, cols, num_indices):
+        num_kw = ['приход', 'расход', 'комиссия', 'итог', 'посредник']
+        cols = {kw: -1 for kw in num_kw}; num_indices = set()
+        for i, cell in enumerate(ws[1], 1):
+            val = str(cell.value or "").lower()
+            if any(kw in val for kw in num_kw): num_indices.add(i)
+            for kw in num_kw:
+                if kw in val:
+                    if kw == 'комиссия' and 'посред' in val: continue
+                    cols[kw] = i
+        
         fill_yellow = PatternFill(patternType='solid', fgColor="FFFF00")
         for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row)):
             is_warning = (r_idx + 2) in warning_rows
             fill_row = self.st.fill_odd if (r_idx + 1) % 2 == 1 else self.st.fill_even
             
-            c_val = abs(float(row_cells[cols['комиссия']-1].value or 0)) if cols.get('комиссия', -1) > 0 else 0
-            i_val = float(row_cells[cols['приход']-1].value or 0) if cols.get('приход', -1) > 0 else 0
-            e_val = float(row_cells[cols['расход']-1].value or 0) if cols.get('расход', -1) > 0 else 0
-            t_val = float(row_cells[cols['итог']-1].value or 0) if cols.get('итог', -1) > 0 else 0
+            c_val = abs(float(row_cells[cols['комиссия']-1].value or 0)) if cols['комиссия']>0 else 0
+            i_val = float(row_cells[cols['приход']-1].value or 0) if cols['приход']>0 else 0
+            e_val = float(row_cells[cols['расход']-1].value or 0) if cols['расход']>0 else 0
+            t_val = float(row_cells[cols['итог']-1].value or 0) if cols['итог']>0 else 0
             amt = i_val if i_val != 0 else e_val
             is_math_err = (c_val == 0 and abs(amt) > 0.02 and (abs(t_val) < 0.02 or abs(amt - t_val) > 0.02))
 
@@ -117,9 +115,9 @@ class MasterWriter(IExporter):
 
                 if c_idx in num_indices:
                     val = cell.value or 0
-                    if c_idx == cols.get('приход', -1) and val > 0.01:
+                    if c_idx == cols['приход'] and val > 0.01:
                         cell.fill, cell.font = self.st.fill_income, self.st.font_income
-                    elif c_idx == cols.get('расход', -1) and abs(val) > 0.01:
+                    elif c_idx == cols['расход'] and abs(val) > 0.01:
                         cell.fill, cell.font = self.st.fill_expense, self.st.font_expense
                     
                     if is_warning and c_idx == 2:
@@ -142,7 +140,6 @@ class MasterWriter(IExporter):
                         cell.fill = self.st.fill_warning
                     cell.alignment = self.st.align_left
 
-    def _write_total_row(self, ws, num_indices, cols):
         total_row = ws.max_row + 1
         total_label = ws.cell(total_row, 1, "ИТОГО:")
         total_label.font, total_label.fill, total_label.border = self.st.font_total, self.st.fill_total, self.st.border_medium
@@ -150,46 +147,11 @@ class MasterWriter(IExporter):
             if c in num_indices:
                 h = str(ws.cell(1, c).value or "").lower()
                 if any(kw in h for kw in ['приход', 'расход', 'итог', 'посредник']) and '%' not in h:
-                    let = get_column_letter(c)
-                    cell = ws.cell(total_row, c)
+                    let = get_column_letter(c); cell = ws.cell(total_row, c)
                     cell.value = f"=SUM({let}2:{let}{total_row-1})"
                     cell.fill, cell.font, cell.border, cell.number_format = self.st.fill_total, self.st.font_total, self.st.border_medium, '#,##0.00'
-
-    def write_daily_data(self, date, rows, wb=None):
-        should_save = False
-        if wb is None:
-            wb = self._get_workbook()
-            should_save = True
-
-        sh_name = date.strftime("%d.%m")
-        if sh_name in wb.sheetnames:
-            del wb[sh_name]
-        ws = wb.create_sheet(sh_name)
-
-        headers = ["Дата", "Источник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход", "Комиссия", "ИТОГ", "% посредника", "посредник 1(кэш)", "посредник 2", "Фильтры"]
-        self._write_headers(ws, headers)
-
-        warning_rows = self._write_rows(ws, rows, date)
-
-        num_kw = ['приход', 'расход', 'комиссия', 'итог', 'посредник']
-        cols = {kw: -1 for kw in num_kw}
-        num_indices = set()
-        for i, cell in enumerate(ws[1], 1):
-            val = str(cell.value or "").lower()
-            if any(kw in val for kw in num_kw):
-                num_indices.add(i)
-            for kw in num_kw:
-                if kw in val:
-                    if kw == 'комиссия' and 'посред' in val:
-                        continue
-                    cols[kw] = i
-
-        self._apply_cell_styles(ws, warning_rows, cols, num_indices)
-        self._write_total_row(ws, num_indices, cols)
-
         self._auto_adjust(ws)
-        if should_save:
-            self._save_workbook(wb)
+        if should_save: self._save_workbook(wb)
 
     def write_report(self, data: List[Dict[str, Any]], path: Path, template_errors: List[Dict[str, Any]] = None) -> bool:
         try:
