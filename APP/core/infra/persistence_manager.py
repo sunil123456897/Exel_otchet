@@ -37,9 +37,11 @@ class SQLiteManager(IPersistence):
         return conn
 
     def init_db(self) -> None:
-        if not self.db_path.exists() and self.schema_path.exists():
+        # Always run schema script - it uses CREATE TABLE IF NOT EXISTS
+        if self.schema_path.exists():
             with self._get_connection() as conn:
-                with open(self.schema_path, 'r', encoding='utf-8') as f: conn.executescript(f.read())
+                with open(self.schema_path, 'r', encoding='utf-8') as f: 
+                    conn.executescript(f.read())
 
     def _execute_with_retry(self, func, *args, **kwargs):
         last_err = None
@@ -132,6 +134,18 @@ class SQLiteManager(IPersistence):
             if not row: return {}
             stats = conn.execute("SELECT status, COUNT(*) as cnt FROM source_files WHERE session_id = ? GROUP BY status", (session_id,)).fetchall()
             return {"session_id": row['session_id'], "status": row['status'], "created_at": row['created_at'], "file_stats": {s['status']: s['cnt'] for s in stats}}
+
+    def get_file_cache(self, file_path: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT mtime, size, dates_json FROM file_cache WHERE file_path = ?", (file_path,)).fetchone()
+            if row: return {"mtime": row['mtime'], "size": row['size'], "dates": json.loads(row['dates_json'])}
+            return None
+
+    def save_file_cache(self, file_path: str, mtime: float, size: int, dates: List[str]) -> None:
+        def _save():
+            with self._get_connection() as conn:
+                conn.execute("INSERT OR REPLACE INTO file_cache (file_path, mtime, size, dates_json, last_updated) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)", (file_path, mtime, size, json.dumps(dates)))
+        self._execute_with_retry(_save)
 
     def close(self) -> None: self.logger.info("Closing database manager.")
 

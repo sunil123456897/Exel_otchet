@@ -49,7 +49,16 @@ class AppController:
                         try:
                             target_date = selected_date.strftime("%d.%m.%Y")
                             for p in paths:
-                                available = self.ingestion.get_available_dates(Path(p))
+                                p_path = Path(p)
+                                stat = os.stat(p_path)
+                                cache = self.persistence.get_file_cache(str(p_path))
+                                
+                                if cache and cache['mtime'] == stat.st_mtime and cache['size'] == stat.st_size:
+                                    available = cache['dates']
+                                else:
+                                    available = self.ingestion.get_available_dates(p_path)
+                                    self.persistence.save_file_cache(str(p_path), stat.st_mtime, stat.st_size, available)
+                                
                                 if target_date in available:
                                     status, tag = "🟢 ГОТОВО", 'ready'
                                     break

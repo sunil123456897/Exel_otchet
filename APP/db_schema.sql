@@ -66,6 +66,15 @@ CREATE TABLE IF NOT EXISTS template_errors (
     FOREIGN KEY(session_id) REFERENCES sessions(session_id)
 );
 
+-- File cache for found dates and metadata (optimization for network drives)
+CREATE TABLE IF NOT EXISTS file_cache (
+    file_path TEXT PRIMARY KEY,
+    mtime REAL,
+    size INTEGER,
+    dates_json TEXT, -- JSON array of strings
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_files_session ON source_files(session_id);
 CREATE INDEX IF NOT EXISTS idx_staging_file ON staging_data(file_id);
