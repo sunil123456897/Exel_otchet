@@ -53,19 +53,21 @@ class IngestionEngine(IDataSource):
 
     def scan_directory(self, root_path: Path) -> List[Dict[str, Any]]:
         res = []
-        if not root_path.exists(): return res
+        if not root_path.exists(): 
+            logger.warning(f"⚠️ Папка не найдена: {root_path}")
+            return res
+        logger.info(f"📁 Сканирую папку: {root_path}...")
         for root, _, files in os.walk(root_path):
             for f in files:
                 if f.startswith('~$') or not f.lower().endswith(('.xlsx', '.xlsb')): continue
                 p = (Path(root) / f).resolve()
                 try:
                     stat = os.stat(p)
-                    with open(p, 'rb') as f_io: 
-                        fp = hashlib.md5(f_io.read(8192)).hexdigest()
+                    # СКИПИРУЕМ хэширование при сканировании (это ОЧЕНЬ медленно по сети)
                     res.append({
                         "path": str(p), 
                         "id": stat.st_ino, 
-                        "fp": fp, 
+                        "fp": None, # Хэш будет вычислен только при необходимости
                         "size": stat.st_size, 
                         "mtime": stat.st_mtime
                     })

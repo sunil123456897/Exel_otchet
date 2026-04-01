@@ -29,6 +29,7 @@ class AppController:
     def refresh_status(self, selected_date, on_progress: Callable[[float], None], on_complete: Callable[[List[tuple], Dict, bool], None]):
         def task():
             try:
+                logging.info("📡 Начинаю поиск файлов в сети...")
                 employees_map = self._get_employees_map()
                 unique_names = sorted(employees_map.keys())
                 if not unique_names:
@@ -58,7 +59,9 @@ class AppController:
                     local_data.append((name, status, path_str, tag))
                 self._cached_employees = employees_map
                 on_complete(local_data, employees_map, self.rename_detected)
-            except Exception as e: logging.error(f"Refresh error: {e}")
+            except Exception as e: 
+                logging.error(f"Refresh error: {e}")
+                on_complete([], {}, False)
         threading.Thread(target=task, daemon=True).start()
 
     def _run_engine(self, session_id, employees_map, target_date_str, on_progress):
