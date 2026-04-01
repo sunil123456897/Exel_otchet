@@ -14,13 +14,22 @@ class DiscoveryService:
         config = self.config_controller.config
         config_list = config.get('employees', [])
         custom_paths = config.get('employee_paths', {})
-        source_root = config.get('paths', {}).get('source_root')
         
-        discovered_files = self.ingestion.scan_directory(Path(source_root)) if source_root else []
+        paths_config = config.get('paths', {})
+        sr_val = paths_config.get('source_roots') or paths_config.get('source_root')
+        roots_to_scan = [Path(r) for r in sr_val] if isinstance(sr_val, list) else [Path(sr_val)] if sr_val else []
+        root_strings = [str(r) for r in roots_to_scan]
+
+        discovered_files = []
+        for r in roots_to_scan:
+            discovered_files.extend(self.ingestion.scan_directory(r))
+            
         discovered_map = {}
         for f in discovered_files:
             p = Path(f['path'])
-            name = p.parent.name if str(p.parent) != source_root else p.stem
+            # If the file is directly in the root folder, use the file name without extension. 
+            # Otherwise, assume the parent folder name is the employee's name.
+            name = p.stem if str(p.parent) in root_strings else p.parent.name
             discovered_map.setdefault(name, []).append(f)
 
         result = {}
