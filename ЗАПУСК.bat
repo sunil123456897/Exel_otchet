@@ -51,7 +51,7 @@ call :step "Шаг 3/5. Обновление инструментов"
 "%PYTHON_CMD%" -m pip install --user --upgrade pip setuptools wheel >> "%LOGFILE%" 2>&1
 
 call :step "Шаг 4/5. Проверка библиотек"
-"%PYTHON_CMD%" -c "import tkinter, pandas, openpyxl, yaml, ruamel.yaml, tkcalendar, pyxlsb, pydantic" >> "%LOGFILE%" 2>&1
+"%PYTHON_CMD%" -c "import tkinter, pandas, openpyxl, yaml, ruamel.yaml, tkcalendar, pyxlsb, pydantic, python_calamine" >> "%LOGFILE%" 2>&1
 if errorlevel 1 (
     call :log "Устанавливаю недостающие библиотеки..."
     "%PYTHON_CMD%" -m pip install --user -r "%~dp0requirements.txt" >> "%LOGFILE%" 2>&1
