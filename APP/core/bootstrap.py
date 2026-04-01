@@ -12,6 +12,14 @@ class Bootstrap:
     def setup(app_root: Path, config_path: str):
         cfg_ctl = ConfigController(config_path)
         cfg = cfg_ctl.config
+        
+        # Fix 10: Config Validation
+        if not cfg or 'paths' not in cfg or 'sh1' not in cfg:
+            import tkinter.messagebox as mb
+            msg = "Файл config.yaml поврежден или не содержит необходимых ключей ('paths', 'sh1')!"
+            mb.showerror("Ошибка конфигурации", msg)
+            raise ValueError(msg)
+
         ingestion = IngestionEngine(cfg.get('sh1', {}).get('markers', {}))
         db_cfg = cfg.get('database', {})
         persistence = SQLiteManager(db_cfg.get('path', str(app_root / "cache.db")), str(app_root / "db_schema.sql"), cfg)

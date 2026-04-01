@@ -52,14 +52,33 @@ class SQLiteManager(IPersistence):
 
     def save_session(self, session_id: str, metadata: Dict[str, Any]) -> None:
         def _save():
-            with self._get_connection() as conn: conn.execute("INSERT INTO sessions (session_id, metadata) VALUES (?, ?)", (session_id, json.dumps(metadata, ensure_ascii=False, cls=DecimalEncoder)))
+            conn = self._get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.execute("INSERT INTO sessions (session_id, metadata) VALUES (?, ?)", (session_id, json.dumps(metadata, ensure_ascii=False, cls=DecimalEncoder)))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
         self._execute_with_retry(_save)
 
     def save_file_metadata(self, session_id: str, files: List[Dict[str, Any]]) -> List[int]:
         def _save():
             ids = []
-            with self._get_connection() as conn:
-                for f in files: ids.append(conn.execute("INSERT INTO source_files (session_id, file_path, file_hash, inode, status) VALUES (?, ?, ?, ?, ?)", (session_id, f['path'], f.get('hash'), f.get('inode'), f.get('status', 'pending'))).lastrowid)
+            conn = self._get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                for f in files: 
+                    cur = conn.execute("INSERT INTO source_files (session_id, file_path, file_hash, inode, status) VALUES (?, ?, ?, ?, ?)", (session_id, f['path'], f.get('hash'), f.get('inode'), f.get('status', 'pending')))
+                    ids.append(cur.lastrowid)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
             return ids
         return self._execute_with_retry(_save)
 
@@ -68,12 +87,30 @@ class SQLiteManager(IPersistence):
         def _save():
             sql = "INSERT INTO staging_data (file_id, row_index, raw_content_json, date_val, amount, employee_name, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
             data = [(file_id, r.get('_row_index'), json.dumps(sanitize_data(r), ensure_ascii=False), r.get('date'), decimal.Decimal(str(r.get('amount', 0))), r.get('employee_name'), r.get('source_type')) for r in rows]
-            with self._get_connection() as conn: conn.executemany(sql, data)
+            conn = self._get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.executemany(sql, data)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
         self._execute_with_retry(_save)
 
     def save_template_error(self, session_id: str, error_info: Dict[str, Any]) -> None:
         def _save():
-            with self._get_connection() as conn: conn.execute("INSERT INTO template_errors (session_id, file_path, sheet_name, row_index, error_type, details, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?)", (session_id, error_info.get('file_path'), error_info.get('sheet_name'), error_info.get('row_index'), error_info.get('error_type'), error_info.get('details'), json.dumps(error_info.get('raw_data'), ensure_ascii=False, cls=DecimalEncoder)))
+            conn = self._get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.execute("INSERT INTO template_errors (session_id, file_path, sheet_name, row_index, error_type, details, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?)", (session_id, error_info.get('file_path'), error_info.get('sheet_name'), error_info.get('row_index'), error_info.get('error_type'), error_info.get('details'), json.dumps(error_info.get('raw_data'), ensure_ascii=False, cls=DecimalEncoder)))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
         self._execute_with_retry(_save)
 
     def get_template_errors(self, session_id: str) -> List[Dict[str, Any]]:

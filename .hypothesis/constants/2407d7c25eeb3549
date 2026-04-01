@@ -1,0 +1,4 @@
+# file: E:\Для Даши\Версия 5\APP\core\utils_helpers.py
+# hypothesis_version: 6.151.10
+
+['#n/a', '#ref!', '#value!', '%', '(', ')', ',', '.', '.,', '0', '0.00', '0.01', '100', 'Darwin', 'Windows', '[^\\d.,-]', '[^\\d.,\\-eE+]', 'e', 'error', 'nan', 'none', 'null', 'open', 'xdg-open']

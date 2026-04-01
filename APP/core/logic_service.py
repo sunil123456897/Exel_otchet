@@ -42,7 +42,18 @@ class LogicService(ILogicService):
         for r in raw_rows:
             f_val = str(r.get('filters', '')).lower()
             is_add, is_ret = any(kw in f_val for kw in self.inc_over), any(kw in f_val for kw in self.ret_kw)
-            amt, tot = to_decimal(r.get('amount')), to_decimal(r.get('total', 0))
+            try:
+                amt = to_decimal(r.get('amount'))
+            except ValueError as e:
+                logger.error(f"DATA INTEGRITY ERROR (Logic): {e} | Source: {r.get('_source_info')}")
+                amt = Decimal('0.00')
+                
+            try:
+                tot = to_decimal(r.get('total', 0))
+            except ValueError as e:
+                logger.error(f"DATA INTEGRITY ERROR (Logic): {e} | Source: {r.get('_source_info')}")
+                tot = Decimal('0.00')
+
             if amt == 0 and tot == 0 and not is_add: continue
             
             # Financial routing:

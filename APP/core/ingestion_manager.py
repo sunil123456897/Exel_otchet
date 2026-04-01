@@ -77,7 +77,9 @@ def extract_date_from_sheet(sheet_name: str) -> Optional[str]:
             y = int(m.group(5)) if m.group(5) else curr.year
             if not m.group(5) and datetime(curr.year, month, d) > curr + timedelta(days=30): y = curr.year - 1
             return datetime(y, month, d).strftime("%d.%m.%Y")
-        except: return None
+        except Exception: 
+            logging.getLogger(__name__).warning(f"TEMPORAL WARNING: Invalid date in sheet '{sheet_name}' (e.g. Feb 29 in non-leap year)")
+            return None
     return None
 
 
@@ -91,6 +93,7 @@ import openpyxl
 from pyxlsb import open_workbook as open_xlsb
 
 from core.utils_helpers import to_decimal
+from core.data_schemas import FinancialRowSchema
 
 logger = logging.getLogger(__name__)
 
@@ -142,34 +145,48 @@ class ExcelReader:
             if is_only_numbers: return None
         
         has_data = False
-        res = {'_sheet_name': sheet_name, '_row_index': row_idx, '_file_path': file_path, 'date': extract_date_from_sheet(sheet_name)}
+        raw_data = {'_sheet_name': sheet_name, '_row_index': row_idx, '_file_path': os.path.abspath(file_path), 'date': extract_date_from_sheet(sheet_name)}
         for key, col_idx in col_map.items():
             if col_idx < len(row):
                 val = row[col_idx]
                 if val is not None and val != "": has_data = True
-                financial_keys = {'amount', 'income', 'expense', 'total', 'commission', 'percent_broker', 'broker1', 'broker2'}
-                res[key] = to_decimal(val) if key in financial_keys else val
-            else: res[key] = None
-        return res if has_data else None
+                raw_data[key] = val
+            else: raw_data[key] = None
+        
+        if not has_data: return None
+        
+        try:
+            validated = FinancialRowSchema(**raw_data)
+            res = validated.model_dump()
+            # Add source info for logging
+            res['_source_info'] = f"{os.path.basename(file_path)} | {sheet_name} | Row {row_idx}"
+            return res
+        except Exception as e:
+            logger.error(f"VALIDATION ERROR: {e} | File: {file_path} | Sheet: {sheet_name} | Row: {row_idx}")
+            return None
 
 class XlsxReader(ExcelReader):
     def read(self, file_path: Path) -> List[Dict[str, Any]]:
         all_rows = []
+        f_path_abs = os.path.abspath(str(file_path))
         try:
-            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            wb = openpyxl.load_workbook(f_path_abs, read_only=True, data_only=True)
             for ws in wb.worksheets:
                 if ws.sheet_state != 'visible' or ws.title.startswith('_') or ws.title in ("АНАЛИТИКА", "СВОД"): continue
-                rows = list(ws.iter_rows(values_only=True))
+                
+                # First pass: find standard keys (limit scan to first 200 rows for efficiency)
                 standard_keys, max_score = set(), 0
-                for row in rows:
+                for row in ws.iter_rows(min_row=1, max_row=200, values_only=True):
                     if not row: continue
                     row_values_str = [str(v).lower() for v in row if v is not None]
                     score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
                     if score >= 4 and score > max_score:
                         max_score = score
                         standard_keys = set(self._map_columns(row).keys())
+                
+                # Second pass: read data using generator
                 active_col_map, current_is_warning = None, False
-                for i, row in enumerate(rows):
+                for i, row in enumerate(ws.iter_rows(values_only=True)):
                     if not row: continue
                     row_values_str = [str(v).lower() for v in row if v is not None]
                     score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
@@ -178,24 +195,27 @@ class XlsxReader(ExcelReader):
                         current_is_warning = (set(active_col_map.keys()) != standard_keys)
                         continue
                     if active_col_map:
-                        row_dict = self._process_row(row, active_col_map, ws.title, i + 1, str(file_path))
+                        row_dict = self._process_row(row, active_col_map, ws.title, i + 1, f_path_abs)
                         if row_dict:
                             row_dict['is_template_warning'] = current_is_warning
                             all_rows.append(row_dict)
-        except Exception as e: logger.error(f"Error XLSX {file_path}: {e}")
+        except Exception as e: logger.error(f"Error XLSX {f_path_abs}: {e}")
         return all_rows
 
 class XlsbReader(ExcelReader):
     def read(self, file_path: Path) -> List[Dict[str, Any]]:
         all_rows = []
+        f_path_abs = os.path.abspath(str(file_path))
         try:
-            with open_xlsb(str(file_path)) as wb:
+            with open_xlsb(f_path_abs) as wb:
                 for sheet_name in wb.sheets:
                     if sheet_name.startswith('_') or sheet_name in ("АНАЛИТИКА", "СВОД"): continue
                     with wb.get_sheet(sheet_name) as ws:
-                        rows_objs_list = list(ws.rows())
+                        # First pass for standard keys
                         standard_keys, max_score = set(), 0
-                        for row_objs in rows_objs_list:
+                        # XLSB row iterator is also a generator
+                        for i, row_objs in enumerate(ws.rows()):
+                            if i > 200: break
                             row = [cell.v for cell in row_objs]
                             if not row: continue
                             row_values_str = [str(v).lower() for v in row if v is not None]
@@ -203,8 +223,10 @@ class XlsbReader(ExcelReader):
                             if score >= 4 and score > max_score:
                                 max_score = score
                                 standard_keys = set(self._map_columns(row).keys())
+                        
+                        # Second pass for data
                         active_col_map, current_is_warning = None, False
-                        for i, row_objs in enumerate(rows_objs_list):
+                        for i, row_objs in enumerate(ws.rows()):
                             row = [cell.v for cell in row_objs]
                             if not row: continue
                             row_values_str = [str(v).lower() for v in row if v is not None]
@@ -214,11 +236,11 @@ class XlsbReader(ExcelReader):
                                 current_is_warning = (set(active_col_map.keys()) != standard_keys)
                                 continue
                             if active_col_map:
-                                row_dict = self._process_row(row, active_col_map, sheet_name, i + 1, str(file_path))
+                                row_dict = self._process_row(row, active_col_map, sheet_name, i + 1, f_path_abs)
                                 if row_dict:
                                     row_dict['is_template_warning'] = current_is_warning
                                     all_rows.append(row_dict)
-        except Exception as e: logger.error(f"Error XLSB {file_path}: {e}")
+        except Exception as e: logger.error(f"Error XLSB {f_path_abs}: {e}")
         return all_rows
 
 

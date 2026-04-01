@@ -1,0 +1,9 @@
+[run]
+source = APP/core
+omit =
+    */__init__.py
+    */interfaces.py
+
+[report]
+show_missing = True
+fail_under = 90

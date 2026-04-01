@@ -25,8 +25,9 @@ class MasterWriter(IExporter):
             cell.fill, cell.font, cell.alignment, cell.border = self.st.fill_header, self.st.font_header, self.st.align_center, self.st.border_thin
 
     def _get_workbook(self):
-        if os.path.exists(self.master_path):
-            try: return openpyxl.load_workbook(self.master_path)
+        path_abs = os.path.abspath(self.master_path)
+        if os.path.exists(path_abs):
+            try: return openpyxl.load_workbook(path_abs)
             except: return openpyxl.Workbook()
         wb = openpyxl.Workbook()
         if "Sheet" in wb.sheetnames: wb.remove(wb["Sheet"])
@@ -36,24 +37,29 @@ class MasterWriter(IExporter):
         SPECIAL_ORDER = ["ВСЕ ОПЕРАЦИИ", "ДАШБОРД", "АНАЛИТИКА", "СВОД"]
         def key(n):
             if "." in n:
-                try: p = n.split("."); return (0, int(p[1]), int(p[0]), 0)
-                except: return (0, 99, 99, 0)
+                try: 
+                    p = n.split(".")
+                    if len(p) == 3: # DD.MM.YYYY
+                        return (0, int(p[2]), int(p[1]), int(p[0]))
+                    return (0, 9999, int(p[1]), int(p[0]))
+                except: return (0, 9999, 99, 99)
             return (1, 0, 0, SPECIAL_ORDER.index(n) if n in SPECIAL_ORDER else 99)
         for i, n in enumerate(sorted(wb.sheetnames, key=key)):
             curr = wb.sheetnames.index(n); offset = i - curr
             if offset != 0: wb.move_sheet(n, offset=offset)
         
-        tmp = self.master_path + ".tmp"
+        path_abs = os.path.abspath(self.master_path)
+        tmp = path_abs + ".tmp"
         try:
             wb.save(tmp)
             if os.path.exists(tmp):
-                if os.path.exists(self.master_path):
-                    try: os.replace(tmp, self.master_path)
+                if os.path.exists(path_abs):
+                    try: os.replace(tmp, path_abs)
                     except PermissionError:
                         if os.path.exists(tmp): os.remove(tmp)
                         import tkinter.messagebox as mb
                         mb.showerror("Файл занят", f"Закройте '{self.master_path}' в Excel!")
-                else: os.rename(tmp, self.master_path)
+                else: os.rename(tmp, path_abs)
         except Exception as e: logger.error(f"Save failed: {e}")
 
     def _auto_adjust(self, ws):
@@ -69,7 +75,7 @@ class MasterWriter(IExporter):
     def write_daily_data(self, date, rows, wb=None):
         should_save = False
         if wb is None: wb = self._get_workbook(); should_save = True
-        sh_name = date.strftime("%d.%m")
+        sh_name = date.strftime("%d.%m.%Y")
         if sh_name in wb.sheetnames: del wb[sh_name]
         ws = wb.create_sheet(sh_name)
         
@@ -96,11 +102,13 @@ class MasterWriter(IExporter):
             is_warning = (r_idx + 2) in warning_rows
             fill_row = self.st.fill_odd if (r_idx + 1) % 2 == 1 else self.st.fill_even
             
-            c_val = abs(float(row_cells[cols['комиссия']-1].value or 0)) if cols['комиссия']>0 else 0
             i_val = float(row_cells[cols['приход']-1].value or 0) if cols['приход']>0 else 0
             e_val = float(row_cells[cols['расход']-1].value or 0) if cols['расход']>0 else 0
             t_val = float(row_cells[cols['итог']-1].value or 0) if cols['итог']>0 else 0
+            
+            c_val = abs(float(row_cells[cols['комиссия']-1].value or 0)) if cols['комиссия']>0 else 0
             amt = i_val if i_val != 0 else e_val
+            # Trusted logic: if commission exists, we skip math check as accounting varies by project.
             is_math_err = (c_val == 0 and abs(amt) > 0.02 and (abs(t_val) < 0.02 or abs(amt - t_val) > 0.02))
 
             for c_idx, cell in enumerate(row_cells, 1):
@@ -154,11 +162,24 @@ class MasterWriter(IExporter):
         if should_save: self._save_workbook(wb)
 
     def write_report(self, data: List[Dict[str, Any]], path: Path, template_errors: List[Dict[str, Any]] = None) -> bool:
+        # Fix 6: Early Lock Check
+        p_str = os.path.abspath(str(path))
+        if os.path.exists(p_str):
+            try:
+                with open(p_str, 'a') as f: pass
+            except (IOError, PermissionError):
+                import tkinter.messagebox as mb
+                mb.showerror("Файл занят", f"Закройте '{p_str}' в Excel перед началом!")
+                return False
+        
         try:
             dbd = {}
             for r in data:
-                d = r.get('Дата', '')
-                if d: dbd.setdefault(d, []).append(r)
+                d = r.get('Дата')
+                if not d:
+                    d = "01.01.1900"
+                    logger.warning(f"TEMPORAL FALLBACK: Row from {r.get('Источник')} has no valid date. Using 01.01.1900.")
+                dbd.setdefault(d, []).append(r)
             self.master_path = str(path); wb = self._get_workbook()
             for d_str, rows in sorted(dbd.items()):
                 try: self.write_daily_data(datetime.strptime(d_str, "%d.%m.%Y"), rows, wb=wb)

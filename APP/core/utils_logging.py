@@ -6,20 +6,34 @@ Maintained for high modularity, testability, and structural integrity.
 """
 import logging
 import tkinter as tk
+import queue
 
 class TextHandler(logging.Handler):
     def __init__(self, text_widget):
         super().__init__()
         self.text_widget = text_widget
+        self.msg_queue = queue.Queue()
+        self._is_scheduled = False
 
     def emit(self, record):
         msg = self.format(record)
-        def append():
+        self.msg_queue.put(msg)
+        if not self._is_scheduled:
+            self._is_scheduled = True
+            self.text_widget.after_idle(self._process_queue)
+
+    def _process_queue(self):
+        try:
             self.text_widget.configure(state='normal')
-            self.text_widget.insert(tk.END, msg + '\n')
+            while not self.msg_queue.empty():
+                try:
+                    msg = self.msg_queue.get_nowait()
+                    self.text_widget.insert(tk.END, msg + '\n')
+                except queue.Empty: break
             self.text_widget.configure(state='disabled')
             self.text_widget.yview(tk.END)
-        self.text_widget.after(0, append)
+        finally:
+            self._is_scheduled = False
 
 def setup_gui_logging(log_widget):
     handler = TextHandler(log_widget)
