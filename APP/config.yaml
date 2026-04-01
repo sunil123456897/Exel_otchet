@@ -44,7 +44,10 @@ logic:
 paths:
   archive_dir: ../backups
   master_file: ../Master_Report.xlsx
-  source_root: ../REPORTS
+  source_roots:
+  - Q:\Отчет кураторов 1
+  - Q:\Отчет кураторов 2
+  - Q:\Отчет кураторов 3
 sh1:
   markers:
     amount: сумма платежа
