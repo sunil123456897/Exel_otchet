@@ -1,6 +1,8 @@
 import os
 import hashlib
 import logging
+import tempfile
+import shutil
 from pathlib import Path
 from typing import List, Dict, Any
 from python_calamine import CalamineWorkbook
@@ -31,15 +33,29 @@ class IngestionEngine(IDataSource):
 
     def get_available_dates(self, file_path: Path) -> List[str]:
         dates = set()
+        f_path_abs = os.path.abspath(str(file_path))
+        is_network = str(f_path_abs).startswith('\\\\') or f_path_abs[0].upper() in ('Q', 'Z')
+        temp_file = None
+        
         try:
-            # Calamine is much faster for just reading sheet names
-            wb = CalamineWorkbook.from_path(str(file_path))
+            target_path = f_path_abs
+            if is_network:
+                fd, temp_file = tempfile.mkstemp(suffix=file_path.suffix)
+                os.close(fd)
+                shutil.copy2(f_path_abs, temp_file)
+                target_path = temp_file
+                
+            wb = CalamineWorkbook.from_path(target_path)
             for s in wb.sheet_names:
                 if s.startswith('_') or s in ("АНАЛИТИКА", "СВОД"): continue
-                d = extract_date_from_sheet(s, file_path=str(file_path))
+                d = extract_date_from_sheet(s)
                 if d: dates.add(d)
         except Exception as e:
             logger.error(f"Error getting dates from {file_path}: {e}")
+        finally:
+            if temp_file and os.path.exists(temp_file):
+                try: os.remove(temp_file)
+                except: pass
         return sorted(list(dates))
 
     def scan_directory(self, root_path: Path) -> List[Dict[str, Any]]:

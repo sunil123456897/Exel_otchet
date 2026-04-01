@@ -20,15 +20,21 @@ class DiscoveryService:
         roots_to_scan = [Path(r) for r in sr_val] if isinstance(sr_val, list) else [Path(sr_val)] if sr_val else []
         root_strings = [str(r) for r in roots_to_scan]
 
+        # Optimization: Skip full SMB scan if all employees have explicit paths
+        all_have_custom = bool(config_list) and all(name in custom_paths for name in config_list)
+
         discovered_files = []
-        for r in roots_to_scan:
-            try:
-                logging.info(f"📡 Сканирую сетевой путь: {r}")
-                files = self.ingestion.scan_directory(r)
-                discovered_files.extend(files)
-                logging.info(f"✅ Найдено файлов в {r.name}: {len(files)}")
-            except Exception as e:
-                logging.error(f"❌ Ошибка доступа к {r}: {e}")
+        if not all_have_custom:
+            for r in roots_to_scan:
+                try:
+                    logging.info(f"📡 Сканирую сетевой путь: {r}")
+                    files = self.ingestion.scan_directory(r)
+                    discovered_files.extend(files)
+                    logging.info(f"✅ Найдено файлов в {r.name}: {len(files)}")
+                except Exception as e:
+                    logging.error(f"❌ Ошибка доступа к {r}: {e}")
+        else:
+            logging.info("⚡ Все сотрудники привязаны, пропускаю полное сканирование сети.")
             
         discovered_map = {}
         for f in discovered_files:
