@@ -52,7 +52,7 @@ class AppController:
                                 if target_date in available:
                                     status, tag = "🟢 ГОТОВО", 'ready'
                                     break
-                                logging.info(f"🔍 В файле {os.path.basename(p)} найдены даты: {available}")
+                                logging.info(f"🗓️ {os.path.basename(p)}: {available}")
                         except Exception as e:
                             logging.error(f"Error {name}: {e}"); status, tag = "❌ ОШИБКА", 'missing'
                     local_data.append((name, status, path_str, tag))
