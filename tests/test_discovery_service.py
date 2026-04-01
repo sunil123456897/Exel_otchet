@@ -3,7 +3,7 @@ import os
 import hashlib
 from unittest.mock import MagicMock, patch
 from pathlib import Path
-from core.discovery_service import DiscoveryService
+from core.infra.discovery_service import DiscoveryService
 
 def test_discovery_service_init():
     config_controller = MagicMock()

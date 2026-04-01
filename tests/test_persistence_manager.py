@@ -4,7 +4,7 @@ import json
 import decimal
 import datetime
 from pathlib import Path
-from core.persistence_manager import SQLiteManager, DecimalEncoder, sanitize_data
+from core.infra.persistence_manager import SQLiteManager, DecimalEncoder, sanitize_data
 
 @pytest.fixture
 def db_setup(tmp_path):

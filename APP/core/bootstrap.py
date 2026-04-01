@@ -1,10 +1,10 @@
 import logging
 from pathlib import Path
-from core.config_controller import ConfigController
-from core.ingestion_manager import IngestionEngine
-from core.persistence_manager import SQLiteManager
-from core.logic_service import LogicService, Validator
-from core.export_writer import MasterWriter
+from core.infra.config_controller import ConfigController
+from core.infra.ingestion_engine import IngestionEngine
+from core.infra.persistence_manager import SQLiteManager
+from core.domain.logic_service import LogicService, Validator
+from core.infra.export_writer import MasterWriter
 from core.app_controller import AppController
 
 class Bootstrap:

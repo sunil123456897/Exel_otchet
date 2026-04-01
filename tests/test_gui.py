@@ -1,7 +1,7 @@
 import pytest
 import tkinter as tk
 from unittest.mock import MagicMock, patch
-from APP.core.gui_master import GuiMaster
+from core.ui.gui_master import GuiMaster
 
 @pytest.fixture
 def mock_controllers():
@@ -13,12 +13,12 @@ def gui_app(mock_controllers):
     root.withdraw()
     config_controller, app_controller = mock_controllers
     
-    with patch('APP.core.gui_master.ThemeManager.apply_styles'), \
-         patch('APP.core.gui_master.setup_gui_logging'), \
-         patch('APP.core.gui_master.Sidebar'), \
-         patch('APP.core.gui_master.StatsPanel'), \
-         patch('APP.core.gui_master.LogPanel'), \
-         patch('APP.core.gui_master.EmployeeTable'):
+    with patch('core.ui.gui_master.ThemeManager.apply_styles'), \
+         patch('core.ui.gui_master.setup_gui_logging'), \
+         patch('core.ui.gui_master.Sidebar'), \
+         patch('core.ui.gui_master.StatsPanel'), \
+         patch('core.ui.gui_master.LogPanel'), \
+         patch('core.ui.gui_master.EmployeeTable'):
         
         gui = GuiMaster(root, config_controller, app_controller)
         yield gui
@@ -51,23 +51,23 @@ def test_run_consolidation_all_dates(gui_app):
     gui_app.app_controller.run_consolidation_all_dates.assert_called_once()
 
 def test_add_employee_dialog(gui_app, mocker):
-    mocker.patch('APP.core.gui_master.ask_employee_name', return_value="Charlie")
+    mocker.patch('core.ui.gui_master.ask_employee_name', return_value="Charlie")
     gui_app.add_employee_dialog()
     gui_app.config_controller.add_employee.assert_called_with("Charlie")
 
 def test_attach_file_dialog(gui_app, mocker):
-    mocker.patch('APP.core.gui_master.show_attach_file_dialog')
+    mocker.patch('core.ui.gui_master.show_attach_file_dialog')
     gui_app.attach_file_dialog()
-    import APP.core.gui_master as gm
+    import core.ui.gui_master as gm
     gm.show_attach_file_dialog.assert_called_once()
 
 def test_open_master_folder(gui_app, mocker):
     gui_app.config_controller.get_paths.return_value = {'master_file': 'Master.xlsx'}
     gui_app.config_controller.config_path = "C:/config.yaml"
     mocker.patch('pathlib.Path.parent', return_value=MagicMock(exists=lambda: True))
-    mocker.patch('APP.core.gui_master.open_path')
+    mocker.patch('core.ui.gui_master.open_path')
     gui_app.open_master_folder()
-    import APP.core.gui_master as gm
+    import core.ui.gui_master as gm
     gm.open_path.assert_called_once()
 
 def test_copy_missing_to_clipboard(gui_app, mocker):
@@ -92,15 +92,15 @@ def test_delete_employee(gui_app, mocker):
 def test_open_employee_folder(gui_app, mocker):
     gui_app._cached_employees = {'Alice': [{'path': 'C:/alice.xlsx'}]}
     gui_app.employee_table.get_selected_employee.return_value = "Alice"
-    mocker.patch('APP.core.gui_master.open_path')
+    mocker.patch('core.ui.gui_master.open_path')
     gui_app.open_employee_folder()
-    import APP.core.gui_master as gm
+    import core.ui.gui_master as gm
     gm.open_path.assert_called_once()
 
 def test_open_employee_file(gui_app, mocker):
     gui_app._cached_employees = {'Alice': [{'path': 'C:/alice.xlsx'}]}
     gui_app.employee_table.get_selected_employee.return_value = "Alice"
-    mocker.patch('APP.core.gui_master.open_path')
+    mocker.patch('core.ui.gui_master.open_path')
     gui_app.open_employee_file()
-    import APP.core.gui_master as gm
+    import core.ui.gui_master as gm
     gm.open_path.assert_called_once()

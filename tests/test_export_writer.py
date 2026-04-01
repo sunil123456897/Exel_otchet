@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, patch
-from core.export_writer import MasterWriter
+from core.infra.export_writer import MasterWriter
 from openpyxl.styles import PatternFill
 
 @pytest.fixture

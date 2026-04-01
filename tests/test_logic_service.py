@@ -1,6 +1,6 @@
 import pytest
 from decimal import Decimal
-from core.logic_service import LogicService, Validator
+from core.domain.logic_service import LogicService, Validator
 
 @pytest.fixture
 def logic_service():

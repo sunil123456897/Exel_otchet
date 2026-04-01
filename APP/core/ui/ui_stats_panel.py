@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from core.theme import ThemeManager
+from core.ui.theme import ThemeManager
 
 class StatsPanel(ttk.LabelFrame):
     def __init__(self, parent, controller):

@@ -2,11 +2,11 @@ import pytest
 import tkinter as tk
 from tkinter import ttk
 from unittest.mock import MagicMock, patch
-from APP.core.ui_sidebar import Sidebar
-from APP.core.ui_stats_panel import StatsPanel
-from APP.core.ui_log_panel import LogPanel
-from APP.core.ui_employee_table import EmployeeTable
-from APP.core.ui_dialogs import show_attach_file_dialog, ask_employee_name
+from core.ui.ui_sidebar import Sidebar
+from core.ui.ui_stats_panel import StatsPanel
+from core.ui.ui_log_panel import LogPanel
+from core.ui.ui_employee_table import EmployeeTable
+from core.ui.ui_dialogs import show_attach_file_dialog, ask_employee_name
 
 @pytest.fixture
 def root():
@@ -20,7 +20,7 @@ def mock_controller():
     return MagicMock()
 
 def test_sidebar(root, mock_controller):
-    with patch('APP.core.ui_sidebar.DateEntry'):
+    with patch('core.ui.ui_sidebar.DateEntry'):
         sidebar = Sidebar(root, mock_controller)
         sidebar.pack()
         assert sidebar.refresh_btn is not None

@@ -1,7 +1,7 @@
 import pytest
 from decimal import Decimal
 from hypothesis import given, strategies as st
-from core.logic_service import LogicService
+from core.domain.logic_service import LogicService
 
 # Strategy for financial amounts
 # We use decimals with 2 decimal places

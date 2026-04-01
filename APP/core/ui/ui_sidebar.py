@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
-from core.theme import ThemeManager
+from core.ui.theme import ThemeManager
 
 class Sidebar(ttk.Frame):
     def __init__(self, parent, controller):

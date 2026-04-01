@@ -3,7 +3,7 @@ import pytest
 import pandas as pd
 import openpyxl
 from datetime import datetime
-from core.export_writer import MasterWriter
+from core.infra.export_writer import MasterWriter
 
 GOLDEN_DIR = os.path.join(os.path.dirname(__file__), 'golden')
 GOLDEN_FILE = os.path.join(GOLDEN_DIR, 'reference_output.xlsx')

@@ -3,7 +3,8 @@ import time
 import psutil
 import openpyxl
 from pathlib import Path
-from APP.core.ingestion_manager import IngestionEngine
+from core.infra.ingestion_engine import IngestionEngine
+
 
 def generate_large_excel(file_path, num_rows=100000):
     print(f"Generating {num_rows} rows in {file_path}...")

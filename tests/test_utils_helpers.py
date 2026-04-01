@@ -1,6 +1,6 @@
 import pytest
 from decimal import Decimal
-from core.utils_helpers import to_decimal, to_decimal_percent, open_path
+from core.domain.utils_helpers import to_decimal, to_decimal_percent, open_path
 
 def test_to_decimal_basic():
     assert to_decimal(100) == Decimal('100.00')

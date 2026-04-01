@@ -1,0 +1,4 @@
+# file: E:\Для Даши\Версия 5\APP\core\infra\persistence_manager.py
+# hypothesis_version: 6.151.10
+
+[1.0, 30.0, 'BEGIN TRANSACTION', 'NUMERIC', '_row_index', '_source_info', 'amount', 'busy', 'cnt', 'created_at', 'database', 'date', 'date_val', 'details', 'employee_name', 'error_type', 'file_path', 'file_stats', 'hash', 'inode', 'isoformat', 'locked', 'locking', 'path', 'pending', 'r', 'raw_content_json', 'raw_data', 'retry_backoff', 'retry_count', 'row_index', 'session_id', 'sheet_name', 'source_type', 'status', 'timeout', 'use_wal', 'utf-8']

@@ -1,7 +1,7 @@
 import logging
 import tkinter as tk
 from unittest.mock import MagicMock, patch
-from core.utils_logging import TextHandler, setup_gui_logging
+from core.infra.utils_logging import TextHandler, setup_gui_logging
 
 def test_text_handler_emit():
     mock_text_widget = MagicMock()

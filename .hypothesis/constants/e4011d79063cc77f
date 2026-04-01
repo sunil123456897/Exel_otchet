@@ -1,0 +1,4 @@
+# file: E:\Для Даши\Версия 5\APP\core\infra\ingestion_readers.py
+# hypothesis_version: 6.151.10
+
+[200, ',', '-', '.', '_', '_file_path', '_row_index', '_sheet_name', '_source_info', 'commission', 'date', 'is_template_warning', 'visible', 'АНАЛИТИКА', 'СВОД', 'посредник']

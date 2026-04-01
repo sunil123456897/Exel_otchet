@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
-from core.discovery_service import DiscoveryService
+from core.infra.discovery_service import DiscoveryService
 
 class AppController:
     def __init__(self, config_controller, ingestion, persistence, validator, logic_service, writer):

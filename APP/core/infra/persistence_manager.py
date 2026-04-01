@@ -6,7 +6,7 @@ import decimal
 import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-from core.interfaces import IPersistence
+from core.domain.interfaces import IPersistence
 
 class DecimalEncoder(json.JSONEncoder):
     def default(self, obj):

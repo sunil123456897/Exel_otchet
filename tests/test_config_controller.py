@@ -1,7 +1,7 @@
 import pytest
 import os
 from pathlib import Path
-from core.config_controller import ConfigController
+from core.infra.config_controller import ConfigController
 
 @pytest.fixture
 def config_file(tmp_path):

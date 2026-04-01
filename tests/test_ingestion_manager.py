@@ -3,7 +3,9 @@ from pathlib import Path
 from decimal import Decimal
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
-from core.ingestion_manager import extract_date_from_sheet, ExcelReader, XlsxReader, XlsbReader, IngestionEngine
+from core.infra.ingestion_utils import extract_date_from_sheet
+from core.infra.ingestion_readers import ExcelReader, XlsxReader, XlsbReader
+from core.infra.ingestion_engine import IngestionEngine
 
 def test_extract_date_from_sheet():
     assert extract_date_from_sheet("01.01.2026") == "01.01.2026"
@@ -14,7 +16,7 @@ def test_extract_date_from_sheet():
     
     # Test year rollover logic
     # If today is 01.01.2026 and sheet is 31.12, it should probably be 2025 if 31.12.2026 is > 30 days in future
-    with patch('core.ingestion_manager.datetime') as mock_datetime:
+    with patch('core.infra.ingestion_utils.datetime') as mock_datetime:
         mock_datetime.now.return_value = datetime(2026, 1, 1)
         mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
         
@@ -65,7 +67,7 @@ def test_ingestion_engine_get_available_dates_xlsb(tmp_path):
     test_file = tmp_path / "test.xlsb"
     test_file.write_text("content")
     
-    with patch('core.ingestion_manager.open_xlsb') as mock_open:
+    with patch('core.infra.ingestion_engine.open_xlsb') as mock_open:
         mock_wb = MagicMock()
         mock_wb.__enter__.return_value = mock_wb
         mock_wb.sheets = ['01.01.2026', 'Invalid']
@@ -128,7 +130,7 @@ def test_xlsb_reader_mocked():
     aliases = {'amount': ['сумма'], 'income': ['приход'], 'expense': ['расход'], 'customer': ['заказчик']}
     reader = XlsbReader(markers, aliases)
     
-    with patch('core.ingestion_manager.open_xlsb') as mock_open:
+    with patch('core.infra.ingestion_readers.open_xlsb') as mock_open:
         mock_wb = MagicMock()
         mock_wb.__enter__.return_value = mock_wb
         mock_wb.sheets = ['01.01.2026']

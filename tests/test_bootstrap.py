@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from APP.core.bootstrap import Bootstrap
+from core.bootstrap import Bootstrap
 
 def test_bootstrap_setup_success(tmp_path):
     app_root = tmp_path
@@ -9,13 +9,13 @@ def test_bootstrap_setup_success(tmp_path):
     config_path.write_text("paths: {}\nsh1: {markers: {}}", encoding='utf-8')
     
     # Mock all classes instantiated in setup
-    with patch('APP.core.bootstrap.ConfigController') as mock_cfg_ctl, \
-         patch('APP.core.bootstrap.IngestionEngine'), \
-         patch('APP.core.bootstrap.SQLiteManager'), \
-         patch('APP.core.bootstrap.Validator'), \
-         patch('APP.core.bootstrap.LogicService'), \
-         patch('APP.core.bootstrap.MasterWriter'), \
-         patch('APP.core.bootstrap.AppController'):
+    with patch('core.bootstrap.ConfigController') as mock_cfg_ctl, \
+         patch('core.bootstrap.IngestionEngine'), \
+         patch('core.bootstrap.SQLiteManager'), \
+         patch('core.bootstrap.Validator'), \
+         patch('core.bootstrap.LogicService'), \
+         patch('core.bootstrap.MasterWriter'), \
+         patch('core.bootstrap.AppController'):
         
         mock_cfg_ctl.return_value.config = {'paths': {}, 'sh1': {'markers': {}}}
         
@@ -30,7 +30,7 @@ def test_bootstrap_setup_invalid_config(tmp_path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text("invalid: config", encoding='utf-8')
     
-    with patch('APP.core.bootstrap.ConfigController') as mock_cfg_ctl, \
+    with patch('core.bootstrap.ConfigController') as mock_cfg_ctl, \
          patch('tkinter.messagebox.showerror'):
         
         mock_cfg_ctl.return_value.config = {'invalid': 'config'}

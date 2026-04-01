@@ -6,8 +6,8 @@ from pathlib import Path
 import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill
-from core.interfaces import IExporter
-from core.export_styles import ExcelStyles
+from core.domain.interfaces import IExporter
+from core.infra.export_styles import ExcelStyles
 
 logger = logging.getLogger(__name__)
 

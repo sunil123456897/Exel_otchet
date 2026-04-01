@@ -2,7 +2,7 @@ import pytest
 import threading
 import os
 from unittest.mock import MagicMock, patch
-from APP.core.app_controller import AppController
+from core.app_controller import AppController
 from datetime import datetime
 from pathlib import Path
 
@@ -19,7 +19,7 @@ def mock_deps():
 
 @pytest.fixture
 def app_controller(mock_deps):
-    with patch('APP.core.app_controller.DiscoveryService'):
+    with patch('core.app_controller.DiscoveryService'):
         controller = AppController(**mock_deps)
         return controller
 

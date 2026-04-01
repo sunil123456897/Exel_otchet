@@ -5,16 +5,16 @@ from tkinter import ttk, messagebox
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from core.ui_sidebar import Sidebar
-from core.ui_employee_table import EmployeeTable
-from core.ui_stats_panel import StatsPanel
-from core.ui_log_panel import LogPanel
-from core.ui_dialogs import show_attach_file_dialog, ask_employee_name
-from core.theme import ThemeManager
+from core.ui.ui_sidebar import Sidebar
+from core.ui.ui_employee_table import EmployeeTable
+from core.ui.ui_stats_panel import StatsPanel
+from core.ui.ui_log_panel import LogPanel
+from core.ui.ui_dialogs import show_attach_file_dialog, ask_employee_name
+from core.ui.theme import ThemeManager
 from core.app_controller import AppController
-from core.config_controller import ConfigController
-from core.utils_helpers import open_path
-from core.utils_logging import setup_gui_logging
+from core.infra.config_controller import ConfigController
+from core.domain.utils_helpers import open_path
+from core.infra.utils_logging import setup_gui_logging
 
 class GuiMaster:
     def __init__(self, root: tk.Tk, config_controller: ConfigController, app_controller: AppController):

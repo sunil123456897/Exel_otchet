@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext
-from core.theme import ThemeManager
+from core.ui.theme import ThemeManager
 
 class LogPanel(ttk.Frame):
     def __init__(self, parent, controller):
