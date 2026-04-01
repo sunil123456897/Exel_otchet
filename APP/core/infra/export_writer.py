@@ -124,15 +124,15 @@ class MasterWriter(IExporter):
             for c_idx, cell in enumerate(row_cells, 1):
                 cell.border = self.st.border_thin
                 
-                # Base fill logic: warning (red) takes priority, then math error (yellow), then alternate rows
-                if is_warning:
-                    cell.fill = self.st.fill_warning
-                elif is_math_err:
+                # Base fill logic: math error (yellow) takes priority for the whole row, then alternate rows.
+                # Warning (red) is applied ONLY to the specific 'Источник' cell later to avoid hiding yellow rows.
+                if is_math_err:
                     cell.fill = fill_yellow
                 else:
                     cell.fill = fill_row
                 cell.font = self.st.font_standard
 
+                is_percent_err = False
                 if c_idx in num_indices:
                     val = cell.value or 0
                     if c_idx == cols['приход'] and isinstance(val, (int, float)) and val > 0.01:
@@ -140,35 +140,40 @@ class MasterWriter(IExporter):
                     elif c_idx == cols['расход'] and isinstance(val, (int, float)) and abs(val) > 0.01:
                         cell.fill, cell.font = self.st.fill_expense, self.st.font_expense
                     
-                    if is_warning and c_idx == 2:
-                        cell.fill = self.st.fill_warning
-                        
                     if c_idx == percent_broker_col:
-                        # Ensure cell.value is numeric for formatting. Text stays as text.
                         try:
                             v_float = float(val)
-                            if abs(v_float) > 1: v_float = v_float / 100.0
-                            is_percent_err = abs(v_float) > 1.0  # > 100%
-                            cell.value = v_float
+                            if abs(v_float) <= 1.0:
+                                cell.value = v_float
+                            elif abs(v_float) <= 100.0:
+                                cell.value = v_float / 100.0
+                            else:
+                                is_percent_err = True
+                                cell.value = v_float
                         except (ValueError, TypeError):
                             is_percent_err = True
+                            cell.value = val
                         
-                        if is_percent_err and not is_warning: # Paint specific cell
+                        if is_percent_err: 
                             cell.fill = self.st.fill_warning
                     
                     # Formatting rules: % for commission and percent_broker, standard for others
                     h = str(ws.cell(1, c_idx).value or "").lower()
                     if '%' in h and 'посред' in h:
-                        fmt = '0.00%'
-                        # Convert to fraction for proper Excel percentage representation
-                        if isinstance(cell.value, (int, float)) and abs(cell.value) > 1:
-                            cell.value = cell.value / 100.0
+                        if is_percent_err:
+                            fmt = 'General' if isinstance(cell.value, str) else '#,##0.00'
+                        else:
+                            fmt = '0.00%'
                     elif 'комиссия' in h:
                         fmt = '0.00"%"'
                     else:
                         fmt = '#,##0.00'
                         
                     cell.alignment, cell.number_format = self.st.align_right, fmt
+                    
+                    # Apply template warning red color ONLY to 'Источник' (c_idx == 2)
+                    if is_warning and c_idx == 2:
+                        cell.fill = self.st.fill_warning
                 else:
                     if is_warning and c_idx == 2:
                         cell.fill = self.st.fill_warning
