@@ -68,7 +68,7 @@ def test_math_error_detection_logic(master_writer):
         'сумма платежа ПРИХОД': 0,
         'сумма платежа РАСХОД': -100,
         'комиссия': 0,
-        'ИТОГ': -100
+        'ИТОГ': 100
     }]
     master_writer.write_daily_data(datetime(2026, 1, 1), rows, wb=mock_wb)
     first_data_row_cells = mock_ws._rows[1]

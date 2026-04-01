@@ -85,7 +85,7 @@ class MasterWriter(IExporter):
         warning_rows = []
         for r in rows:
             if r.get('is_template_warning'): warning_rows.append(ws.max_row + 1)
-            ws.append([date.strftime("%d.%m.%Y"), r.get('Источник', ''), r.get('ЗАКАЗЧИК (название проекта, наименование ЮЛ)', ''), r.get('ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)', ''), float(r.get('сумма платежа ПРИХОД', 0)), float(r.get('сумма платежа РАСХОД', 0)), float(r.get('комиссия', 0)), float(r.get('ИТОГ', 0)), float(r.get('% посредника', 0)), float(r.get('посредник 1(кэш)', 0)), float(r.get('посредник 2', 0)), r.get('фильтры', '')])
+            ws.append([date.strftime("%d.%m.%Y"), r.get('Источник', ''), r.get('ЗАКАЗЧИК (название проекта, наименование ЮЛ)', ''), r.get('ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)', ''), float(r.get('сумма платежа ПРИХОД', 0)), float(r.get('сумма платежа РАСХОД', 0)), float(r.get('комиссия', 0)), float(r.get('ИТОГ', 0)), r.get('% посредника', 0), float(r.get('посредник 1(кэш)', 0)), float(r.get('посредник 2', 0)), r.get('фильтры', '')])
 
         num_kw = ['приход', 'расход', 'комиссия', 'итог', 'посредник']
         cols = {kw: -1 for kw in num_kw}; num_indices = set()
@@ -96,6 +96,12 @@ class MasterWriter(IExporter):
                 if kw in val:
                     if kw == 'комиссия' and 'посред' in val: continue
                     cols[kw] = i
+                    
+        percent_broker_col = -1
+        for i, cell in enumerate(ws[1], 1):
+            if str(cell.value or "").lower() == '% посредника':
+                percent_broker_col = i
+                break
         
         fill_yellow = PatternFill(patternType='solid', fgColor="FFFF00")
         for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row)):
@@ -129,13 +135,30 @@ class MasterWriter(IExporter):
 
                 if c_idx in num_indices:
                     val = cell.value or 0
-                    if c_idx == cols['приход'] and val > 0.01:
+                    if c_idx == cols['приход'] and isinstance(val, (int, float)) and val > 0.01:
                         cell.fill, cell.font = self.st.fill_income, self.st.font_income
-                    elif c_idx == cols['расход'] and abs(val) > 0.01:
+                    elif c_idx == cols['расход'] and isinstance(val, (int, float)) and abs(val) > 0.01:
                         cell.fill, cell.font = self.st.fill_expense, self.st.font_expense
                     
                     if is_warning and c_idx == 2:
                         cell.fill = self.st.fill_warning
+                        
+                    if c_idx == percent_broker_col:
+                        # Ensure cell.value is numeric for formatting. Text stays as text.
+                        try:
+                            v_float = float(val)
+                            # Convert to percentage if it's currently > 1 but <= 100 
+                            # (Assuming users typed "15" instead of "0.15" or "15%")
+                            # No, logic_service uses to_decimal which doesn't divide by 100 unless % is present.
+                            # So a value could be 15.0. To format as 15%, we write it as 15.0 or 0.15?
+                            # Standard excel % format needs 0.15. But we just use '#,##0.00' for %_broker.
+                            is_percent_err = abs(v_float) > 100  # If someone enters 15000%
+                            cell.value = v_float
+                        except (ValueError, TypeError):
+                            is_percent_err = True
+                        
+                        if is_percent_err and not is_warning: # Paint specific cell
+                            cell.fill = self.st.fill_warning
                     
                     # Formatting rules: % for commission, standard for others
                     h = str(ws.cell(1, c_idx).value or "").lower()

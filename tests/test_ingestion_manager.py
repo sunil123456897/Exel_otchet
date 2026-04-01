@@ -88,13 +88,13 @@ def test_excel_reader_map_columns():
     reader = ExcelReader(markers, aliases)
     
     header = ["Дата", "Заказчик", "Сумма платежа", "Комиссия"]
-    col_map = reader._map_columns(header)
+    col_map, used_aliases = reader._map_columns(header)
     assert col_map['customer'] == 1
     assert col_map['amount'] == 2
     assert col_map['commission'] == 3
 
     header_aliases = ["Дата", "Агент", "БН", "Комиссия"]
-    col_map = reader._map_columns(header_aliases)
+    col_map, used_aliases = reader._map_columns(header_aliases)
     assert col_map['customer'] == 1
     assert col_map['amount'] == 2
 
