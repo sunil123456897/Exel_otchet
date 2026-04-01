@@ -147,12 +147,8 @@ class MasterWriter(IExporter):
                         # Ensure cell.value is numeric for formatting. Text stays as text.
                         try:
                             v_float = float(val)
-                            # Convert to percentage if it's currently > 1 but <= 100 
-                            # (Assuming users typed "15" instead of "0.15" or "15%")
-                            # No, logic_service uses to_decimal which doesn't divide by 100 unless % is present.
-                            # So a value could be 15.0. To format as 15%, we write it as 15.0 or 0.15?
-                            # Standard excel % format needs 0.15. But we just use '#,##0.00' for %_broker.
-                            is_percent_err = abs(v_float) > 100  # If someone enters 15000%
+                            if abs(v_float) > 1: v_float = v_float / 100.0
+                            is_percent_err = abs(v_float) > 1.0  # > 100%
                             cell.value = v_float
                         except (ValueError, TypeError):
                             is_percent_err = True
@@ -160,13 +156,14 @@ class MasterWriter(IExporter):
                         if is_percent_err and not is_warning: # Paint specific cell
                             cell.fill = self.st.fill_warning
                     
-                    # Formatting rules: % for commission, standard for others
+                    # Formatting rules: % for commission and percent_broker, standard for others
                     h = str(ws.cell(1, c_idx).value or "").lower()
-                    if 'комиссия' in h:
-                        fmt = '0.00"%"'
-                    elif '%' in h and 'посред' in h:
-                        fmt = '#,##0.00'  # No % for broker percentage per user request
-                    elif '%' in h:
+                    if '%' in h and 'посред' in h:
+                        fmt = '0.00%'
+                        # Convert to fraction for proper Excel percentage representation
+                        if isinstance(cell.value, (int, float)) and abs(cell.value) > 1:
+                            cell.value = cell.value / 100.0
+                    elif 'комиссия' in h:
                         fmt = '0.00"%"'
                     else:
                         fmt = '#,##0.00'
