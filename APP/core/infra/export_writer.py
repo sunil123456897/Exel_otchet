@@ -107,9 +107,13 @@ class MasterWriter(IExporter):
             t_val = float(row_cells[cols['итог']-1].value or 0) if cols['итог']>0 else 0
             
             c_val = abs(float(row_cells[cols['комиссия']-1].value or 0)) if cols['комиссия']>0 else 0
-            amt = i_val if i_val != 0 else e_val
-            # Trusted logic: if commission exists, we skip math check as accounting varies by project.
-            is_math_err = (c_val == 0 and abs(amt) > 0.02 and (abs(t_val) < 0.02 or abs(amt - t_val) > 0.02))
+            
+            # The balance impact: income adds to total, expense subtracts from total
+            expected_total = i_val - e_val
+            has_money = abs(i_val) > 0.02 or abs(e_val) > 0.02
+            
+            # Trusted logic: if commission exists, we skip math check.
+            is_math_err = (c_val == 0 and has_money and (abs(t_val) < 0.02 or abs(expected_total - t_val) > 0.02))
 
             for c_idx, cell in enumerate(row_cells, 1):
                 cell.border = self.st.border_thin
