@@ -87,29 +87,28 @@ if errorlevel 1 (
 call :log Библиотеки готовы.
 
 call :step "Шаг 5/5. Запуск приложения"
+set "LAUNCHED=0"
 if defined PYTHONW_CMD if exist "%PYTHONW_CMD%" (
-    call :log Запускаю через pythonw: "%PYTHONW_CMD%" "%MAINFILE%"
+    call :log Попытка запуска через pythonw: "%PYTHONW_CMD%" "%MAINFILE%"
     start "" "%PYTHONW_CMD%" "%MAINFILE%"
-    if errorlevel 1 (
-        call :log Не удалось запустить через pythonw. Пробую через python.
-        "%PYTHON_CMD%" "%MAINFILE%"
-    )
-) else (
-    call :log pythonw не найден. Запускаю через python: "%PYTHON_CMD%" "%MAINFILE%"
+    set "LAUNCHED=1"
+    rem Мы не можем легко проверить успех start, поэтому просто логируем
+)
+
+if "%LAUNCHED%"=="0" (
+    call :log Запуск через python (в этом окне): "%PYTHON_CMD%" "%MAINFILE%"
     "%PYTHON_CMD%" "%MAINFILE%"
+    if errorlevel 1 (
+        call :fail "Приложение завершилось с ошибкой. Проверьте логи выше."
+    )
 )
 
-if errorlevel 1 (
-    call :fail "Приложение завершилось с ошибкой или не запустилось."
-)
-
-call :log Приложение успешно запущено.
+call :log Скрипт завершил работу.
 echo.
 echo ========================================================
-echo ГОТОВО. Приложение запущено.
-echo Если что-то сломается — пришли файл startup_log.txt
+echo ГОТОВО. Если окно GUI не открылось — проверьте startup_log.txt
 echo ========================================================
-timeout /t 5 >nul
+pause
 exit /b 0
 
 
