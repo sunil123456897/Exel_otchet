@@ -45,6 +45,13 @@ class ExcelReader:
 
     def _process_row(self, row: List[Any], col_map: Dict[str, int], sheet_name: str, row_idx: int, file_path: str) -> Optional[Dict[str, Any]]:
         if not row: return None
+        
+        # Trash filter: ignore instructions, formulas, or header-like text in data rows
+        trash_keywords = ['c16', 'd16', 'название клиента', 'согласно платежному', 'процентном формате']
+        row_str = " ".join([str(v).lower() for v in row if v is not None])
+        if any(tk in row_str for tk in trash_keywords):
+            return None
+
         non_empty_vals = [v for v in row if v is not None and str(v).strip() != '']
         if non_empty_vals:
             is_only_numbers = True
@@ -58,16 +65,23 @@ class ExcelReader:
                     break
             if is_only_numbers: return None
         
-        has_data = False
         raw_data = {'_sheet_name': sheet_name, '_row_index': row_idx, '_file_path': os.path.abspath(file_path), 'date': extract_date_from_sheet(sheet_name)}
+        has_financial_data = False
         for key, col_idx in col_map.items():
             if col_idx < len(row):
                 val = row[col_idx]
-                if val is not None and val != "": has_data = True
+                if val is not None and val != "":
+                    has_data = True
+                    # Check if this is a financial field and has a non-zero value
+                    if key in ('amount', 'income', 'expense', 'commission'):
+                        try:
+                            if abs(float(str(val).replace(' ', '').replace(',', '.'))) > 0.001:
+                                has_financial_data = True
+                        except: pass
                 raw_data[key] = val
             else: raw_data[key] = None
         
-        if not has_data: return None
+        if not has_data or not has_financial_data: return None
         
         try:
             validated = FinancialRowSchema(**raw_data)

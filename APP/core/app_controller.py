@@ -48,8 +48,11 @@ class AppController:
                         try:
                             target_date = selected_date.strftime("%d.%m.%Y")
                             for p in paths:
-                                if target_date in self.ingestion.get_available_dates(Path(p)):
-                                    status, tag = "🟢 ГОТОВО", 'ready'; break
+                                available = self.ingestion.get_available_dates(Path(p))
+                                if target_date in available:
+                                    status, tag = "🟢 ГОТОВО", 'ready'
+                                    break
+                                logging.info(f"🔍 В файле {os.path.basename(p)} найдены даты: {available}")
                         except Exception as e:
                             logging.error(f"Error {name}: {e}"); status, tag = "❌ ОШИБКА", 'missing'
                     local_data.append((name, status, path_str, tag))

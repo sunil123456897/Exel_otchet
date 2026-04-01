@@ -114,8 +114,10 @@ class MasterWriter(IExporter):
             for c_idx, cell in enumerate(row_cells, 1):
                 cell.border = self.st.border_thin
                 
-                # Base fill and font
-                if is_math_err:
+                # Base fill logic: warning (red) takes priority, then math error (yellow), then alternate rows
+                if is_warning:
+                    cell.fill = self.st.fill_warning
+                elif is_math_err:
                     cell.fill = fill_yellow
                 else:
                     cell.fill = fill_row

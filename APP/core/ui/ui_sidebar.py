@@ -28,7 +28,10 @@ class Sidebar(ttk.Frame):
             background=ThemeManager.COLORS['primary'],
             foreground='white', 
             borderwidth=2, 
-            date_pattern='dd.mm.yyyy'
+            date_pattern='dd.mm.yyyy',
+            locale='ru_RU',
+            headersbackground=ThemeManager.COLORS['primary'],
+            selectbackground=ThemeManager.COLORS['accent'] if 'accent' in ThemeManager.COLORS else '#007bff'
         )
         self.date_entry.pack(pady=(0, 10), fill=tk.X)
         self.date_entry.bind("<<DateEntrySelected>>", lambda e: self.controller.refresh_status())

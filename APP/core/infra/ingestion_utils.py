@@ -17,8 +17,6 @@ def extract_date_from_sheet(sheet_name: str) -> Optional[str]:
             curr = datetime.now()
             d, month = int(m.group(2)), int(m.group(3))
             y = int(m.group(5)) if m.group(5) else curr.year
-            if not m.group(5) and datetime(curr.year, month, d) > curr + timedelta(days=30): 
-                y = curr.year - 1
             return datetime(y, month, d).strftime("%d.%m.%Y")
         except Exception: 
             logger.warning(f"TEMPORAL WARNING: Invalid date in sheet '{sheet_name}' (e.g. Feb 29 in non-leap year)")

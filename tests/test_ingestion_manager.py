@@ -20,9 +20,8 @@ def test_extract_date_from_sheet():
         mock_datetime.now.return_value = datetime(2026, 1, 1)
         mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
         
-        # 31.12 (no year) -> should be 2025 because 31.12.2026 is > 30 days from 01.01.2026
-        assert extract_date_from_sheet("31.12") == "31.12.2025"
-        
+        # Removed smart rollover logic: year should always default to current year
+        assert extract_date_from_sheet("31.12") == "31.12.2026"
         # 05.01 (no year) -> should be 2026 because 05.01.2026 is < 30 days from 01.01.2026
         assert extract_date_from_sheet("05.01") == "05.01.2026"
 
