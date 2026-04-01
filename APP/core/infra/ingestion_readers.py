@@ -16,8 +16,9 @@ class ExcelReader:
         self.markers = markers
         self.aliases = aliases
 
-    def _map_columns(self, header_row: List[Any]) -> Dict[str, int]:
+    def _map_columns(self, header_row: List[Any]) -> tuple[Dict[str, int], bool]:
         col_map = {}
+        used_aliases = False
         header_values = [str(val).lower() if val is not None else "" for val in header_row]
         
         for key, marker in self.markers.items():
@@ -38,10 +39,11 @@ class ExcelReader:
                         if alt_lower in val:
                             if key == 'commission' and 'посредник' in val: continue
                             found_idx = idx
+                            used_aliases = True
                             break
                     if found_idx is not None: break
             if found_idx is not None: col_map[key] = found_idx
-        return col_map
+        return col_map, used_aliases
 
     def _process_row(self, row: List[Any], col_map: Dict[str, int], sheet_name: str, row_idx: int, file_path: str) -> Optional[Dict[str, Any]]:
         if not row: return None
@@ -66,6 +68,7 @@ class ExcelReader:
             if is_only_numbers: return None
         
         raw_data = {'_sheet_name': sheet_name, '_row_index': row_idx, '_file_path': os.path.abspath(file_path), 'date': extract_date_from_sheet(sheet_name)}
+        has_data = False
         has_financial_data = False
         for key, col_idx in col_map.items():
             if col_idx < len(row):
@@ -110,17 +113,19 @@ class XlsxReader(ExcelReader):
                     score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
                     if score >= 4 and score > max_score:
                         max_score = score
-                        standard_keys = set(self._map_columns(row).keys())
+                        standard_keys = set(self._map_columns(row)[0].keys())
                 
                 # Second pass: read data using generator
                 active_col_map, current_is_warning = None, False
-                for i, row in enumerate(ws.iter_rows(values_only=True)):
+                for i, row in enumerate(ws.iter_rows(values_only=True) if hasattr(ws, 'iter_rows') else ws.rows()):
+                    if not hasattr(ws, 'iter_rows'): # for xlsb compatibility
+                        row = [cell.v for cell in row]
                     if not row: continue
                     row_values_str = [str(v).lower() for v in row if v is not None]
                     score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
                     if score >= 4:
-                        active_col_map = self._map_columns(row)
-                        current_is_warning = (set(active_col_map.keys()) != standard_keys)
+                        active_col_map, used_aliases = self._map_columns(row)
+                        current_is_warning = used_aliases or (set(active_col_map.keys()) != standard_keys)
                         continue
                     if active_col_map:
                         row_dict = self._process_row(row, active_col_map, ws.title, i + 1, f_path_abs)
@@ -150,7 +155,7 @@ class XlsbReader(ExcelReader):
                             score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
                             if score >= 4 and score > max_score:
                                 max_score = score
-                                standard_keys = set(self._map_columns(row).keys())
+                                standard_keys = set(self._map_columns(row)[0].keys())
                         
                         # Second pass for data
                         active_col_map, current_is_warning = None, False
@@ -160,8 +165,8 @@ class XlsbReader(ExcelReader):
                             row_values_str = [str(v).lower() for v in row if v is not None]
                             score = sum(1 for m in self.aliases.values() if any(alias.lower() in " ".join(row_values_str) for alias in m))
                             if score >= 4:
-                                active_col_map = self._map_columns(row)
-                                current_is_warning = (set(active_col_map.keys()) != standard_keys)
+                                active_col_map, used_aliases = self._map_columns(row)
+                                current_is_warning = used_aliases or (set(active_col_map.keys()) != standard_keys)
                                 continue
                             if active_col_map:
                                 row_dict = self._process_row(row, active_col_map, sheet_name, i + 1, f_path_abs)
