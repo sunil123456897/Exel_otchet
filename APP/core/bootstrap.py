@@ -20,9 +20,27 @@ class Bootstrap:
             mb.showerror("Ошибка конфигурации", msg)
             raise ValueError(msg)
 
-        ingestion = IngestionEngine(cfg.get('sh1', {}).get('markers', {}))
+        # Helper to resolve relative paths
+        def resolve_rel(p):
+            if not p: return p
+            path = Path(p)
+            if not path.is_absolute(): return str(app_root / path)
+            return p
+
+        # Resolve essential paths
         db_cfg = cfg.get('database', {})
-        persistence = SQLiteManager(db_cfg.get('path', str(app_root / "cache.db")), str(app_root / "db_schema.sql"), cfg)
+        db_path = resolve_rel(db_cfg.get('path', 'cache.db'))
+        schema_path = resolve_rel(db_cfg.get('schema_path', 'db_schema.sql'))
+        
+        # Resolve config paths
+        p_cfg = cfg.get('paths', {})
+        p_cfg['master_file'] = resolve_rel(p_cfg.get('master_file', 'Master_Report.xlsx'))
+        p_cfg['source_root'] = resolve_rel(p_cfg.get('source_root', 'REPORTS'))
+        if 'source_roots' in p_cfg and isinstance(p_cfg['source_roots'], list):
+            p_cfg['source_roots'] = [resolve_rel(r) for r in p_cfg['source_roots']]
+
+        ingestion = IngestionEngine(cfg.get('sh1', {}).get('markers', {}))
+        persistence = SQLiteManager(db_path, schema_path, cfg)
         validator = Validator(cfg)
         logic = LogicService(persistence, cfg)
         writer = MasterWriter(cfg)

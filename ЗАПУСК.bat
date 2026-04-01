@@ -72,16 +72,16 @@ call :step "Шаг 3/5. Обновление базовых инструмент
 call :runpy -m pip install --user --disable-pip-version-check --no-warn-script-location --upgrade pip setuptools wheel
 
 call :step "Шаг 4/5. Проверка и установка библиотек"
-call :runpy -c "import pandas, openpyxl, yaml, ruamel.yaml, tkcalendar"
+call :runpy -c "import tkinter; import pandas; import openpyxl; import yaml; import ruamel.yaml; import tkcalendar"
 if errorlevel 1 (
-    call :log Не все библиотеки установлены. Запускаю установку...
-    call :runpy -m pip install --user --disable-pip-version-check --no-warn-script-location %REQ_PACKAGES%
+    call :log Не все библиотеки установлены или отсутствует tkinter. Запускаю установку...
+    call :runpy -m pip install --user --disable-pip-version-check --no-warn-script-location -r "%~dp0requirements.txt"
     if errorlevel 1 (
         call :fail "Не удалось установить библиотеки."
     )
-    call :runpy -c "import pandas, openpyxl, yaml, ruamel.yaml, tkcalendar"
+    call :runpy -c "import tkinter; import pandas; import openpyxl; import yaml; import ruamel.yaml; import tkcalendar"
     if errorlevel 1 (
-        call :fail "После установки библиотеки всё равно не импортируются."
+        call :fail "После установки библиотеки всё равно не импортируются. Если ошибка в tkinter — переустановите Python с галочкой 'tcl/tk and IDLE'."
     )
 )
 call :log Библиотеки готовы.
@@ -92,15 +92,15 @@ if defined PYTHONW_CMD if exist "%PYTHONW_CMD%" (
     start "" "%PYTHONW_CMD%" "%MAINFILE%"
     if errorlevel 1 (
         call :log Не удалось запустить через pythonw. Пробую через python.
-        start "" "%PYTHON_CMD%" "%MAINFILE%"
+        "%PYTHON_CMD%" "%MAINFILE%"
     )
 ) else (
     call :log pythonw не найден. Запускаю через python: "%PYTHON_CMD%" "%MAINFILE%"
-    start "" "%PYTHON_CMD%" "%MAINFILE%"
+    "%PYTHON_CMD%" "%MAINFILE%"
 )
 
 if errorlevel 1 (
-    call :fail "Не удалось запустить main.py."
+    call :fail "Приложение завершилось с ошибкой или не запустилось."
 )
 
 call :log Приложение успешно запущено.
