@@ -75,17 +75,29 @@ class CalamineReader:
                 
                 # Precompute sheet-level metadata
                 sheet_date = extract_date_from_sheet(sheet_name)
+                if not sheet_date:
+                    logger.debug(f"Skipping sheet {sheet_name}: no date found")
+                    continue
 
-                # First pass: find standard keys (scan first 200 rows)
+                # First pass: find standard keys (scan first 6000 rows)
                 standard_keys, max_score = set(), 0
-                for row in rows[:200]:
+                for row in rows[:6000]:
                     if not any(v is not None and v != "" for v in row): continue
                     row_str = " ".join([str(v).lower() for v in row if v is not None])
                     score = sum(1 for m in aliases_lower_list if any(alias in row_str for alias in m))
-                    if score >= 4 and score > max_score:
-                        max_score = score
-                        standard_keys = set(self._map_columns(row)[0].keys())
+                    # Threshold lowered to 3 to support minimalistic files (e.g. tests)
+                    if score >= 3 and score > max_score:
+                        map_res, _ = self._map_columns(row)
+                        # Ensure we have at least amount and customer/contractor
+                        if 'amount' in map_res and ('customer' in map_res or 'contractor' in map_res):
+                            max_score = score
+                            standard_keys = set(map_res.keys())
+                            if score >= 5: break
                 
+                if not standard_keys:
+                    logger.debug(f"No headers found in sheet {sheet_name} (max score: {max_score})")
+                    continue
+
                 # Second pass: read data
                 active_col_map, current_is_warning = None, False
                 for i, row in enumerate(rows):
@@ -94,13 +106,14 @@ class CalamineReader:
                     row_str = " ".join([str(v).lower() for v in row if v is not None])
                     score = sum(1 for m in aliases_lower_list if any(alias in row_str for alias in m))
                     
-                    if score >= 4:
-                        active_col_map, used_aliases = self._map_columns(row)
-                        current_is_warning = used_aliases or (set(active_col_map.keys()) != standard_keys)
-                        continue
+                    if score >= 3:
+                        tmp_map, used_aliases = self._map_columns(row)
+                        if 'amount' in tmp_map and ('customer' in tmp_map or 'contractor' in tmp_map):
+                            active_col_map = tmp_map
+                            current_is_warning = used_aliases or (set(active_col_map.keys()) != standard_keys)
+                            continue
                     
                     if active_col_map:
-                        # Trash filters and processing
                         if any(tk in row_str for tk in trash_keywords): continue
 
                         raw_data = {
@@ -118,7 +131,8 @@ class CalamineReader:
                                     has_data = True
                                     if key in ('amount', 'income', 'expense', 'commission'):
                                         try:
-                                            if abs(float(str(val).replace(' ', '').replace(',', '.'))) > 0.001: has_financial = True
+                                            f_val = float(str(val).replace(' ', '').replace(',', '.'))
+                                            if abs(f_val) > 0.00000001: has_financial = True
                                         except: pass
                                     raw_data[key] = val
                         
@@ -129,7 +143,10 @@ class CalamineReader:
                                 res['is_template_warning'] = current_is_warning
                                 res['_source_info'] = f"{os.path.basename(f_path_abs)} | {sheet_name} | Row {i+1}"
                                 all_rows.append(res)
-                            except: pass
+                            except Exception as ve:
+                                logger.debug(f"Validation failed for row {i+1} in {sheet_name}: {ve}")
+                        elif has_data:
+                            logger.debug(f"Row {i+1} in {sheet_name} has data but no financial values")
                             
         except Exception as e: logger.error(f"Calamine error {f_path_abs}: {e}")
         finally:

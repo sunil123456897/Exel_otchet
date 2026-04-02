@@ -10,8 +10,13 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
     Extracts a date from a sheet name string.
     Supports formats like DD.MM, DD.MM.YYYY, etc.
     """
+    if not sheet_name: return None
+    # Fix 11: Clean invisible and non-printable Unicode
+    clean_name = "".join(c for c in str(sheet_name) if c.isprintable()).strip()
+    clean_name = clean_name.replace('\u200b', '').replace('\ufeff', '')
+    
     pat = re.compile(r'(^|[^0-9])(\d{1,2})[.,](\d{1,2})([.,](\d{4}))?([^0-9]|$)')
-    m = pat.search(sheet_name.strip())
+    m = pat.search(clean_name)
     if m:
         try:
             curr = datetime.now()
