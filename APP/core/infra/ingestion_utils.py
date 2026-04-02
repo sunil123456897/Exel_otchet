@@ -19,6 +19,6 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
             y = int(m.group(5)) if m.group(5) else curr.year
             return datetime(y, month, d).strftime("%d.%m.%Y")
         except Exception: 
-            logger.warning(f"TEMPORAL WARNING: Invalid date in sheet '{sheet_name}' (e.g. Feb 29 in non-leap year)")
+            logger.debug(f"Invalid date in sheet '{sheet_name}' (e.g. Feb 29 in non-leap year)")
             return None
     return None

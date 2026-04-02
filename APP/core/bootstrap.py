@@ -1,4 +1,5 @@
 import logging
+import importlib.util
 from pathlib import Path
 from core.infra.config_controller import ConfigController
 from core.infra.ingestion_engine import IngestionEngine
@@ -10,6 +11,11 @@ from core.app_controller import AppController
 class Bootstrap:
     @staticmethod
     def setup(app_root: Path, config_path: str):
+        # Dependency check
+        if importlib.util.find_spec("python_calamine") is None:
+            logging.critical("Критическая ошибка: библиотека 'python-calamine' не найдена!")
+            return None, None, None
+
         cfg_ctl = ConfigController(config_path)
         cfg = cfg_ctl.config
         
@@ -28,9 +34,9 @@ class Bootstrap:
             return p
 
         # Resolve essential paths
-        db_cfg = cfg.get('database', {})
-        db_path = resolve_rel(db_cfg.get('path', 'cache.db'))
-        schema_path = resolve_rel(db_cfg.get('schema_path', 'db_schema.sql'))
+        db_cfg = cfg.setdefault('database', {})
+        db_path = db_cfg['path'] = resolve_rel(db_cfg.get('path', 'cache.db'))
+        schema_path = db_cfg['schema_path'] = resolve_rel(db_cfg.get('schema_path', 'db_schema.sql'))
         
         # Resolve config paths
         p_cfg = cfg.get('paths', {})

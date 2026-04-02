@@ -14,7 +14,7 @@ class FinancialRowSchema(BaseModel):
     expense: Decimal = Decimal('0.00')
     total: Decimal = Decimal('0.00')
     commission: Decimal = Decimal('0.00')
-    percent_broker: Decimal = Decimal('0.00')
+    percent_broker: Any = Decimal('0.00')
     broker1: Decimal = Decimal('0.00')
     broker2: Decimal = Decimal('0.00')
     filters: Optional[str] = ""
@@ -48,8 +48,12 @@ class FinancialRowSchema(BaseModel):
             # Handle string with comma, spaces, etc.
             s = str(v).replace(' ', '').replace(',', '.')
             # Remove any non-numeric characters except . and -
-            s = "".join(c for c in s if c.isdigit() or c in '.-')
-            if not s or s == '-': return Decimal('0.00')
-            return Decimal(s)
+            s_clean = "".join(c for c in s if c.isdigit() or c in '.-')
+            if not s_clean or s_clean == '-': 
+                # For percent_broker, if it's a non-empty string that resulted in empty s_clean, 
+                # it's likely a text like 'high'. Preserve it.
+                if v and str(v).strip(): return v
+                return Decimal('0.00')
+            return Decimal(s_clean)
         except (ValueError, TypeError, ArithmeticError):
-            return Decimal('0.00')
+            return v if v and str(v).strip() else Decimal('0.00')

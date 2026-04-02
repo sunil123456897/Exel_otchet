@@ -179,4 +179,6 @@ def test_get_employees_map_stat_error(tmp_path):
     
     assert 'Alice' in result
     assert result['Alice'][0]['path'] == str(file1)
-    assert 'fp' not in result['Alice'][0]
+    assert 'fp' in result['Alice'][0]
+    assert result['Alice'][0]['fp'] is None
+

@@ -50,8 +50,12 @@ class CalamineReader:
         all_rows = []
         f_path_abs = os.path.abspath(str(file_path))
         
+        # Precompute search terms for the entire file
+        aliases_lower_list = [[str(alias).lower() for alias in m] for m in self.aliases.values()]
+        trash_keywords = ['c16', 'd16', 'название клиента', 'согласно платежному', 'процентном формате']
+
         # LOCAL COPY OPTIMIZATION for network drives
-        is_network = str(f_path_abs).startswith('\\\\') or f_path_abs[0].upper() in ('Q', 'Z') # Typical network letters
+        is_network = str(f_path_abs).startswith('\\\\') or f_path_abs[0].upper() in ('Q', 'Z')
         temp_file = None
         
         try:
@@ -69,10 +73,15 @@ class CalamineReader:
                 rows = wb.get_sheet_by_name(sheet_name).to_python()
                 if not rows: continue
                 
+                # Precompute sheet-level metadata
+                sheet_date = extract_date_from_sheet(sheet_name)
+
                 # First pass: find standard keys (scan first 200 rows)
                 standard_keys, max_score = set(), 0
                 for row in rows[:200]:
-                    score = sum(1 for m in self.aliases.values() if any(str(alias).lower() in " ".join([str(v).lower() for v in row if v is not None]) for alias in m))
+                    if not any(v is not None and v != "" for v in row): continue
+                    row_str = " ".join([str(v).lower() for v in row if v is not None])
+                    score = sum(1 for m in aliases_lower_list if any(alias in row_str for alias in m))
                     if score >= 4 and score > max_score:
                         max_score = score
                         standard_keys = set(self._map_columns(row)[0].keys())
@@ -80,23 +89,25 @@ class CalamineReader:
                 # Second pass: read data
                 active_col_map, current_is_warning = None, False
                 for i, row in enumerate(rows):
-                    row_values_str = [str(v).lower() for v in row if v is not None]
-                    score = sum(1 for m in self.aliases.values() if any(str(alias).lower() in " ".join(row_values_str) for alias in m))
+                    if not any(v is not None and v != "" for v in row): continue
+                    
+                    row_str = " ".join([str(v).lower() for v in row if v is not None])
+                    score = sum(1 for m in aliases_lower_list if any(alias in row_str for alias in m))
+                    
                     if score >= 4:
                         active_col_map, used_aliases = self._map_columns(row)
                         current_is_warning = used_aliases or (set(active_col_map.keys()) != standard_keys)
                         continue
+                    
                     if active_col_map:
                         # Trash filters and processing
-                        trash_keywords = ['c16', 'd16', 'название клиента', 'согласно платежному', 'процентном формате']
-                        row_str = " ".join([str(v).lower() for v in row if v is not None])
                         if any(tk in row_str for tk in trash_keywords): continue
 
                         raw_data = {
                             '_sheet_name': sheet_name, 
                             '_row_index': i + 1, 
                             '_file_path': f_path_abs, 
-                            'date': extract_date_from_sheet(sheet_name)
+                            'date': sheet_date
                         }
                         
                         has_data, has_financial = False, False

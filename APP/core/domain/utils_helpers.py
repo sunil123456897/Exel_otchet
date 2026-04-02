@@ -47,15 +47,15 @@ def to_decimal(val: Any) -> Decimal:
         raise ValueError(f"Could not parse numeric value '{val}': {str(e)}")
 
 
-def to_decimal_percent(val: Any) -> Decimal:
+def to_decimal_percent(val: Any) -> Any:
     if val is None or val == "" or (isinstance(val, float) and val != val): return Decimal('0')
     if isinstance(val, (int, float, Decimal)): return Decimal(str(val))
     try:
         raw = str(val)
         s = re.sub(r"[^\d.,-]", "", raw)
-        if not s: return Decimal('0')
+        if not s: return val
         res = Decimal(s.replace(',', '.'))
         if "%" in raw and res > 1: res = res / Decimal('100')
         return res
-    except: return Decimal('0')
+    except: return val
 

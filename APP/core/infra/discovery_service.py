@@ -20,8 +20,20 @@ class DiscoveryService:
         roots_to_scan = [Path(r) for r in sr_val] if isinstance(sr_val, list) else [Path(sr_val)] if sr_val else []
         root_strings = [str(r) for r in roots_to_scan]
 
-        # Optimization: Skip full SMB scan if all employees have explicit paths
-        all_have_custom = bool(config_list) and all(name in custom_paths for name in config_list)
+        # Optimization: Skip full SMB scan only if all employees have explicit, absolute and existing paths
+        all_have_custom = False
+        if config_list and all(name in custom_paths for name in config_list):
+            all_paths_ok = True
+            for name in config_list:
+                p_val = custom_paths[name]
+                p_list = p_val if isinstance(p_val, list) else [p_val]
+                for entry in p_list:
+                    path_str = entry['path'] if isinstance(entry, dict) else entry
+                    p_abs = Path(path_str)
+                    if not p_abs.is_absolute() or not p_abs.exists():
+                        all_paths_ok = False; break
+                if not all_paths_ok: break
+            all_have_custom = all_paths_ok
 
         discovered_files = []
         if not all_have_custom:
@@ -81,11 +93,39 @@ class DiscoveryService:
                             p_abs = Path(found_meta['path'])
                             self.rename_detected = True
                             updated_paths.append(found_meta)
-                        elif p_abs.exists():
-                            # It was absolute and it exists
-                            updated_paths.append(entry if isinstance(entry, dict) else {"path": str(p_abs)})
+                        elif p_abs.exists() or not p_abs.is_absolute():
+                            # If it doesn't exist but is relative, try resolving relative to config_path
+                            if not p_abs.is_absolute() and hasattr(self.config_controller, 'config_path'):
+                                alt_p = (Path(self.config_controller.config_path).parent / p_abs).resolve()
+                                if alt_p.exists(): p_abs = alt_p
+                            
+                            if p_abs.exists():
+                                if isinstance(entry, dict):
+                                    entry['path'] = str(p_abs)
+                                    if 'id' not in entry:
+                                        entry['id'] = int(hashlib.md5(str(p_abs).encode()).hexdigest(), 16) % 10**8
+                                    if 'fp' not in entry:
+                                        entry['fp'] = None
+                                    updated_paths.append(entry)
+                                else:
+                                    updated_paths.append({
+                                        "path": str(p_abs), 
+                                        "id": int(hashlib.md5(str(p_abs).encode()).hexdigest(), 16) % 10**8,
+                                        "fp": None
+                                    })
                     else:
-                        updated_paths.append(entry if isinstance(entry, dict) else {"path": str(p_abs)})
+                        if isinstance(entry, dict):
+                            if 'id' not in entry:
+                                entry['id'] = int(hashlib.md5(str(p_abs).encode()).hexdigest(), 16) % 10**8
+                            if 'fp' not in entry:
+                                entry['fp'] = None
+                            updated_paths.append(entry)
+                        else:
+                            updated_paths.append({
+                                "path": str(p_abs), 
+                                "id": int(hashlib.md5(str(p_abs).encode()).hexdigest(), 16) % 10**8,
+                                "fp": None
+                            })
 
                 for meta in updated_paths:
                     p = str(meta.get('path'))
