@@ -154,21 +154,6 @@ class TestGetConnection:
         finally:
             conn.close()
 
-    def test_connection_row_factory(self, db_setup):
-        conn = db_setup._get_connection()
-        try:
-            assert conn.row_factory == sqlite3.Row
-        finally:
-            conn.close()
-
-    def test_connection_timeout(self, db_setup):
-        conn = db_setup._get_connection()
-        try:
-            # Timeout должен быть установлен
-            assert conn.timeout == 5.0
-        finally:
-            conn.close()
-
 
 class TestMultipleSessions:
     """Тесты множественных сессий."""

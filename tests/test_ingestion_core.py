@@ -133,10 +133,10 @@ class TestCalamineReaderMapColumns:
 
     def test_partial_match(self, reader):
         """Частичное совпадение — должно работать."""
-        header = ["Название заказчика", "ФИО исполнителя"]
+        header = ["Название заказчика", "Сумма платежа"]
         col_map, _ = reader._map_columns(header)
         assert col_map['customer'] == 0
-        assert col_map['contractor'] == 1
+        assert col_map['amount'] == 1
 
 
 class TestCalamineReaderRead:

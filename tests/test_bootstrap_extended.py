@@ -285,8 +285,10 @@ class TestDependencyInjection:
             Bootstrap.setup(app_root, str(config_file))
 
             args = mock_db.call_args
-            assert str(app_root / 'test_cache.db') in str(args)
-            assert 'retry_count' in str(args) or 'locking' in str(args)
+            assert mock_db.called
+            # SQLiteManager receives (db_path, schema_path, config)
+            assert len(args[0]) >= 2
+            assert 'test_cache.db' in str(args[0][0])
 
     def test_app_controller_gets_all_dependencies(self, app_root, valid_config_content):
         """AppController должен получить все 6 зависимостей."""

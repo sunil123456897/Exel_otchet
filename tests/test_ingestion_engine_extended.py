@@ -184,36 +184,19 @@ class TestReadFile:
 class TestNetworkOptimization:
     """Тесты сетевых оптимизаций."""
 
-    @patch('os.path.abspath')
-    def test_network_path_detection_unc(self, mock_abspath, engine, temp_xlsx):
-        """UNC пути (\\\\server\\share) должны определяться как сетевые."""
-        mock_abspath.return_value = '\\\\server\\share\\file.xlsx'
-        f = temp_xlsx("net.xlsx", {"Отчет 01.04": [["А", "100"]]})
-
+    def test_local_file_no_copy(self, engine, temp_xlsx):
+        """Локальный файл — не создаётся временная копия."""
+        f = temp_xlsx("local.xlsx", {"Отчет 01.04": [["А", "100"]]})
         with patch('shutil.copy2') as mock_copy:
             engine.get_available_dates(f)
-            # Для локального файла copy не вызывается
-            # Но для UNC — должен вызваться бы
-            # Здесь f локальный, так что copy не нужен
+            mock_copy.assert_not_called()
 
-    @patch('os.path.abspath')
-    def test_network_path_detection_q_drive(self, mock_abspath, engine, temp_xlsx):
-        """Q:\ диск — сетевой."""
-        mock_abspath.return_value = 'Q:\\reports\\file.xlsx'
-        f = temp_xlsx("q.xlsx", {"Отчет 01.04": [["А", "100"]]})
-        # Тест просто проверяет что не падает
-        engine.get_available_dates(f)
+    def test_temp_file_cleanup_on_error(self, engine, tmp_path):
+        """При ошибке — временный файл удаляется."""
+        # Create a file that will cause error during CalamineWorkbook.from_path
+        f = tmp_path / "bad.xlsx"
+        f.write_bytes(b"not an excel file")
 
-    def test_temp_file_cleanup(self, engine, tmp_path):
-        """Временные файлы должны удаляться после обработки."""
-        # Создать файл
-        f = tmp_path / "cleanup.xlsx"
-        f.write_bytes(b"test")
-
-        # Искусственно вызвать ошибку чтобы проверить cleanup
-        with patch.object(engine, 'reader', side_effect=Exception("Read error")):
-            # read_file делегирует reader — но get_available_dates использует CalamineWorkbook напрямую
-            pass
-
-        # Проверить что файл существует (не был удалён)
-        assert f.exists()
+        # Should not raise, and any temp files should be cleaned up
+        dates = engine.get_available_dates(f)
+        assert dates == []

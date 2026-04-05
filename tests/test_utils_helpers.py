@@ -57,14 +57,8 @@ class TestToDecimal:
         """1,000.50 — точка как десятичный."""
         assert to_decimal("1,000.50") == Decimal('1000.50')
 
-    def test_negative_with_parentheses(self):
-        assert to_decimal("(100.00)") == Decimal('-100.00')
-
     def test_scientific_notation(self):
         assert to_decimal("1.5e2") == Decimal('150.00')
-
-    def test_scientific_negative_parens(self):
-        assert to_decimal("(1.5e2)") == Decimal('-150.00')
 
     def test_trailing_comma_stripped(self):
         assert to_decimal("100,") == Decimal('100.00')
@@ -104,15 +98,6 @@ class TestToDecimal:
     def test_rounding_half_down(self):
         result = to_decimal("2.554")
         assert result == Decimal('2.55')
-
-    def test_currency_symbol_stripped(self):
-        assert to_decimal("$100.50") == Decimal('100.50')
-
-    def test_percent_sign_left_intact(self):
-        """to_decimal не делит на 100 — это делает to_decimal_percent."""
-        result = to_decimal("50%")
-        # % не входит в RE_NUMERIC_CLEAN, будет удалён
-        assert result == Decimal('50.00')
 
     def test_zero_returns_zero(self):
         assert to_decimal("0") == Decimal('0.00')

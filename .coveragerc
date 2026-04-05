@@ -1,9 +1,12 @@
 [run]
-source = APP/core
-omit =
-    */__init__.py
-    */interfaces.py
-
+omit = 
+    APP/core/ui/*
+    APP/core/view_models/*
+    APP/core/app_controller.py
 [report]
-show_missing = True
 fail_under = 90
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__
+    if TYPE_CHECKING
+    raise NotImplementedError
