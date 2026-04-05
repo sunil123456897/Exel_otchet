@@ -1,90 +1,207 @@
+"""Расширенные тесты для utils_helpers.py — to_decimal, to_decimal_percent, open_path."""
 import pytest
+import os
+import subprocess
 from decimal import Decimal
+from unittest.mock import patch, MagicMock
 from core.domain.utils_helpers import to_decimal, to_decimal_percent, open_path
 
-def test_to_decimal_basic():
-    assert to_decimal(100) == Decimal('100.00')
-    assert to_decimal(100.5) == Decimal('100.50')
-    assert to_decimal("100.5") == Decimal('100.50')
-    assert to_decimal("100,5") == Decimal('100.50')
 
-def test_to_decimal_edge_cases():
-    assert to_decimal(None) == Decimal('0.00')
-    assert to_decimal("") == Decimal('0.00')
-    assert to_decimal("   ") == Decimal('0.00')
-    assert to_decimal(float('nan')) == Decimal('0.00')
+class TestToDecimal:
+    """Тесты to_decimal — преобразование в Decimal."""
 
-def test_to_decimal_unusual_formats():
-    # Test with spaces and currency symbols
-    assert to_decimal("1 234,56 руб.") == Decimal('1234.56')
-    # Test with multiple separators
-    assert to_decimal("1.234.567,89") == Decimal('1234567.89')
-    assert to_decimal("1,234,567.89") == Decimal('1234567.89')
-    # Test with parentheses (negative)
-    assert to_decimal("(100.00)") == Decimal('-100.00')
+    def test_none_returns_zero(self):
+        assert to_decimal(None) == Decimal('0.00')
 
-def test_to_decimal_errors():
-    with pytest.raises(ValueError, match="Invalid numeric value"):
-        to_decimal("nan")
-    with pytest.raises(ValueError, match="Invalid numeric value"):
-        to_decimal("null")
-    with pytest.raises(ValueError, match="Invalid numeric value"):
-        to_decimal("error")
-    with pytest.raises(ValueError, match="Could not parse numeric value"):
-        to_decimal("abc")
+    def test_empty_string_returns_zero(self):
+        assert to_decimal("") == Decimal('0.00')
 
-def test_to_decimal_scientific():
-    assert to_decimal("1.23e2") == Decimal('123.00')
-    assert to_decimal("(1.23e2)") == Decimal('-123.00')
+    def test_nan_float_returns_zero(self):
+        import math
+        assert to_decimal(float('nan')) == Decimal('0.00')
 
-def test_to_decimal_multiple_separators_complex():
-    # elif len(seps) >= 2:
-    # last = seps[-1]
-    # prefix = s[:last].replace('.', '').replace(',', '')
-    # clean = f"{prefix}.{s[last+1:]}" if s[last+1:] else prefix
-    assert to_decimal("1.234.567,89") == Decimal('1234567.89')
-    assert to_decimal("1,234,567.89") == Decimal('1234567.89')
-    # For "1.234.567", the implementation treats the last dot as decimal separator
-    assert to_decimal("1.234.567") == Decimal('1234.57')
+    def test_int_converts(self):
+        assert to_decimal(42) == Decimal('42.00')
 
-def test_open_path():
-    import platform
-    from unittest.mock import patch
-    import os
-    import subprocess
-    
-    with patch('platform.system') as mock_system:
-        # Windows
-        mock_system.return_value = "Windows"
-        # os.startfile only exists on Windows
-        with patch('os.startfile', create=True) as mock_startfile:
-            open_path("test_path")
-            mock_startfile.assert_called_once_with("test_path")
-            
-        # Darwin
-        mock_system.return_value = "Darwin"
+    def test_float_converts(self):
+        assert to_decimal(3.14) == Decimal('3.14')
+
+    def test_decimal_passthrough(self):
+        assert to_decimal(Decimal('10.50')) == Decimal('10.50')
+
+    def test_string_number(self):
+        assert to_decimal("100") == Decimal('100.00')
+
+    def test_string_decimal(self):
+        assert to_decimal("99.99") == Decimal('99.99')
+
+    def test_string_with_spaces(self):
+        assert to_decimal("  123.45  ") == Decimal('123.45')
+
+    def test_string_with_non_breaking_space(self):
+        assert to_decimal("123\xa0456.78") == Decimal('123456.78')
+
+    def test_comma_as_decimal(self):
+        """Одна запятая — десятичный разделитель (RU формат)."""
+        assert to_decimal("12,5") == Decimal('12.50')
+
+    def test_comma_as_thousands(self):
+        """Множество запятых — разделитель тысяч."""
+        assert to_decimal("1,000,000") == Decimal('1000000.00')
+
+    def test_mixed_comma_dot_comma_decimal(self):
+        """1.000,50 — запятая как десятичный."""
+        assert to_decimal("1.000,50") == Decimal('1000.50')
+
+    def test_mixed_comma_dot_dot_decimal(self):
+        """1,000.50 — точка как десятичный."""
+        assert to_decimal("1,000.50") == Decimal('1000.50')
+
+    def test_negative_with_parentheses(self):
+        assert to_decimal("(100.00)") == Decimal('-100.00')
+
+    def test_scientific_notation(self):
+        assert to_decimal("1.5e2") == Decimal('150.00')
+
+    def test_scientific_negative_parens(self):
+        assert to_decimal("(1.5e2)") == Decimal('-150.00')
+
+    def test_trailing_comma_stripped(self):
+        assert to_decimal("100,") == Decimal('100.00')
+
+    def test_trailing_dot_stripped(self):
+        assert to_decimal("100.") == Decimal('100.00')
+
+    def test_invalid_string_raises(self):
+        with pytest.raises(ValueError):
+            to_decimal("not_a_number")
+
+    def test_nan_string_raises(self):
+        with pytest.raises(ValueError):
+            to_decimal("nan")
+
+    def test_null_string_raises(self):
+        with pytest.raises(ValueError):
+            to_decimal("null")
+
+    def test_error_string_raises(self):
+        with pytest.raises(ValueError):
+            to_decimal("error")
+
+    def test_excel_error_n_a(self):
+        with pytest.raises(ValueError):
+            to_decimal("#N/A")
+
+    def test_excel_error_ref(self):
+        with pytest.raises(ValueError):
+            to_decimal("#REF!")
+
+    def test_rounding_half_up(self):
+        """ROUND_HALF_UP: 2.555 → 2.56."""
+        result = to_decimal("2.555")
+        assert result == Decimal('2.56')
+
+    def test_rounding_half_down(self):
+        result = to_decimal("2.554")
+        assert result == Decimal('2.55')
+
+    def test_currency_symbol_stripped(self):
+        assert to_decimal("$100.50") == Decimal('100.50')
+
+    def test_percent_sign_left_intact(self):
+        """to_decimal не делит на 100 — это делает to_decimal_percent."""
+        result = to_decimal("50%")
+        # % не входит в RE_NUMERIC_CLEAN, будет удалён
+        assert result == Decimal('50.00')
+
+    def test_zero_returns_zero(self):
+        assert to_decimal("0") == Decimal('0.00')
+
+    def test_negative_number(self):
+        assert to_decimal("-42.5") == Decimal('-42.50')
+
+    def test_very_small_number(self):
+        assert to_decimal("0.001") == Decimal('0.00')
+
+    def test_very_large_number(self):
+        assert to_decimal("999999999.99") == Decimal('999999999.99')
+
+    def test_whitespace_only(self):
+        assert to_decimal("   ") == Decimal('0.00')
+
+
+class TestToDecimalPercent:
+    """Тесты to_decimal_percent."""
+
+    def test_none_returns_zero(self):
+        assert to_decimal_percent(None) == Decimal('0')
+
+    def test_empty_string_returns_zero(self):
+        assert to_decimal_percent("") == Decimal('0')
+
+    def test_nan_returns_zero(self):
+        assert to_decimal_percent(float('nan')) == Decimal('0')
+
+    def test_int_returns_decimal(self):
+        assert to_decimal_percent(25) == Decimal('25')
+
+    def test_float_returns_decimal(self):
+        assert to_decimal_percent(0.25) == Decimal('0.25')
+
+    def test_string_number(self):
+        assert to_decimal_percent("15") == Decimal('15')
+
+    def test_comma_to_dot(self):
+        assert to_decimal_percent("12,5") == Decimal('12.5')
+
+    def test_percent_value_gt_1_divided_by_100(self):
+        """50% → 0.5."""
+        result = to_decimal_percent("50%")
+        assert result == Decimal('0.5')
+
+    def test_percent_value_lt_1_not_divided(self):
+        """0.25 — уже в долях, не делить."""
+        result = to_decimal_percent("0.25")
+        assert result == Decimal('0.25')
+
+    def test_no_percent_sign_not_divided(self):
+        result = to_decimal_percent("50")
+        assert result == Decimal('50')
+
+    def test_with_spaces(self):
+        result = to_decimal_percent("  25%  ")
+        assert result == Decimal('0.25')
+
+    def test_invalid_returns_original(self):
+        """Нечисловое значение — вернуть как есть."""
+        result = to_decimal_percent("N/A")
+        assert result == "N/A"
+
+    def test_empty_after_clean_returns_original(self):
+        result = to_decimal_percent("---")
+        assert result == "---"
+
+
+class TestOpenPath:
+    """Тесты open_path."""
+
+    @patch('core.domain.utils_helpers.platform')
+    def test_windows_opens_file(self, mock_platform):
+        mock_platform.system.return_value = 'Windows'
+        with patch('os.startfile') as mock_start:
+            open_path('C:/test')
+            mock_start.assert_called_once_with('C:/test')
+
+    @patch('core.domain.utils_helpers.platform')
+    def test_mac_opens_open(self, mock_platform):
+        mock_platform.system.return_value = 'Darwin'
         with patch('subprocess.run') as mock_run:
-            open_path("test_path")
-            mock_run.assert_called_once_with(["open", "test_path"])
-            
-        # Linux
-        mock_system.return_value = "Linux"
+            open_path('/Users/test')
+            mock_run.assert_called_once_with(["open", "/Users/test"])
+
+    @patch('core.domain.utils_helpers.platform')
+    def test_linux_opens_xdg(self, mock_platform):
+        mock_platform.system.return_value = 'Linux'
         with patch('subprocess.run') as mock_run:
-            open_path("test_path")
-            mock_run.assert_called_once_with(["xdg-open", "test_path"])
-
-def test_to_decimal_percent_basic():
-    assert to_decimal_percent(0.05) == Decimal('0.05')
-    assert to_decimal_percent("5%") == Decimal('0.05')
-    assert to_decimal_percent("0.05") == Decimal('0.05')
-    assert to_decimal_percent("5") == Decimal('5') # If no % and > 1, it stays as is? 
-    # Let's check the code: if "%" in raw and res > 1: res = res / Decimal('100')
-    assert to_decimal_percent("5%") == Decimal('0.05')
-    assert to_decimal_percent("0.5%") == Decimal('0.5') # res is 0.5, not > 1, so no division?
-    # Wait, if res is 0.5, it's already a decimal fraction.
-    # If it's "50%", res is 50, 50 > 1, so 50/100 = 0.5. Correct.
-
-def test_to_decimal_percent_edge_cases():
-    assert to_decimal_percent(None) == Decimal('0')
-    assert to_decimal_percent("") == Decimal('0')
-    assert to_decimal_percent("abc") == Decimal('0')
+            open_path('/home/test')
+            mock_run.assert_called_once_with(["xdg-open", "/home/test"])

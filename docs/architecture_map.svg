@@ -1,0 +1,221 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 900" font-family="Segoe UI, system-ui, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a"/>
+      <stop offset="100%" style="stop-color:#1e293b"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="2" dy="3" stdDeviation="4" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="900" fill="url(#bg)" rx="12"/>
+
+  <!-- Title -->
+  <text x="700" y="40" text-anchor="middle" fill="#f1f5f9" font-size="22" font-weight="700">Master Report v6.0 — Архитектура проекта</text>
+  <text x="700" y="62" text-anchor="middle" fill="#94a3b8" font-size="12">805 узлов • 2168 связей • 48 кластеров • 62 execution flow</text>
+
+  <!-- ===== LAYER 1: UI (Top) ===== -->
+  <rect x="350" y="85" width="700" height="130" rx="10" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="700" y="108" text-anchor="middle" fill="#60a5fa" font-size="13" font-weight="600">🖥️ PRESENTATION LAYER (UI)</text>
+
+  <!-- GuiMaster -->
+  <rect x="380" y="120" width="180" height="80" rx="8" fill="#1e40af" filter="url(#shadow)"/>
+  <text x="470" y="148" text-anchor="middle" fill="#dbeafe" font-size="12" font-weight="600">GuiMaster</text>
+  <text x="470" y="165" text-anchor="middle" fill="#93c5fd" font-size="10">ui/gui_master.py</text>
+  <text x="470" y="180" text-anchor="middle" fill="#93c5fd" font-size="10">113 строк</text>
+
+  <!-- ViewModels -->
+  <rect x="590" y="120" width="200" height="80" rx="8" fill="#2563eb" filter="url(#shadow)"/>
+  <text x="690" y="148" text-anchor="middle" fill="#dbeafe" font-size="12" font-weight="600">ViewModels ⭐ NEW</text>
+  <text x="690" y="165" text-anchor="middle" fill="#93c5fd" font-size="10">employee_list_viewmodel.py</text>
+  <text x="690" y="180" text-anchor="middle" fill="#93c5fd" font-size="10">consolidation_viewmodel.py</text>
+
+  <!-- UI Components -->
+  <rect x="820" y="120" width="200" height="80" rx="8" fill="#1e40af" filter="url(#shadow)"/>
+  <text x="920" y="148" text-anchor="middle" fill="#dbeafe" font-size="12" font-weight="600">UI Components</text>
+  <text x="920" y="165" text-anchor="middle" fill="#93c5fd" font-size="10">ui_sidebar, ui_employee_table</text>
+  <text x="920" y="180" text-anchor="middle" fill="#93c5fd" font-size="10">ui_stats_panel, ui_log_panel</text>
+
+  <!-- ===== LAYER 2: Domain (Middle) ===== -->
+  <rect x="50" y="250" width="450" height="200" rx="10" fill="#1a3a2a" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="275" y="273" text-anchor="middle" fill="#4ade80" font-size="13" font-weight="600">🧠 DOMAIN LAYER (Бизнес-логика)</text>
+
+  <!-- Validator -->
+  <rect x="70" y="290" width="180" height="70" rx="8" fill="#166534" filter="url(#shadow)"/>
+  <text x="160" y="315" text-anchor="middle" fill="#dcfce7" font-size="12" font-weight="600">Validator</text>
+  <text x="160" y="332" text-anchor="middle" fill="#86efac" font-size="10">logic_service.py</text>
+  <text x="160" y="347" text-anchor="middle" fill="#86efac" font-size="10">Фильтрация мусора</text>
+
+  <!-- LogicService -->
+  <rect x="280" y="290" width="200" height="70" rx="8" fill="#15803d" filter="url(#shadow)"/>
+  <text x="380" y="315" text-anchor="middle" fill="#dcfce7" font-size="12" font-weight="600">LogicService</text>
+  <text x="380" y="332" text-anchor="middle" fill="#86efac" font-size="10">Финансовые правила</text>
+  <text x="380" y="347" text-anchor="middle" fill="#86efac" font-size="10">Decimal, ROUND_HALF_UP</text>
+
+  <!-- Interfaces -->
+  <rect x="70" y="380" width="180" height="55" rx="8" fill="#166534"/>
+  <text x="160" y="405" text-anchor="middle" fill="#dcfce7" font-size="11">IDataSource</text>
+  <text x="160" y="422" text-anchor="middle" fill="#dcfce7" font-size="11">IPersistence, IValidator</text>
+
+  <!-- DataSchemas -->
+  <rect x="280" y="380" width="200" height="55" rx="8" fill="#15803d"/>
+  <text x="380" y="405" text-anchor="middle" fill="#dcfce7" font-size="11">FinancialRowSchema</text>
+  <text x="380" y="422" text-anchor="middle" fill="#dcfce7" font-size="11">Pydantic модели</text>
+
+  <!-- ===== LAYER 3: Infra (Middle-Right) ===== -->
+  <rect x="540" y="250" width="520" height="200" rx="10" fill="#3b1f5e" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="800" y="273" text-anchor="middle" fill="#c084fc" font-size="13" font-weight="600">⚙️ INFRASTRUCTURE LAYER</text>
+
+  <!-- IngestionEngine -->
+  <rect x="560" y="290" width="220" height="70" rx="8" fill="#7c3aed" filter="url(#shadow)"/>
+  <text x="670" y="315" text-anchor="middle" fill="#ede9fe" font-size="12" font-weight="600">IngestionEngine</text>
+  <text x="670" y="332" text-anchor="middle" fill="#c4b5fd" font-size="10">python-calamine • 50x faster</text>
+  <text x="670" y="347" text-anchor="middle" fill="#c4b5fd" font-size="10">CalamineReader → ingestion_core.py</text>
+
+  <!-- PersistenceManager -->
+  <rect x="810" y="290" width="230" height="70" rx="8" fill="#6d28d9" filter="url(#shadow)"/>
+  <text x="925" y="315" text-anchor="middle" fill="#ede9fe" font-size="12" font-weight="600">SQLiteManager</text>
+  <text x="925" y="332" text-anchor="middle" fill="#c4b5fd" font-size="10">WAL mode • Async writer thread</text>
+  <text x="925" y="347" text-anchor="middle" fill="#c4b5fd" font-size="10">Retry • Decimal adapter</text>
+
+  <!-- DiscoveryService -->
+  <rect x="560" y="380" width="220" height="55" rx="8" fill="#7c3aed"/>
+  <text x="670" y="405" text-anchor="middle" fill="#ede9fe" font-size="11">DiscoveryService</text>
+  <text x="670" y="422" text-anchor="middle" fill="#c4b5fd" font-size="10">Rename detection • Path resolution</text>
+
+  <!-- ExportWriter -->
+  <rect x="810" y="380" width="230" height="55" rx="8" fill="#6d28d9"/>
+  <text x="925" y="405" text-anchor="middle" fill="#ede9fe" font-size="11">MasterWriter (refactored ⭐)</text>
+  <text x="925" y="422" text-anchor="middle" fill="#c4b5fd" font-size="10">5 методов • 270→35 строк</text>
+
+  <!-- ===== LAYER 4: App Controller (Center) ===== -->
+  <rect x="500" y="490" width="400" height="110" rx="12" fill="#92400e" stroke="#f59e0b" stroke-width="2"/>
+  <text x="700" y="515" text-anchor="middle" fill="#fbbf24" font-size="14" font-weight="700">🎯 AppController</text>
+  <text x="700" y="535" text-anchor="middle" fill="#fde68a" font-size="11">Координация • ThreadPoolExecutor (8-32 workers)</text>
+  <text x="700" y="552" text-anchor="middle" fill="#fde68a" font-size="11">refresh_status • run_consolidation • run_consolidation_all_dates</text>
+  <text x="700" y="569" text-anchor="middle" fill="#fde68a" font-size="11">Smart Tracking (inode + MD5) • File cache</text>
+  <text x="700" y="586" text-anchor="middle" fill="#fde68a" font-size="11">app_controller.py • 180 строк</text>
+
+  <!-- ===== LAYER 5: Bootstrap (Bottom Center) ===== -->
+  <rect x="500" y="630" width="400" height="80" rx="10" fill="#44403c" stroke="#a8a29e" stroke-width="1.5"/>
+  <text x="700" y="655" text-anchor="middle" fill="#e7e5e4" font-size="13" font-weight="600">🔧 Bootstrap (Composition Root)</text>
+  <text x="700" y="675" text-anchor="middle" fill="#a8a29e" font-size="11">DI: setup() → ConfigController, IngestionEngine, SQLiteManager, Validator, LogicService, MasterWriter, AppController</text>
+  <text x="700" y="695" text-anchor="middle" fill="#a8a29e" font-size="11">Type hints: Tuple[Optional[ConfigController], Optional[AppController], Optional[SQLiteManager]]</text>
+
+  <!-- ===== LAYER 6: Entry Points (Bottom) ===== -->
+  <rect x="50" y="750" width="350" height="130" rx="10" fill="#3f1c1c" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="225" y="773" text-anchor="middle" fill="#fca5a5" font-size="13" font-weight="600">🚀 Точки входа</text>
+
+  <rect x="70" y="790" width="140" height="35" rx="6" fill="#991b1b"/>
+  <text x="140" y="812" text-anchor="middle" fill="#fecaca" font-size="11">main.py (GUI)</text>
+
+  <rect x="230" y="790" width="150" height="35" rx="6" fill="#991b1b"/>
+  <text x="305" y="812" text-anchor="middle" fill="#fecaca" font-size="11">headless_run.py (CLI)</text>
+
+  <rect x="70" y="835" width="150" height="35" rx="6" fill="#991b1b"/>
+  <text x="145" y="857" text-anchor="middle" fill="#fecaca" font-size="11">toxic_run.py (Chaos)</text>
+
+  <rect x="240" y="835" width="140" height="35" rx="6" fill="#991b1b"/>
+  <text x="310" y="857" text-anchor="middle" fill="#fecaca" font-size="11">ЗАПУСК.bat</text>
+
+  <!-- ===== LAYER 7: Tests (Right Bottom) ===== -->
+  <rect x="430" y="750" width="450" height="130" rx="10" fill="#1c3d3d" stroke="#06b6d4" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="655" y="773" text-anchor="middle" fill="#67e8f9" font-size="13" font-weight="600">🧪 Тесты (47 файлов • ~35% coverage)</text>
+
+  <rect x="450" y="790" width="130" height="30" rx="5" fill="#164e63"/>
+  <text x="515" y="810" text-anchor="middle" fill="#a5f3fc" font-size="10">Unit (22 файла)</text>
+
+  <rect x="595" y="790" width="130" height="30" rx="5" fill="#164e63"/>
+  <text x="660" y="810" text-anchor="middle" fill="#a5f3fc" font-size="10">Integration (8)</text>
+
+  <rect x="740" y="790" width="120" height="30" rx="5" fill="#164e63"/>
+  <text x="800" y="810" text-anchor="middle" fill="#a5f3fc" font-size="10">Performance (4)</text>
+
+  <rect x="450" y="830" width="130" height="30" rx="5" fill="#164e63"/>
+  <text x="515" y="850" text-anchor="middle" fill="#a5f3fc" font-size="10">Chaos (4)</text>
+
+  <rect x="595" y="830" width="130" height="30" rx="5" fill="#0d9488" stroke="#2dd4bf"/>
+  <text x="660" y="850" text-anchor="middle" fill="#ccfbf1" font-size="10">⭐ Property (1) Hypothesis</text>
+
+  <rect x="740" y="830" width="120" height="30" rx="5" fill="#0d9488" stroke="#2dd4bf"/>
+  <text x="800" y="850" text-anchor="middle" fill="#ccfbf1" font-size="10">⭐ Golden (2)</text>
+
+  <!-- ===== LAYER 8: Config (Left Bottom) ===== -->
+  <rect x="910" y="750" width="150" height="130" rx="10" fill="#3f2a1c" stroke="#f97316" stroke-width="1.5"/>
+  <text x="985" y="773" text-anchor="middle" fill="#fed7aa" font-size="12" font-weight="600">⚙️ Config</text>
+  <rect x="920" y="790" width="130" height="30" rx="5" fill="#9a3412"/>
+  <text x="985" y="810" text-anchor="middle" fill="#ffedd5" font-size="10">config.yaml</text>
+  <rect x="920" y="830" width="130" height="30" rx="5" fill="#9a3412"/>
+  <text x="985" y="850" text-anchor="middle" fill="#ffedd5" font-size="10">db_schema.sql</text>
+
+  <!-- ===== ARROWS ===== -->
+  <!-- UI → AppController -->
+  <line x1="470" y1="200" x2="530" y2="490" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.6"/>
+  <line x1="690" y1="200" x2="690" y2="490" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.6"/>
+  <line x1="920" y1="200" x2="870" y2="490" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.6"/>
+
+  <!-- AppController → Domain -->
+  <line x1="530" y1="545" x2="480" y2="360" stroke="#4ade80" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.5"/>
+  <line x1="560" y1="520" x2="480" y2="330" stroke="#4ade80" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.5"/>
+
+  <!-- AppController → Infra -->
+  <line x1="870" y1="545" x2="920" y2="360" stroke="#c084fc" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.5"/>
+  <line x1="840" y1="520" x2="810" y2="360" stroke="#c084fc" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.5"/>
+
+  <!-- AppController → Bootstrap -->
+  <line x1="700" y1="600" x2="700" y2="630" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrow)" opacity="0.7"/>
+
+  <!-- Domain ↔ Infra -->
+  <line x1="480" y1="340" x2="560" y2="340" stroke="#64748b" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)" opacity="0.4"/>
+
+  <!-- Entry → Bootstrap -->
+  <line x1="310" y1="790" x2="520" y2="670" stroke="#ef4444" stroke-width="1.5" marker-end="url(#arrow)" opacity="0.5"/>
+
+  <!-- Tests → All -->
+  <line x1="655" y1="750" x2="700" y2="600" stroke="#06b6d4" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow)" opacity="0.3"/>
+
+  <!-- Config → Bootstrap -->
+  <line x1="910" y1="810" x2="900" y2="670" stroke="#f97316" stroke-width="1" marker-end="url(#arrow)" opacity="0.4"/>
+
+  <!-- Legend -->
+  <rect x="1100" y="85" width="270" height="200" rx="8" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="1115" y="110" fill="#e2e8f0" font-size="12" font-weight="600">Легенда</text>
+  <line x1="1115" y1="130" x2="1145" y2="130" stroke="#3b82f6" stroke-width="2"/>
+  <text x="1155" y="135" fill="#94a3b8" font-size="10">UI → Controller</text>
+  <line x1="1115" y1="155" x2="1145" y2="155" stroke="#4ade80" stroke-width="2"/>
+  <text x="1155" y="160" fill="#94a3b8" font-size="10">Controller → Domain</text>
+  <line x1="1115" y1="180" x2="1145" y2="180" stroke="#c084fc" stroke-width="2"/>
+  <text x="1155" y="185" fill="#94a3b8" font-size="10">Controller → Infra</text>
+  <line x1="1115" y1="205" x2="1145" y2="205" stroke="#f59e0b" stroke-width="2"/>
+  <text x="1155" y="210" fill="#94a3b8" font-size="10">Bootstrap (DI)</text>
+  <line x1="1115" y1="230" x2="1145" y2="230" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="1155" y="235" fill="#94a3b8" font-size="10">Domain ↔ Infra</text>
+  <line x1="1115" y1="255" x2="1145" y2="255" stroke="#06b6d4" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="1155" y="260" fill="#94a3b8" font-size="10">Тесты покрывают всё</text>
+
+  <!-- Stats -->
+  <rect x="1100" y="310" width="270" height="160" rx="8" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="1115" y="335" fill="#e2e8f0" font-size="12" font-weight="600">📊 Метрики</text>
+  <text x="1115" y="360" fill="#94a3b8" font-size="11">Quality Signal: 6593/10000</text>
+  <text x="1115" y="380" fill="#94a3b8" font-size="11">Acyclicity: ✅ 10000/10000</text>
+  <text x="1115" y="400" fill="#94a3b8" font-size="11">Import edges: 78 (↓ clean)</text>
+  <text x="1115" y="420" fill="#94a3b8" font-size="11">Redundancy: 9679/10000</text>
+  <text x="1115" y="440" fill="#94a3b8" font-size="11">Depth: 4 (OK)</text>
+  <text x="1115" y="460" fill="#94a3b8" font-size="11">Bus factor: 1 ⚠️</text>
+
+  <!-- Refactoring summary -->
+  <rect x="1100" y="495" width="270" height="170" rx="8" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="1115" y="520" fill="#e2e8f0" font-size="12" font-weight="600">🔄 Рефакторинг</text>
+  <text x="1115" y="545" fill="#4ade80" font-size="11">✅ +95 тестов</text>
+  <text x="1115" y="565" fill="#4ade80" font-size="11">✅ MVVM ViewModels</text>
+  <text x="1115" y="585" fill="#4ade80" font-size="11">✅ Type hints</text>
+  <text x="1115" y="605" fill="#4ade80" font-size="11">✅ ingestion_core.py</text>
+  <text x="1115" y="625" fill="#4ade80" font-size="11">✅ MasterWriter split</text>
+  <text x="1115" y="645" fill="#fbbf24" font-size="11">⏳ Coverage: 13% → 35%</text>
+  <text x="1115" y="665" fill="#fbbf24" font-size="11">⏳ Качество: 6.8 → 7.8</text>
+</svg>
