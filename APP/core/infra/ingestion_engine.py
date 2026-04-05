@@ -8,8 +8,7 @@ from typing import List, Dict, Any
 from python_calamine import CalamineWorkbook
 
 from core.domain.interfaces import IDataSource
-from core.infra.ingestion_readers import CalamineReader
-from core.infra.ingestion_utils import extract_date_from_sheet
+from core.infra.ingestion_core import CalamineReader, extract_date_from_sheet
 
 logger = logging.getLogger(__name__)
 

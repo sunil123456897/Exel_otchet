@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from core.infra.ingestion_engine import IngestionEngine
-from core.infra.ingestion_readers import CalamineReader
+from core.infra.ingestion_core import CalamineReader
 
 def test_network_interruption_get_available_dates(monkeypatch, caplog):
     # Setup

@@ -1,6 +1,9 @@
+"""Bootstrap — Composition Root для Dependency Injection."""
 import logging
 import importlib.util
 from pathlib import Path
+from typing import Tuple, Optional, Dict, Any
+
 from core.infra.config_controller import ConfigController
 from core.infra.ingestion_engine import IngestionEngine
 from core.infra.persistence_manager import SQLiteManager
@@ -8,9 +11,18 @@ from core.domain.logic_service import LogicService, Validator
 from core.infra.export_writer import MasterWriter
 from core.app_controller import AppController
 
+
 class Bootstrap:
+    """Статический класс для инициализации всех зависимостей приложения."""
+
     @staticmethod
-    def setup(app_root: Path, config_path: str):
+    def setup(app_root: Path, config_path: str) -> Tuple[Optional[ConfigController], Optional[AppController], Optional[SQLiteManager]]:
+        """Инициализировать все зависимости и вернуть контроллеры.
+
+        Returns:
+            (config_controller, app_controller, persistence) или (None, None, None)
+            при отсутствии критической зависимости.
+        """
         # Dependency check
         if importlib.util.find_spec("python_calamine") is None:
             logging.critical("Критическая ошибка: библиотека 'python-calamine' не найдена!")
@@ -27,10 +39,12 @@ class Bootstrap:
             raise ValueError(msg)
 
         # Helper to resolve relative paths
-        def resolve_rel(p):
-            if not p: return p
+        def resolve_rel(p: Optional[str]) -> str:
+            if not p:
+                return str(app_root / 'cache.db')  # fallback, actual default set below
             path = Path(p)
-            if not path.is_absolute(): return str(app_root / path)
+            if not path.is_absolute():
+                return str(app_root / path)
             return p
 
         # Resolve essential paths

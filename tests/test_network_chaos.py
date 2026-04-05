@@ -6,7 +6,7 @@ import logging
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 from pathlib import Path
-from core.infra.ingestion_readers import CalamineReader
+from core.infra.ingestion_core import CalamineReader
 from python_calamine import CalamineWorkbook
 
 # Standard markers for testing
@@ -73,7 +73,7 @@ def test_network_failure_mid_copy(reader):
          patch('tempfile.mkstemp', return_value=(1, temp_path)), \
          patch('os.close'), \
          patch('shutil.copy2', side_effect=IOError("Connection reset by peer")), \
-         patch('core.infra.ingestion_readers.logger.error') as mock_log_error, \
+         patch('core.infra.ingestion_core.logger.error') as mock_log_error, \
          patch('os.remove'), \
          patch('os.path.exists', return_value=True):
         

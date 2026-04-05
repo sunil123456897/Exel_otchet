@@ -72,125 +72,219 @@ class MasterWriter(IExporter):
             if any(kw in header for kw in numeric_keywords): ws.column_dimensions[let].width = max((max_len * 1.1) + 6, 15)
             else: ws.column_dimensions[let].width = min(max_len + 4, 35)
 
-    def write_daily_data(self, date, rows, wb=None):
-        should_save = False
-        if wb is None: wb = self._get_workbook(); should_save = True
-        sh_name = date.strftime("%d.%m.%Y")
-        if sh_name in wb.sheetnames: del wb[sh_name]
-        ws = wb.create_sheet(sh_name)
+    def _detect_header_columns(self, ws) -> tuple:
+        """Определить позиции ключевых колонок по заголовкам.
         
-        headers = ["Дата", "Источник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход", "Комиссия", "ИТОГ", "% посредника", "посредник 1(кэш)", "посредник 2", "Фильтры"]
-        ws.append(headers); self._apply_header_style(ws); ws.freeze_panes = 'A2'
-        
-        warning_rows = []
-        for r in rows:
-            if r.get('is_template_warning'): warning_rows.append(ws.max_row + 1)
-            ws.append([date.strftime("%d.%m.%Y"), r.get('Источник', ''), r.get('ЗАКАЗЧИК (название проекта, наименование ЮЛ)', ''), r.get('ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)', ''), float(r.get('сумма платежа ПРИХОД', 0)), float(r.get('сумма платежа РАСХОД', 0)), float(r.get('комиссия', 0)), float(r.get('ИТОГ', 0)), r.get('% посредника', 0), float(r.get('посредник 1(кэш)', 0)), float(r.get('посредник 2', 0)), r.get('фильтры', '')])
-
+        Returns:
+            (cols, num_indices, percent_broker_col) — словари позиций.
+        """
         num_kw = ['приход', 'расход', 'комиссия', 'итог', 'посредник']
-        cols = {kw: -1 for kw in num_kw}; num_indices = set()
+        cols = {kw: -1 for kw in num_kw}
+        num_indices = set()
+        percent_broker_col = -1
+
         for i, cell in enumerate(ws[1], 1):
             val = str(cell.value or "").lower()
-            if any(kw in val for kw in num_kw): num_indices.add(i)
+            if any(kw in val for kw in num_kw):
+                num_indices.add(i)
             for kw in num_kw:
                 if kw in val:
-                    if kw == 'комиссия' and 'посред' in val: continue
+                    if kw == 'комиссия' and 'посред' in val:
+                        continue
                     cols[kw] = i
-                    
-        percent_broker_col = -1
-        for i, cell in enumerate(ws[1], 1):
-            if str(cell.value or "").lower() == '% посредника':
+            if val == '% посредника':
                 percent_broker_col = i
-                break
+
+        return cols, num_indices, percent_broker_col
+
+    def _apply_cell_styling(self, ws, rows_data, warning_rows, cols, num_indices, percent_broker_col):
+        """Применить стили, подсветку и форматирование к ячейкам данных.
         
+        Args:
+            ws: worksheet
+            rows_data: list of row data dicts
+            warning_rows: номера строк с template warning
+            cols: словарь позиций колонок
+            num_indices: set числовых колонок
+            percent_broker_col: позиция % посредника
+        """
         fill_yellow = PatternFill(patternType='solid', fgColor="FFFF00")
+
         for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row)):
             is_warning = (r_idx + 2) in warning_rows
             fill_row = self.st.fill_odd if (r_idx + 1) % 2 == 1 else self.st.fill_even
-            
-            i_val = float(row_cells[cols['приход']-1].value or 0) if cols['приход']>0 else 0
-            e_val = float(row_cells[cols['расход']-1].value or 0) if cols['расход']>0 else 0
-            t_val = float(row_cells[cols['итог']-1].value or 0) if cols['итог']>0 else 0
-            
-            c_val = abs(float(row_cells[cols['комиссия']-1].value or 0)) if cols['комиссия']>0 else 0
-            
-            # The balance impact: income adds to total, expense subtracts from total
+
+            i_val = float(row_cells[cols['приход'] - 1].value or 0) if cols['приход'] > 0 else 0
+            e_val = float(row_cells[cols['расход'] - 1].value or 0) if cols['расход'] > 0 else 0
+            t_val = float(row_cells[cols['итог'] - 1].value or 0) if cols['итог'] > 0 else 0
+            c_val = abs(float(row_cells[cols['комиссия'] - 1].value or 0)) if cols['комиссия'] > 0 else 0
+
             expected_total = i_val - e_val
             has_money = abs(i_val) > 0.02 or abs(e_val) > 0.02
-            
-            # Trusted logic: if commission exists, we skip math check.
             is_math_err = (c_val == 0 and has_money and (abs(t_val) < 0.02 or abs(expected_total - t_val) > 0.02))
 
             for c_idx, cell in enumerate(row_cells, 1):
                 cell.border = self.st.border_thin
-                
-                # Base fill logic: math error (yellow) takes priority for the whole row, then alternate rows.
-                # Warning (red) is applied ONLY to the specific 'Источник' cell later to avoid hiding yellow rows.
+
                 if is_math_err:
                     cell.fill = fill_yellow
                 else:
                     cell.fill = fill_row
                 cell.font = self.st.font_standard
 
-                is_percent_err = False
                 if c_idx in num_indices:
-                    val = cell.value or 0
-                    if c_idx == cols['приход'] and isinstance(val, (int, float)) and val > 0.01:
-                        cell.fill, cell.font = self.st.fill_income, self.st.font_income
-                    elif c_idx == cols['расход'] and isinstance(val, (int, float)) and abs(val) > 0.01:
-                        cell.fill, cell.font = self.st.fill_expense, self.st.font_expense
-                    
-                    if c_idx == percent_broker_col:
-                        try:
-                            v_float = float(val)
-                            if abs(v_float) <= 1.0:
-                                cell.value = v_float
-                            elif abs(v_float) <= 100.0:
-                                cell.value = v_float / 100.0
-                            else:
-                                is_percent_err = True
-                                cell.value = v_float
-                        except (ValueError, TypeError):
-                            is_percent_err = True
-                            cell.value = val
-                        
-                        if is_percent_err: 
-                            cell.fill = self.st.fill_warning
-                    
-                    # Formatting rules: % for commission and percent_broker, standard for others
-                    h = str(ws.cell(1, c_idx).value or "").lower()
-                    if '%' in h and 'посред' in h:
-                        if is_percent_err:
-                            fmt = 'General' if isinstance(cell.value, str) else '#,##0.00'
-                        else:
-                            fmt = '0.00%'
-                    elif 'комиссия' in h:
-                        fmt = '0.00"%"'
-                    else:
-                        fmt = '#,##0.00'
-                        
-                    cell.alignment, cell.number_format = self.st.align_right, fmt
-                    
-                    # Apply template warning red color ONLY to 'Источник' (c_idx == 2)
-                    if is_warning and c_idx == 2:
-                        cell.fill = self.st.fill_warning
+                    self._format_numeric_cell(cell, c_idx, cols, ws, percent_broker_col, is_warning)
                 else:
+                    cell.alignment = self.st.align_left
                     if is_warning and c_idx == 2:
                         cell.fill = self.st.fill_warning
-                    cell.alignment = self.st.align_left
 
+    def _format_numeric_cell(self, cell, c_idx, cols, ws, percent_broker_col, is_warning):
+        """Отформатировать числовую ячейку (цвет, выравнивание, числовой формат)."""
+        val = cell.value or 0
+
+        # Подсветка дохода/расхода
+        if c_idx == cols['приход'] and isinstance(val, (int, float)) and val > 0.01:
+            cell.fill, cell.font = self.st.fill_income, self.st.font_income
+        elif c_idx == cols['расход'] and isinstance(val, (int, float)) and abs(val) > 0.01:
+            cell.fill, cell.font = self.st.fill_expense, self.st.font_expense
+
+        # % посредника — конвертация и проверка
+        is_percent_err = False
+        if c_idx == percent_broker_col:
+            try:
+                v_float = float(val)
+                if abs(v_float) <= 1.0:
+                    cell.value = v_float
+                elif abs(v_float) <= 100.0:
+                    cell.value = v_float / 100.0
+                else:
+                    is_percent_err = True
+                    cell.value = v_float
+            except (ValueError, TypeError):
+                is_percent_err = True
+                cell.value = val
+
+            if is_percent_err:
+                cell.fill = self.st.fill_warning
+
+        # Числовой формат
+        h = str(ws.cell(1, c_idx).value or "").lower()
+        if '%' in h and 'посред' in h:
+            fmt = 'General' if is_percent_err and isinstance(cell.value, str) else '#,##0.00'
+            if not is_percent_err:
+                fmt = '0.00%'
+        elif 'комиссия' in h:
+            fmt = '0.00"%"'
+        else:
+            fmt = '#,##0.00'
+
+        cell.alignment, cell.number_format = self.st.align_right, fmt
+
+        # Template warning — только Источник (c_idx == 2)
+        if is_warning and c_idx == 2:
+            cell.fill = self.st.fill_warning
+
+    def _build_total_row(self, ws, num_indices):
+        """Создать строку ИТОГО с формулами SUM.
+        
+        Returns:
+            Номер строки ИТОГО.
+        """
         total_row = ws.max_row + 1
         total_label = ws.cell(total_row, 1, "ИТОГО:")
-        total_label.font, total_label.fill, total_label.border = self.st.font_total, self.st.fill_total, self.st.border_medium
+        total_label.font, total_label.fill, total_label.border = (
+            self.st.font_total, self.st.fill_total, self.st.border_medium
+        )
+
         for c in range(1, ws.max_column + 1):
-            if c in num_indices:
-                h = str(ws.cell(1, c).value or "").lower()
-                if any(kw in h for kw in ['приход', 'расход', 'итог', 'посредник']) and '%' not in h:
-                    let = get_column_letter(c); cell = ws.cell(total_row, c)
-                    cell.value = f"=SUM({let}2:{let}{total_row-1})"
-                    cell.fill, cell.font, cell.border, cell.number_format = self.st.fill_total, self.st.font_total, self.st.border_medium, '#,##0.00'
+            if c not in num_indices:
+                continue
+            h = str(ws.cell(1, c).value or "").lower()
+            if any(kw in h for kw in ['приход', 'расход', 'итог', 'посредник']) and '%' not in h:
+                let = get_column_letter(c)
+                cell = ws.cell(total_row, c)
+                cell.value = f"=SUM({let}2:{let}{total_row - 1})"
+                cell.fill, cell.font, cell.border, cell.number_format = (
+                    self.st.fill_total, self.st.font_total, self.st.border_medium, '#,##0.00'
+                )
+
+        return total_row
+
+    def _append_data_rows(self, ws, date, rows):
+        """Добавить строки данных в worksheet.
+        
+        Returns:
+            Список номеров строк с template warning.
+        """
+        warning_rows = []
+        date_str = date.strftime("%d.%m.%Y")
+        for r in rows:
+            if r.get('is_template_warning'):
+                warning_rows.append(ws.max_row + 1)
+            ws.append([
+                date_str,
+                r.get('Источник', ''),
+                r.get('ЗАКАЗЧИК (название проекта, наименование ЮЛ)', ''),
+                r.get('ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)', ''),
+                float(r.get('сумма платежа ПРИХОД', 0)),
+                float(r.get('сумма платежа РАСХОД', 0)),
+                float(r.get('комиссия', 0)),
+                float(r.get('ИТОГ', 0)),
+                r.get('% посредника', 0),
+                float(r.get('посредник 1(кэш)', 0)),
+                float(r.get('посредник 2', 0)),
+                r.get('фильтры', ''),
+            ])
+        return warning_rows
+
+    def write_daily_data(self, date, rows, wb=None):
+        """Записать данные за одну дату в Excel.
+        
+        Состоит из этапов:
+        1. Создание/подготовка листа
+        2. Запись заголовков
+        3. Запись строк данных
+        4. Определение колонок
+        5. Стилизация ячеек
+        6. Строка ИТОГО
+        7. Автоподбор ширины + сохранение
+        """
+        should_save = False
+        if wb is None:
+            wb = self._get_workbook()
+            should_save = True
+
+        sh_name = date.strftime("%d.%m.%Y")
+        if sh_name in wb.sheetnames:
+            del wb[sh_name]
+        ws = wb.create_sheet(sh_name)
+
+        # 1. Заголовки
+        headers = [
+            "Дата", "Источник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход",
+            "Комиссия", "ИТОГ", "% посредника", "посредник 1(кэш)", "посредник 2", "Фильтры"
+        ]
+        ws.append(headers)
+        self._apply_header_style(ws)
+        ws.freeze_panes = 'A2'
+
+        # 2. Строки данных
+        warning_rows = self._append_data_rows(ws, date, rows)
+
+        # 3. Определение колонок
+        cols, num_indices, percent_broker_col = self._detect_header_columns(ws)
+
+        # 4. Стилизация
+        self._apply_cell_styling(ws, rows, warning_rows, cols, num_indices, percent_broker_col)
+
+        # 5. Строка ИТОГО
+        self._build_total_row(ws, num_indices)
+
+        # 6. Автоподбор + сохранение
         self._auto_adjust(ws)
-        if should_save: self._save_workbook(wb)
+        if should_save:
+            self._save_workbook(wb)
 
     def write_report(self, data: List[Dict[str, Any]], path: Path, template_errors: List[Dict[str, Any]] = None) -> bool:
         # Fix 6: Early Lock Check

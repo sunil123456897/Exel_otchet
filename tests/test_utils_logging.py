@@ -85,7 +85,7 @@ def test_temporal_warning_suppression_real_call():
     Verify that the actual extract_date_from_sheet call with an invalid date
     doesn't produce an INFO log that would reach the GUI.
     """
-    from core.infra.ingestion_utils import extract_date_from_sheet
+    from core.infra.ingestion_core import extract_date_from_sheet
     
     mock_text_widget = MagicMock()
     root_logger = logging.getLogger()

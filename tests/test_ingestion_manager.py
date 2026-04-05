@@ -4,8 +4,8 @@ from pathlib import Path
 from decimal import Decimal
 from datetime import datetime
 from unittest.mock import patch, MagicMock
-from core.infra.ingestion_utils import extract_date_from_sheet
-from core.infra.ingestion_readers import CalamineReader
+from core.infra.ingestion_core import extract_date_from_sheet
+from core.infra.ingestion_core import CalamineReader
 from core.infra.ingestion_engine import IngestionEngine
 
 def test_extract_date_from_sheet():
@@ -16,7 +16,7 @@ def test_extract_date_from_sheet():
     assert extract_date_from_sheet("32.01.2026") is None # Invalid date
     
     # Test year rollover logic
-    with patch('core.infra.ingestion_utils.datetime') as mock_datetime:
+    with patch('core.infra.ingestion_core.datetime') as mock_datetime:
         mock_datetime.now.return_value = datetime(2026, 1, 1)
         mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
         

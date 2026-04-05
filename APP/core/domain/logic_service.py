@@ -1,13 +1,18 @@
+"""Бизнес-логика: финансовые правила и валидация."""
 import logging
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Any
+
 from core.domain.interfaces import IValidator, ILogicService, IPersistence
 from core.domain.utils_helpers import to_decimal, to_decimal_percent
 
 logger = logging.getLogger(__name__)
 
+
 class Validator(IValidator):
-    def __init__(self, config: Dict[str, Any]):
+    """Валидатор строк данных — отбрасывает мусор и заголовки."""
+
+    def __init__(self, config: Dict[str, Any]) -> None:
         self.config = config
         self._junk_totals = frozenset({"итого", "всего", "итог"})
         self._junk_markers = ("заказчик", "исполнитель", "приход", "расход")
@@ -24,16 +29,22 @@ class Validator(IValidator):
             v = row.get(key)
             if v is not None and any(w in str(v).lower() for w in hw): return False
         return True
-    def get_errors(self) -> List[str]: return []
+    def get_errors(self) -> List[str]:
+        """Вернуть список ошибок валидации (пусто — заглушка)."""
+        return []
 
 class LogicService(ILogicService):
-    def __init__(self, persistence: IPersistence, config: Dict[str, Any]):
-        self.persistence, self.config = persistence, config
+    """Сервис консолидации — применяет финансовые правила к данным."""
+
+    def __init__(self, persistence: IPersistence, config: Dict[str, Any]) -> None:
+        self.persistence = persistence
+        self.config = config
         l_cfg = config.get('logic', {})
         self.inc_over = l_cfg.get('income_overrides', ['доп', 'доп сф', '% посред'])
         self.ret_kw = l_cfg.get('return_keywords', ['возврат'])
 
     def _sanitize(self, val: Any) -> str:
+        """Экранировать значения, начинающиеся с формульных символов."""
         s = str(val) if val is not None else ""
         return "'" + s if s.strip().startswith(('=', '+', '-', '@')) else s
 
@@ -85,5 +96,6 @@ class LogicService(ILogicService):
         return res
 
     def consolidate(self, session_id: str) -> List[Dict[str, Any]]:
+        """Загрузить данные из БД и применить финансовые правила."""
         return self.apply_financial_rules(self.persistence.get_consolidated_data(session_id))
 

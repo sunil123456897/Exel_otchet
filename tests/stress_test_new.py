@@ -19,7 +19,7 @@ try:
 except ImportError:
     psutil = None
 
-from core.infra.ingestion_readers import CalamineReader
+from core.infra.ingestion_core import CalamineReader
 from core.infra.persistence_manager import SQLiteManager
 from core.domain.data_schemas import FinancialRowSchema
 

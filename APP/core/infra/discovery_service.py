@@ -1,16 +1,28 @@
+"""DiscoveryService — поиск файлов, rename detection, привязка к сотрудникам."""
 import os
 import logging
 import hashlib
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
+
+from core.infra.config_controller import ConfigController
+from core.infra.ingestion_engine import IngestionEngine
+
 
 class DiscoveryService:
-    def __init__(self, config_controller, ingestion):
+    """Обнаружение файлов сотрудников и определение переименований."""
+
+    def __init__(self, config_controller: ConfigController, ingestion: IngestionEngine) -> None:
         self.config_controller = config_controller
         self.ingestion = ingestion
         self.rename_detected = False
 
     def get_employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Получить карту сотрудник → список файлов.
+
+        Возвращает dict где ключ — имя сотрудника, значение — список
+        метаданных файлов (path, id, fp).
+        """
         config = self.config_controller.config
         config_list = config.get('employees', [])
         custom_paths = config.get('employee_paths', {})
