@@ -3,10 +3,11 @@ import logging
 import shutil
 import tempfile
 from pathlib import Path
+from decimal import Decimal
 from typing import List, Dict, Any, Optional
 from python_calamine import CalamineWorkbook
 
-from core.domain.utils_helpers import to_decimal
+from core.domain.utils_helpers import to_decimal, to_decimal_percent
 from core.domain.data_schemas import FinancialRowSchema
 from core.infra.ingestion_utils import extract_date_from_sheet
 
@@ -51,7 +52,15 @@ class CalamineReader:
         f_path_abs = os.path.abspath(str(file_path))
         
         # Precompute search terms for the entire file
-        aliases_lower_list = [[str(alias).lower() for alias in m] for m in self.aliases.values()]
+        all_search_terms = []
+        for key in self.markers:
+            m_val = self.markers[key]
+            m_list = [str(v).lower() for v in (m_val if isinstance(m_val, list) else [m_val])]
+            if key in self.aliases:
+                m_list.extend([str(v).lower() for v in self.aliases[key]])
+            all_search_terms.append(list(set(m_list)))
+        aliases_lower_list = all_search_terms
+        
         trash_keywords = ['c16', 'd16', 'название клиента', 'согласно платежному', 'процентном формате']
 
         # LOCAL COPY OPTIMIZATION for network drives
@@ -85,8 +94,8 @@ class CalamineReader:
                     if not any(v is not None and v != "" for v in row): continue
                     row_str = " ".join([str(v).lower() for v in row if v is not None])
                     score = sum(1 for m in aliases_lower_list if any(alias in row_str for alias in m))
-                    # Threshold lowered to 3 to support minimalistic files (e.g. tests)
-                    if score >= 3 and score > max_score:
+                    # Threshold lowered to 2 to support minimalistic files (e.g. tests)
+                    if score >= 2 and score > max_score:
                         map_res, _ = self._map_columns(row)
                         # Ensure we have at least amount and customer/contractor
                         if 'amount' in map_res and ('customer' in map_res or 'contractor' in map_res):
@@ -100,21 +109,34 @@ class CalamineReader:
 
                 # Second pass: read data
                 active_col_map, current_is_warning = None, False
+                trash_keywords_set = set(trash_keywords)
+                
                 for i, row in enumerate(rows):
                     if not any(v is not None and v != "" for v in row): continue
                     
-                    row_str = " ".join([str(v).lower() for v in row if v is not None])
-                    score = sum(1 for m in aliases_lower_list if any(alias in row_str for alias in m))
+                    # Optimization: faster check for headers and trash
+                    row_values_lower = [str(v).lower() for v in row if v is not None]
                     
-                    if score >= 3:
-                        tmp_map, used_aliases = self._map_columns(row)
-                        if 'amount' in tmp_map and ('customer' in tmp_map or 'contractor' in tmp_map):
-                            active_col_map = tmp_map
-                            current_is_warning = used_aliases or (set(active_col_map.keys()) != standard_keys)
-                            continue
+                    if not active_col_map:
+                        row_combined = " ".join(row_values_lower)
+                        score = sum(1 for m in aliases_lower_list if any(alias in row_combined for alias in m))
+                        
+                        if score >= 2:
+                            tmp_map, used_aliases = self._map_columns(row)
+                            if 'amount' in tmp_map and ('customer' in tmp_map or 'contractor' in tmp_map):
+                                active_col_map = tmp_map
+                                current_is_warning = used_aliases or (set(active_col_map.keys()) != standard_keys)
+                                continue
                     
                     if active_col_map:
-                        if any(tk in row_str for tk in trash_keywords): continue
+                        is_trash = False
+                        for val_lower in row_values_lower:
+                            for tk in trash_keywords:
+                                if tk in val_lower:
+                                    is_trash = True
+                                    break
+                            if is_trash: break
+                        if is_trash: continue
 
                         raw_data = {
                             '_sheet_name': sheet_name, 
@@ -124,27 +146,34 @@ class CalamineReader:
                         }
                         
                         has_data, has_financial = False, False
+                        numeric_fields = {'amount', 'income', 'expense', 'total', 'commission', 'percent_broker', 'broker1', 'broker2'}
                         for key, col_idx in active_col_map.items():
                             if col_idx < len(row):
                                 val = row[col_idx]
                                 if val is not None and val != "":
                                     has_data = True
-                                    if key in ('amount', 'income', 'expense', 'commission'):
-                                        try:
-                                            f_val = float(str(val).replace(' ', '').replace(',', '.'))
-                                            if abs(f_val) > 0.00000001: has_financial = True
-                                        except: pass
-                                    raw_data[key] = val
+                                    if key in numeric_fields:
+                                        if isinstance(val, (int, float)):
+                                            d_val = Decimal(str(val))
+                                            if d_val != 0: has_financial = True
+                                            raw_data[key] = d_val
+                                        else:
+                                            try:
+                                                d_val = to_decimal(val) if key != 'percent_broker' else to_decimal_percent(val)
+                                                if d_val != 0: has_financial = True
+                                                raw_data[key] = d_val
+                                            except: raw_data[key] = val
+                                    else:
+                                        raw_data[key] = val
                         
                         if has_data and has_financial:
                             try:
-                                validated = FinancialRowSchema(**raw_data)
-                                res = validated.model_dump()
-                                res['is_template_warning'] = current_is_warning
-                                res['_source_info'] = f"{os.path.basename(f_path_abs)} | {sheet_name} | Row {i+1}"
-                                all_rows.append(res)
+                                # Optimization: bypass Pydantic model_dump entirely
+                                raw_data['is_template_warning'] = current_is_warning
+                                raw_data['_source_info'] = f"{os.path.basename(f_path_abs)} | {sheet_name} | Row {i+1}"
+                                all_rows.append(raw_data)
                             except Exception as ve:
-                                logger.debug(f"Validation failed for row {i+1} in {sheet_name}: {ve}")
+                                logger.debug(f"Row {i+1} in {sheet_name} failed: {ve}")
                         elif has_data:
                             logger.debug(f"Row {i+1} in {sheet_name} has data but no financial values")
                             

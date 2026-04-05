@@ -86,24 +86,51 @@ class AppController:
 
     def _run_engine(self, session_id, employees_map, target_date_str, on_progress):
         total_files = sum(len(paths) for paths in employees_map.values())
-        processed_files = 0
         if total_files == 0: return False
 
-        for emp_name, metas in employees_map.items():
-            for meta in metas:
-                path_str = meta['path'] if isinstance(meta, dict) else meta
-                if not os.path.exists(path_str): continue
+        def process_file_task(emp_name, meta):
+            path_str = meta['path'] if isinstance(meta, dict) else meta
+            if not os.path.exists(path_str):
+                return 0
+            
+            logging.info(f"Processing file {path_str}")
+            file_ids = self.persistence.save_file_metadata(session_id, [meta])
+            file_id = file_ids[0]
+            
+            rows = self.ingestion.read_file(Path(path_str))
+            valid_rows = []
+            for row in rows:
+                if (not target_date_str or row.get('date') == target_date_str) and self.validator.validate_row(row):
+                    row['employee_name'] = emp_name
+                    valid_rows.append(row)
+            
+            if valid_rows:
+                self.persistence.save_staging_data(file_id, valid_rows)
+            return len(valid_rows)
+
+        processed_files = 0
+        total_rows_processed = 0
+        
+        # Parallel file processing
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(32, (os.cpu_count() or 4) * 2)) as executor:
+            future_to_file = {}
+            for emp_name, metas in employees_map.items():
+                for meta in metas:
+                    future = executor.submit(process_file_task, emp_name, meta)
+                    future_to_file[future] = meta
+            
+            for future in concurrent.futures.as_completed(future_to_file):
+                try:
+                    total_rows_processed += future.result()
+                except Exception as e:
+                    logging.error(f"Failed to process file: {e}")
                 
-                file_id = self.persistence.save_file_metadata(session_id, [meta])[0]
-                rows = self.ingestion.read_file(Path(path_str))
-                valid_rows = []
-                for row in rows:
-                    if (not target_date_str or row.get('date') == target_date_str) and self.validator.validate_row(row):
-                        row['employee_name'] = emp_name
-                        valid_rows.append(row)
-                if valid_rows: self.persistence.save_staging_data(file_id, valid_rows)
                 processed_files += 1
                 on_progress((processed_files / total_files) * 50)
+
+        # Ensure all queued DB writes are completed
+        self.persistence.close()
+        logging.info(f"Ingestion complete. Total valid rows processed: {total_rows_processed}")
         return True
 
     def run_consolidation(self, selected_date, on_progress: Callable[[float], None], on_complete: Callable[[bool, str, Optional[Path]], None]):

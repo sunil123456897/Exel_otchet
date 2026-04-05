@@ -1,9 +1,13 @@
 venv/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.hypothesis/
+.pytest_cache/
+.coverage
+htmlcov/
 APP/DEEP_AUDIT_REPORT.txt
 APP/DEEP_AUDIT_REPORT.txt.1
-APP/__pycache__/
-APP/src/__pycache__/
-APP/tests/__pycache__/
 APP/src/consolidation.log
 APP/cache.db
 APP/*.log
@@ -14,4 +18,7 @@ startup_log.txt
 REPORTS/
 docs/maestro/state/active-session.md
 temp_destructive_env/
+benchmark_*.xlsx
+ultra_large_*.xlsx
+
 

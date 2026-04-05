@@ -4,6 +4,8 @@ import logging
 import time
 import decimal
 import datetime
+import threading
+import queue
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from core.domain.interfaces import IPersistence
@@ -20,6 +22,48 @@ def sanitize_data(data: Any) -> Any:
     elif isinstance(data, (decimal.Decimal, datetime.date, datetime.datetime)): return str(data) if isinstance(data, decimal.Decimal) else data.isoformat()
     return data
 
+class DBWriterThread(threading.Thread):
+    def __init__(self, manager: 'SQLiteManager', q: queue.Queue):
+        super().__init__(name="DBWriterThread", daemon=True)
+        self.manager = manager
+        self.q = q
+        self.running = True
+
+    def run(self):
+        while self.running or not self.q.empty():
+            try:
+                item = self.q.get(timeout=0.1)
+                if item is None:
+                    break
+                self._process_item(item)
+                self.q.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.manager.logger.error(f"Error in DBWriterThread: {e}", exc_info=True)
+
+    def _process_item(self, item):
+        file_id, rows = item
+        sql = "INSERT INTO staging_data (file_id, row_index, raw_content_json, date_val, amount, employee_name, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        data = [(file_id, r.get('_row_index'), json.dumps(sanitize_data(r), ensure_ascii=False), r.get('date'), decimal.Decimal(str(r.get('amount', 0))), r.get('employee_name'), r.get('source_type')) for r in rows]
+        
+        def _save():
+            conn = self.manager._get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.executemany(sql, data)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+        self.manager._execute_with_retry(_save)
+
+    def stop(self):
+        self.running = False
+        self.q.put(None)
+
 class SQLiteManager(IPersistence):
     def __init__(self, db_path: str, schema_path: str, config: Dict[str, Any]):
         self.db_path, self.schema_path, self.config = Path(db_path), Path(schema_path), config
@@ -29,11 +73,17 @@ class SQLiteManager(IPersistence):
         sqlite3.register_adapter(decimal.Decimal, str)
         sqlite3.register_converter("NUMERIC", lambda v: decimal.Decimal(v.decode('utf-8')))
         self.init_db()
+        self.write_queue = queue.Queue()
+        self.writer_thread = DBWriterThread(self, self.write_queue)
+        self.writer_thread.start()
 
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES, timeout=self.config.get('database', {}).get('timeout', 30.0))
         conn.row_factory = sqlite3.Row
-        if self.config.get('database', {}).get('use_wal', True): conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous = OFF;")
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA temp_store = MEMORY;")
+        conn.execute("PRAGMA cache_size = -64000;")
         return conn
 
     def init_db(self) -> None:
@@ -86,20 +136,7 @@ class SQLiteManager(IPersistence):
 
     def save_staging_data(self, file_id: int, rows: List[Dict[str, Any]]) -> None:
         if not rows: return
-        def _save():
-            sql = "INSERT INTO staging_data (file_id, row_index, raw_content_json, date_val, amount, employee_name, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
-            data = [(file_id, r.get('_row_index'), json.dumps(sanitize_data(r), ensure_ascii=False), r.get('date'), decimal.Decimal(str(r.get('amount', 0))), r.get('employee_name'), r.get('source_type')) for r in rows]
-            conn = self._get_connection()
-            try:
-                conn.execute("BEGIN TRANSACTION")
-                conn.executemany(sql, data)
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                conn.close()
-        self._execute_with_retry(_save)
+        self.write_queue.put((file_id, rows))
 
     def save_template_error(self, session_id: str, error_info: Dict[str, Any]) -> None:
         def _save():
@@ -147,5 +184,8 @@ class SQLiteManager(IPersistence):
                 conn.execute("INSERT OR REPLACE INTO file_cache (file_path, mtime, size, dates_json, last_updated) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)", (file_path, mtime, size, json.dumps(dates)))
         self._execute_with_retry(_save)
 
-    def close(self) -> None: self.logger.info("Closing database manager.")
+    def close(self) -> None:
+        self.logger.info("Closing database manager.")
+        self.writer_thread.stop()
+        self.writer_thread.join()
 
