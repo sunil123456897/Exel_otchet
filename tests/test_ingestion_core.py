@@ -86,9 +86,9 @@ class TestExtractDateFromSheet:
         assert extract_date_from_sheet("5.04") == "05.04.2026"
 
     def test_invalid_date_feb29(self):
-        """29 февраля в невисокосном году — None."""
+        """29 февраля в невисокосном году — 01.01.1900."""
         result = extract_date_from_sheet("29.02.2025")
-        assert result is None
+        assert result == "01.01.1900"
 
     def test_unicode_cleaning(self):
         assert extract_date_from_sheet("01.\u200b04") == "01.04.2026"

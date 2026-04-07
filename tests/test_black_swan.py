@@ -15,8 +15,9 @@ from core.infra.ingestion_engine import IngestionEngine
 
 def test_black_swan_scenarios(tmp_path):
     # 1. Setup paths
-    swan_data_dir = Path(r"E:\Для Даши\Версия 5\tests\fixtures\black_swan")
-    app_root = Path(r"E:\Для Даши\Версия 5\APP")
+    project_root = Path(__file__).parent.parent
+    swan_data_dir = project_root / "tests" / "fixtures" / "black_swan"
+    app_root = project_root / "APP"
     
     test_dir = tmp_path / "swan_run"
     test_dir.mkdir()

@@ -5,9 +5,13 @@ import re
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
-# Pre-compiled regex for speed
-RE_NUMERIC_CLEAN = re.compile(r'[^\d., -eEP]')
-RE_NUMERIC_PERCENT_CLEAN = re.compile(r'[^\d.,-]')
+class NumericParsingError(ValueError):
+    """Raised when numeric string cannot be parsed and isn't a known zero pattern."""
+    pass
+
+# Pre-compiled regex for speed - escaping hyphen to avoid ranges
+RE_NUMERIC_CLEAN = re.compile(r'[^\d., \-eEP]')
+RE_NUMERIC_PERCENT_CLEAN = re.compile(r'[^\d.,\-]')
 
 # Translation table for fast removal of spaces
 TRANS_REMOVE_SPACE = str.maketrans({' ': None, '\xa0': None})
@@ -28,18 +32,19 @@ def to_decimal(val: Any) -> Decimal:
 
     s_raw = str(val).strip()
     if s_raw.lower() in ('nan', 'null', 'none', '#n/a', '#ref!', '#value!', 'error'):
-        raise ValueError(f'Invalid numeric value: {s_raw}')
+        raise NumericParsingError(f'Invalid numeric value: {s_raw}')
 
     try:
         # Fast path: translate spaces then regex clean
         s = s_raw.translate(TRANS_REMOVE_SPACE)
         s = RE_NUMERIC_CLEAN.sub('', s)
 
-        if not s:
-            return Decimal('0.00')
-
+        if not s or s == '-':
+            if s == '-' or not s_raw or any(c.isdigit() for c in s_raw):
+                return Decimal('0.00')
+            raise NumericParsingError(f"Silent data loss detected: '{val}' cleaned to empty or trash.")
+        
         s = s.rstrip('.,')
-        if not s: return Decimal('0.00')
 
         if 'e' in s.lower():
             res = Decimal(s).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -67,8 +72,8 @@ def to_decimal(val: Any) -> Decimal:
         res = Decimal(s).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         return -abs(res) if '(' in s_raw and ')' in s_raw else res
     except Exception as e:
-        if isinstance(e, ValueError): raise e
-        raise ValueError(f'Could not parse numeric value {val}: {str(e)}')
+        if isinstance(e, NumericParsingError): raise e
+        raise NumericParsingError(f'Could not parse numeric value {val}: {str(e)}')
 
 
 def to_decimal_percent(val: Any) -> Any:

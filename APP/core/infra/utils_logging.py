@@ -25,15 +25,21 @@ class TextHandler(logging.Handler):
     def _process_queue(self):
         try:
             self.text_widget.configure(state='normal')
-            while not self.msg_queue.empty():
+            count = 0
+            while not self.msg_queue.empty() and count < 50:
                 try:
                     msg = self.msg_queue.get_nowait()
                     self.text_widget.insert(tk.END, msg + '\n')
+                    count += 1
                 except queue.Empty: break
             self.text_widget.configure(state='disabled')
             self.text_widget.yview(tk.END)
         finally:
             self._is_scheduled = False
+            # Fix 9: Avoid UI freeze during burst by processing in chunks
+            if not self.msg_queue.empty():
+                self._is_scheduled = True
+                self.text_widget.after(100, self._process_queue)
 
 def setup_gui_logging(log_widget):
     handler = TextHandler(log_widget)

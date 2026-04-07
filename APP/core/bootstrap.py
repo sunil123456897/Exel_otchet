@@ -31,17 +31,21 @@ class Bootstrap:
         cfg_ctl = ConfigController(config_path)
         cfg = cfg_ctl.config
         
-        # Fix 10: Config Validation
-        if not cfg or 'paths' not in cfg or 'sh1' not in cfg:
-            import tkinter.messagebox as mb
-            msg = "Файл config.yaml поврежден или не содержит необходимых ключей ('paths', 'sh1')!"
-            mb.showerror("Ошибка конфигурации", msg)
-            raise ValueError(msg)
+        # Fix 10: Config Validation - Changed to safe defaults instead of raising ValueError
+        if not isinstance(cfg, dict):
+            cfg_ctl.config = {}
+            cfg = cfg_ctl.config
+
+        cfg.setdefault('paths', {})
+        cfg.setdefault('sh1', {})
+        cfg.setdefault('logic', {})
 
         # Helper to resolve relative paths
-        def resolve_rel(p: Optional[str]) -> str:
+        def resolve_rel(p: Optional[str], default_filename: str = None) -> str:
             if not p:
-                return str(app_root / 'cache.db')  # fallback, actual default set below
+                if default_filename:
+                    return str(app_root / default_filename)
+                return ""
             path = Path(p)
             if not path.is_absolute():
                 return str(app_root / path)
@@ -49,13 +53,13 @@ class Bootstrap:
 
         # Resolve essential paths
         db_cfg = cfg.setdefault('database', {})
-        db_path = db_cfg['path'] = resolve_rel(db_cfg.get('path', 'cache.db'))
-        schema_path = db_cfg['schema_path'] = resolve_rel(db_cfg.get('schema_path', 'db_schema.sql'))
+        db_path = db_cfg['path'] = resolve_rel(db_cfg.get('path', 'cache.db'), 'cache.db')
+        schema_path = db_cfg['schema_path'] = resolve_rel(db_cfg.get('schema_path', 'db_schema.sql'), 'db_schema.sql')
         
         # Resolve config paths
         p_cfg = cfg.get('paths', {})
-        p_cfg['master_file'] = resolve_rel(p_cfg.get('master_file', 'Master_Report.xlsx'))
-        p_cfg['source_root'] = resolve_rel(p_cfg.get('source_root', 'REPORTS'))
+        p_cfg['master_file'] = resolve_rel(p_cfg.get('master_file', 'Master_Report.xlsx'), 'Master_Report.xlsx')
+        p_cfg['source_root'] = resolve_rel(p_cfg.get('source_root', 'REPORTS'), 'REPORTS')
         if 'source_roots' in p_cfg and isinstance(p_cfg['source_roots'], list):
             p_cfg['source_roots'] = [resolve_rel(r) for r in p_cfg['source_roots']]
 

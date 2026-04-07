@@ -23,6 +23,23 @@ def app_controller(mock_deps):
         controller = AppController(**mock_deps)
         return controller
 
+@pytest.fixture(autouse=True)
+def mock_executor(mocker):
+    mock_exec = MagicMock()
+    mock_exec.__enter__.return_value = mock_exec
+    
+    def sync_submit(fn, *args, **kwargs):
+        res = fn(*args, **kwargs)
+        f = MagicMock()
+        f.result.return_value = res
+        f.done.return_value = True
+        return f
+        
+    mock_exec.submit.side_effect = sync_submit
+    mocker.patch('concurrent.futures.ThreadPoolExecutor', return_value=mock_exec)
+    mocker.patch('concurrent.futures.as_completed', side_effect=lambda fs: list(fs))
+    return mock_exec
+
 def test_refresh_status(app_controller, mock_deps, mocker):
     # Mock DiscoveryService instance
     mock_discovery = app_controller.discovery
@@ -32,9 +49,13 @@ def test_refresh_status(app_controller, mock_deps, mocker):
     }
     mock_discovery.rename_detected = False
     
-    # Mock os.path.exists
+    # Mock _check_master_lock
+    mocker.patch.object(app_controller, '_check_master_lock', return_value=True)
+    
+    # Mock os.path.exists and stat
     mocker.patch('os.path.exists', side_effect=lambda p: p == 'alice.xlsx')
     mocker.patch('os.path.basename', side_effect=lambda p: p)
+    mocker.patch('os.stat', return_value=MagicMock(st_mtime=100, st_size=1000))
     
     # Mock ingestion.get_available_dates
     mock_deps['ingestion'].get_available_dates.return_value = ['01.01.2023']

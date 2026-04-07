@@ -160,7 +160,7 @@ class TestWriteReport:
             mock_logger.warning.assert_called()
 
         wb = load_workbook(output_path)
-        assert '01.01.1900' in wb.sheetnames
+        assert 'UNKNOWN_DATE' in wb.sheetnames
         wb.close()
 
     def test_write_report_file_locked(self, master_writer, sample_consolidated_data, temp_output_dir):

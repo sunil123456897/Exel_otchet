@@ -19,15 +19,60 @@ class DecimalEncoder(json.JSONEncoder):
 def sanitize_data(data: Any) -> Any:
     if isinstance(data, dict): return {str(k): sanitize_data(v) for k, v in data.items()}
     elif isinstance(data, list): return [sanitize_data(i) for i in data]
-    elif isinstance(data, (decimal.Decimal, datetime.date, datetime.datetime)): return str(data) if isinstance(data, decimal.Decimal) else data.isoformat()
+    elif isinstance(data, (decimal.Decimal, datetime.date, datetime.datetime)): 
+        return str(data) if isinstance(data, decimal.Decimal) else data.isoformat()
     return data
 
+class SQLiteConnectionManager:
+    def __init__(self, db_path: Path, config: Dict[str, Any]):
+        self.db_path = db_path
+        self.config = config
+        self.logger = logging.getLogger(__name__)
+        self.retry_count = config.get('locking', {}).get('retry_count', 3)
+        self.retry_backoff = config.get('locking', {}).get('retry_backoff', 1.0)
+        
+        sqlite3.register_adapter(decimal.Decimal, str)
+        sqlite3.register_converter("NUMERIC", lambda v: decimal.Decimal(v.decode('utf-8')))
+
+    def get_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(
+            self.db_path, 
+            detect_types=sqlite3.PARSE_DECLTYPES, 
+            timeout=self.config.get('database', {}).get('timeout', 30.0)
+        )
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA synchronous = OFF;")
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA temp_store = MEMORY;")
+        conn.execute("PRAGMA cache_size = -64000;")
+        return conn
+
+    def init_db(self, schema_path: Path) -> None:
+        if schema_path.exists():
+            with self.get_connection() as conn:
+                with open(schema_path, 'r', encoding='utf-8') as f: 
+                    conn.executescript(f.read())
+
+    def execute_with_retry(self, func, *args, **kwargs):
+        last_err = None
+        for i in range(self.retry_count):
+            try: 
+                return func(*args, **kwargs)
+            except sqlite3.OperationalError as e:
+                if any(x in str(e).lower() for x in ["locked", "busy"]): 
+                    last_err = e
+                    time.sleep(self.retry_backoff)
+                else: 
+                    raise
+        raise last_err
+
 class DBWriterThread(threading.Thread):
-    def __init__(self, manager: 'SQLiteManager', q: queue.Queue):
+    def __init__(self, connection_manager: SQLiteConnectionManager, q: queue.Queue):
         super().__init__(name="DBWriterThread", daemon=True)
-        self.manager = manager
+        self.connection_manager = connection_manager
         self.q = q
         self.running = True
+        self.logger = logging.getLogger(__name__)
 
     def run(self):
         while self.running or not self.q.empty():
@@ -40,15 +85,25 @@ class DBWriterThread(threading.Thread):
             except queue.Empty:
                 continue
             except Exception as e:
-                self.manager.logger.error(f"Error in DBWriterThread: {e}", exc_info=True)
+                self.logger.error(f"Error in DBWriterThread: {e}", exc_info=True)
 
     def _process_item(self, item):
         file_id, rows = item
         sql = "INSERT INTO staging_data (file_id, row_index, raw_content_json, date_val, amount, employee_name, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
-        data = [(file_id, r.get('_row_index'), json.dumps(sanitize_data(r), ensure_ascii=False), r.get('date'), decimal.Decimal(str(r.get('amount', 0))), r.get('employee_name'), r.get('source_type')) for r in rows]
+        data = [
+            (
+                file_id, 
+                r.get('_row_index'), 
+                json.dumps(sanitize_data(r), ensure_ascii=False), 
+                r.get('date'), 
+                decimal.Decimal(str(r.get('amount', 0))), 
+                r.get('employee_name'), 
+                r.get('source_type')
+            ) for r in rows
+        ]
         
         def _save():
-            conn = self.manager._get_connection()
+            conn = self.connection_manager.get_connection()
             try:
                 conn.execute("BEGIN TRANSACTION")
                 conn.executemany(sql, data)
@@ -58,72 +113,27 @@ class DBWriterThread(threading.Thread):
                 raise
             finally:
                 conn.close()
-        self.manager._execute_with_retry(_save)
+        self.connection_manager.execute_with_retry(_save)
 
     def stop(self):
         self.running = False
         self.q.put(None)
 
-class SQLiteManager(IPersistence):
-    def __init__(self, db_path: str, schema_path: str, config: Dict[str, Any]):
-        self.db_path, self.schema_path, self.config = Path(db_path), Path(schema_path), config
-        self.logger = logging.getLogger(__name__)
-        self.retry_count = config.get('locking', {}).get('retry_count', 3)
-        self.retry_backoff = config.get('locking', {}).get('retry_backoff', 1.0)
-        sqlite3.register_adapter(decimal.Decimal, str)
-        sqlite3.register_converter("NUMERIC", lambda v: decimal.Decimal(v.decode('utf-8')))
-        self.init_db()
-        self.write_queue = queue.Queue()
-        self.writer_thread = DBWriterThread(self, self.write_queue)
-        self.writer_thread.start()
-
-    def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES, timeout=self.config.get('database', {}).get('timeout', 30.0))
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA synchronous = OFF;")
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA temp_store = MEMORY;")
-        conn.execute("PRAGMA cache_size = -64000;")
-        return conn
-
-    def init_db(self) -> None:
-        # Always run schema script - it uses CREATE TABLE IF NOT EXISTS
-        if self.schema_path.exists():
-            with self._get_connection() as conn:
-                with open(self.schema_path, 'r', encoding='utf-8') as f: 
-                    conn.executescript(f.read())
-
-    def _execute_with_retry(self, func, *args, **kwargs):
-        last_err = None
-        for i in range(self.retry_count):
-            try: return func(*args, **kwargs)
-            except sqlite3.OperationalError as e:
-                if any(x in str(e).lower() for x in ["locked", "busy"]): last_err = e; time.sleep(self.retry_backoff)
-                else: raise
-        raise last_err
-
-    def save_session(self, session_id: str, metadata: Dict[str, Any]) -> None:
-        def _save():
-            conn = self._get_connection()
-            try:
-                conn.execute("BEGIN TRANSACTION")
-                conn.execute("INSERT INTO sessions (session_id, metadata) VALUES (?, ?)", (session_id, json.dumps(metadata, ensure_ascii=False, cls=DecimalEncoder)))
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                conn.close()
-        self._execute_with_retry(_save)
+class SourceFileRepository:
+    def __init__(self, connection_manager: SQLiteConnectionManager):
+        self.connection_manager = connection_manager
 
     def save_file_metadata(self, session_id: str, files: List[Dict[str, Any]]) -> List[int]:
         def _save():
             ids = []
-            conn = self._get_connection()
+            conn = self.connection_manager.get_connection()
             try:
                 conn.execute("BEGIN TRANSACTION")
                 for f in files: 
-                    cur = conn.execute("INSERT INTO source_files (session_id, file_path, file_hash, inode, status) VALUES (?, ?, ?, ?, ?)", (session_id, f['path'], f.get('hash'), f.get('inode'), f.get('status', 'pending')))
+                    cur = conn.execute(
+                        "INSERT INTO source_files (session_id, file_path, file_hash, inode, status) VALUES (?, ?, ?, ?, ?)", 
+                        (session_id, f['path'], f.get('hash'), f.get('inode'), f.get('status', 'pending'))
+                    )
                     ids.append(cur.lastrowid)
                 conn.commit()
             except Exception:
@@ -132,18 +142,137 @@ class SQLiteManager(IPersistence):
             finally:
                 conn.close()
             return ids
-        return self._execute_with_retry(_save)
+        return self.connection_manager.execute_with_retry(_save)
+
+    def get_file_cache(self, file_path: str) -> Optional[Dict[str, Any]]:
+        with self.connection_manager.get_connection() as conn:
+            row = conn.execute(
+                "SELECT mtime, size, dates_json FROM file_cache WHERE file_path = ?", 
+                (file_path,)
+            ).fetchone()
+            if row: 
+                return {"mtime": row['mtime'], "size": row['size'], "dates": json.loads(row['dates_json'])}
+            return None
+
+    def save_file_cache(self, file_path: str, mtime: float, size: int, dates: List[str]) -> None:
+        def _save():
+            conn = self.connection_manager.get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.execute(
+                    "INSERT OR REPLACE INTO file_cache (file_path, mtime, size, dates_json, last_updated) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)", 
+                    (file_path, mtime, size, json.dumps(dates))
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+        self.connection_manager.execute_with_retry(_save)
+
+class StagingDataRepository:
+    def __init__(self, connection_manager: SQLiteConnectionManager):
+        self.connection_manager = connection_manager
+        self.write_queue = queue.Queue()
+        self.writer_thread = DBWriterThread(self.connection_manager, self.write_queue)
+        self.writer_thread.start()
 
     def save_staging_data(self, file_id: int, rows: List[Dict[str, Any]]) -> None:
         if not rows: return
         self.write_queue.put((file_id, rows))
+
+    def get_consolidated_data(self, session_id: str) -> List[Dict[str, Any]]:
+        sql = """
+            SELECT staging_data.raw_content_json, staging_data.employee_name, 
+                   staging_data.date_val, staging_data.row_index, source_files.file_path 
+            FROM staging_data 
+            JOIN source_files ON staging_data.file_id = source_files.id 
+            WHERE source_files.session_id = ? 
+            ORDER BY staging_data.employee_name, staging_data.date_val
+        """
+        results = []
+        with self.connection_manager.get_connection() as conn:
+            for row in conn.execute(sql, (session_id,)):
+                data = json.loads(row['raw_content_json'])
+                data.update({
+                    'employee_name': row['employee_name'], 
+                    'date': row['date_val'], 
+                    '_source_info': f"{Path(row['file_path']).name} : Строка {row['row_index']}"
+                })
+                results.append(data)
+        return results
+
+    def close(self):
+        self.writer_thread.stop()
+        self.writer_thread.join()
+
+    def wait_for_writes(self):
+        """Дождаться завершения всех фоновых записей в БД."""
+        self.write_queue.join()
+
+class SessionRepository(IPersistence):
+    def __init__(self, db_path: str, schema_path: str, config: Dict[str, Any]):
+        self.connection_manager = SQLiteConnectionManager(Path(db_path), config)
+        self.connection_manager.init_db(Path(schema_path))
+        
+        self.source_file_repo = SourceFileRepository(self.connection_manager)
+        self.staging_repo = StagingDataRepository(self.connection_manager)
+        self.logger = logging.getLogger(__name__)
+        
+        # Compatibility fields for tests
+        self.db_path = Path(db_path)
+        self.writer_thread = self.staging_repo.writer_thread
+        self.write_queue = self.staging_repo.write_queue
+
+    def init_db(self) -> None:
+        # Schema initialization is handled in __init__
+        pass
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Compatibility method for tests."""
+        return self.connection_manager.get_connection()
+
+    def _execute_with_retry(self, func, *args, **kwargs):
+        """Compatibility method for tests."""
+        return self.connection_manager.execute_with_retry(func, *args, **kwargs)
+
+    def save_session(self, session_id: str, metadata: Dict[str, Any]) -> None:
+        def _save():
+            conn = self._get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.execute(
+                    "INSERT INTO sessions (session_id, metadata) VALUES (?, ?)", 
+                    (session_id, json.dumps(metadata, ensure_ascii=False, cls=DecimalEncoder))
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+        self._execute_with_retry(_save)
 
     def save_template_error(self, session_id: str, error_info: Dict[str, Any]) -> None:
         def _save():
             conn = self._get_connection()
             try:
                 conn.execute("BEGIN TRANSACTION")
-                conn.execute("INSERT INTO template_errors (session_id, file_path, sheet_name, row_index, error_type, details, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?)", (session_id, error_info.get('file_path'), error_info.get('sheet_name'), error_info.get('row_index'), error_info.get('error_type'), error_info.get('details'), json.dumps(error_info.get('raw_data'), ensure_ascii=False, cls=DecimalEncoder)))
+                conn.execute(
+                    """INSERT INTO template_errors 
+                       (session_id, file_path, sheet_name, row_index, error_type, details, raw_data) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""", 
+                    (
+                        session_id, 
+                        error_info.get('file_path'), 
+                        error_info.get('sheet_name'), 
+                        error_info.get('row_index'), 
+                        error_info.get('error_type'), 
+                        error_info.get('details'), 
+                        json.dumps(error_info.get('raw_data'), ensure_ascii=False, cls=DecimalEncoder)
+                    )
+                )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -153,39 +282,56 @@ class SQLiteManager(IPersistence):
         self._execute_with_retry(_save)
 
     def get_template_errors(self, session_id: str) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn: return [dict(r) for r in conn.execute("SELECT * FROM template_errors WHERE session_id = ? ORDER BY file_path, row_index", (session_id,))]
-
-    def get_consolidated_data(self, session_id: str) -> List[Dict[str, Any]]:
-        sql = "SELECT staging_data.raw_content_json, staging_data.employee_name, staging_data.date_val, staging_data.row_index, source_files.file_path FROM staging_data JOIN source_files ON staging_data.file_id = source_files.id WHERE source_files.session_id = ? ORDER BY staging_data.employee_name, staging_data.date_val"
-        results = []
-        with self._get_connection() as conn:
-            for row in conn.execute(sql, (session_id,)):
-                data = json.loads(row['raw_content_json'])
-                data.update({'employee_name': row['employee_name'], 'date': row['date_val'], '_source_info': f"{Path(row['file_path']).name} : Строка {row['row_index']}"})
-                results.append(data)
-        return results
+        with self._get_connection() as conn: 
+            return [
+                dict(r) for r in conn.execute(
+                    "SELECT * FROM template_errors WHERE session_id = ? ORDER BY file_path, row_index", 
+                    (session_id,)
+                )
+            ]
 
     def get_session_status(self, session_id: str) -> Dict[str, Any]:
         with self._get_connection() as conn:
             row = conn.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
-            if not row: return {}
-            stats = conn.execute("SELECT status, COUNT(*) as cnt FROM source_files WHERE session_id = ? GROUP BY status", (session_id,)).fetchall()
-            return {"session_id": row['session_id'], "status": row['status'], "created_at": row['created_at'], "file_stats": {s['status']: s['cnt'] for s in stats}}
+            if not row: 
+                return {}
+            stats = conn.execute(
+                "SELECT status, COUNT(*) as cnt FROM source_files WHERE session_id = ? GROUP BY status", 
+                (session_id,)
+            ).fetchall()
+            return {
+                "session_id": row['session_id'], 
+                "status": row['status'], 
+                "created_at": row['created_at'], 
+                "file_stats": {s['status']: s['cnt'] for s in stats}
+            }
 
-    def get_file_cache(self, file_path: str) -> Optional[Dict[str, Any]]:
-        with self._get_connection() as conn:
-            row = conn.execute("SELECT mtime, size, dates_json FROM file_cache WHERE file_path = ?", (file_path,)).fetchone()
-            if row: return {"mtime": row['mtime'], "size": row['size'], "dates": json.loads(row['dates_json'])}
-            return None
+    # IPersistence delegation
+    def save_file_metadata(self, session_id: str, files: List[Dict[str, Any]]) -> List[int]:
+        return self.source_file_repo.save_file_metadata(session_id, files)
 
-    def save_file_cache(self, file_path: str, mtime: float, size: int, dates: List[str]) -> None:
-        def _save():
-            with self._get_connection() as conn:
-                conn.execute("INSERT OR REPLACE INTO file_cache (file_path, mtime, size, dates_json, last_updated) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)", (file_path, mtime, size, json.dumps(dates)))
-        self._execute_with_retry(_save)
+    def save_staging_data(self, file_id: int, rows: List[Dict[str, Any]]) -> None:
+        self.staging_repo.save_staging_data(file_id, rows)
+
+    def get_consolidated_data(self, session_id: str) -> List[Dict[str, Any]]:
+        return self.staging_repo.get_consolidated_data(session_id)
+
+    def wait_for_writes(self) -> None:
+        self.staging_repo.wait_for_writes()
 
     def close(self) -> None:
         self.logger.info("Closing database manager.")
-        self.writer_thread.stop()
-        self.writer_thread.join()
+        self.staging_repo.close()
 
+    # File cache (needed by discovery service/app controller)
+    def get_file_cache(self, file_path: str) -> Optional[Dict[str, Any]]:
+        return self.source_file_repo.get_file_cache(file_path)
+
+    def save_file_cache(self, file_path: str, mtime: float, size: int, dates: List[str]) -> None:
+        self.source_file_repo.save_file_cache(file_path, mtime, size, dates)
+
+# Alias for backward compatibility and tests
+SQLiteManager = SessionRepository
+
+# Alias for backward compatibility and tests
+SQLiteManager = SessionRepository

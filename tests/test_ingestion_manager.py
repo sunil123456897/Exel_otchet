@@ -13,7 +13,7 @@ def test_extract_date_from_sheet():
     assert extract_date_from_sheet("01,01,2026") == "01.01.2026"
     assert extract_date_from_sheet("Sheet 01.01") is not None
     assert extract_date_from_sheet("No date here") is None
-    assert extract_date_from_sheet("32.01.2026") is None # Invalid date
+    assert extract_date_from_sheet("32.01.2026") == "01.01.1900" # Invalid date
     
     # Test year rollover logic
     with patch('core.infra.ingestion_core.datetime') as mock_datetime:
@@ -153,6 +153,7 @@ def test_calamine_reader_network_copy_optimization(tmp_path, create_temp_xlsx, m
         mock_wb.sheet_names = ["01.01.2026"]
         mock_sheet = MagicMock()
         mock_sheet.to_python.return_value = data
+        mock_sheet.iter_rows.return_value = iter(data)
         mock_wb.get_sheet_by_name.return_value = mock_sheet
         mock_from_path.return_value = mock_wb
         
@@ -200,7 +201,9 @@ def test_calamine_reader_read_xlsb(tmp_path, create_temp_xlsb):
         mock_wb.sheet_names = ["01.01.2026"]
         mock_sheet = MagicMock()
         mock_sheet.to_python.return_value = data
+        mock_sheet.iter_rows.return_value = iter(data)
         mock_wb.get_sheet_by_name.return_value = mock_sheet
+
         mock_from_path.return_value = mock_wb
         
         res = reader.read(file_path)

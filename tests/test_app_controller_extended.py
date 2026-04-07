@@ -33,8 +33,20 @@ def app_controller(mock_deps):
 
 def run_thread_task(mock_thread):
     """Хелпер для запуска задачи из Thread синхронно."""
-    task = mock_thread.call_args[1]['target']
-    task()
+    if mock_thread.call_args is None:
+        # print(f"DEBUG: mock_thread.call_args is None! Method called: {mock_thread.method_calls}")
+        return
+    with patch('concurrent.futures.ThreadPoolExecutor') as mock_executor:
+        mock_executor.return_value.__enter__.return_value = mock_executor.return_value
+        def sync_submit(fn, *args, **kwargs):
+            res = fn(*args, **kwargs)
+            f = MagicMock()
+            f.result.return_value = res
+            return f
+        mock_executor.return_value.submit.side_effect = sync_submit
+        with patch('concurrent.futures.as_completed', side_effect=lambda fs: list(fs)):
+            task = mock_thread.call_args[1]['target']
+            task()
 
 
 class TestRefreshStatus:
@@ -57,6 +69,7 @@ class TestRefreshStatus:
 
         with patch('os.path.exists', return_value=True), \
              patch('os.stat', return_value=MagicMock(st_mtime=1000.0, st_size=5000)), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.refresh_status(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -77,6 +90,7 @@ class TestRefreshStatus:
 
         with patch('os.path.exists', return_value=True), \
              patch('os.stat', return_value=MagicMock(st_mtime=1000.0, st_size=5000)), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.refresh_status(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -100,6 +114,7 @@ class TestRefreshStatus:
 
         with patch('os.path.exists', return_value=True), \
              patch('os.stat', return_value=MagicMock(st_mtime=1000, st_size=1000)), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.refresh_status(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -122,6 +137,7 @@ class TestRefreshStatus:
 
         with patch('os.path.exists', return_value=True), \
              patch('os.stat', return_value=MagicMock(st_mtime=1000, st_size=1000)), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.refresh_status(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -150,6 +166,7 @@ class TestRefreshStatus:
 
         with patch('os.path.exists', return_value=True), \
              patch('os.stat', return_value=MagicMock(st_mtime=1000, st_size=1000)), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.refresh_status(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -168,6 +185,7 @@ class TestRefreshStatus:
 
         with patch('os.path.exists', return_value=True), \
              patch('os.stat', side_effect=OSError("Access denied")), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.refresh_status(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -181,15 +199,19 @@ class TestRunConsolidation:
 
     def test_file_not_exists_skipped(self, app_controller, mock_deps):
         """Несуществующие файлы должны пропускаться."""
+        missing_path = '/missing.xlsx'
         app_controller._cached_employees = {
-            'Alice': [{'path': '/missing.xlsx'}],
+            'Alice': [{'path': missing_path}],
         }
 
         on_progress = MagicMock()
         on_complete = MagicMock()
 
-        with patch('os.path.exists', return_value=False), \
+        # Mock os.path.exists to return False for the missing path
+        with patch('os.path.exists', side_effect=lambda p: p != missing_path), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
+
             app_controller.run_consolidation(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
 
@@ -215,6 +237,7 @@ class TestRunConsolidation:
         on_complete = MagicMock()
 
         with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.run_consolidation(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -239,6 +262,7 @@ class TestRunConsolidation:
         on_complete = MagicMock()
 
         with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.run_consolidation(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -264,6 +288,7 @@ class TestRunConsolidation:
         on_complete = MagicMock()
 
         with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.run_consolidation(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -318,6 +343,7 @@ class TestRunConsolidationAllDates:
         on_complete = MagicMock()
 
         with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.run_consolidation_all_dates(on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -347,6 +373,7 @@ class TestRunConsolidationAllDates:
         on_complete = MagicMock()
 
         with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.run_consolidation_all_dates(on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -388,6 +415,7 @@ class TestEdgeCases:
         on_complete = MagicMock()
 
         with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.run_consolidation(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
@@ -413,8 +441,231 @@ class TestEdgeCases:
         on_complete = MagicMock()
 
         with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
              patch('threading.Thread') as mock_thread:
             app_controller.run_consolidation(datetime(2026, 4, 1), on_progress, on_complete)
             run_thread_task(mock_thread)
 
         mock_deps['persistence'].close.assert_called()
+
+
+class TestRunConsolidationMonth:
+    """run_consolidation_month — консолидация за период."""
+
+    def test_date_range_filter(self, app_controller, mock_deps):
+        """Данные должны фильтроваться по диапазону дат."""
+        app_controller._cached_employees = {
+            'Alice': [{'path': '/a.xlsx'}],
+        }
+        mock_deps['persistence'].save_file_metadata.return_value = [1]
+        mock_deps['persistence'].close = MagicMock()
+        mock_deps['ingestion'].read_file.return_value = [
+            {'date': '01.03.2026', 'amount': 100},  # в диапазоне
+            {'date': '15.03.2026', 'amount': 200},  # в диапазоне
+            {'date': '01.04.2026', 'amount': 300},  # вне диапазона
+        ]
+        mock_deps['validator'].validate_row.return_value = True
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        start = datetime(2026, 3, 1)
+        end = datetime(2026, 3, 31)
+
+        with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
+             patch('threading.Thread') as mock_thread:
+            app_controller.run_consolidation_month(start, end, on_progress, on_complete)
+            run_thread_task(mock_thread)
+
+        # Только 2 строки должны пройти фильтр
+        call_args = mock_deps['persistence'].save_staging_data.call_args
+        saved_rows = call_args[0][1]
+        assert len(saved_rows) == 2
+        assert all(r['amount'] in [100, 200] for r in saved_rows)
+
+    def test_success_message_includes_dates(self, app_controller, mock_deps):
+        """Сообщение об успехе должно содержать даты периода."""
+        app_controller._cached_employees = {
+            'Alice': [{'path': '/a.xlsx'}],
+        }
+        mock_deps['persistence'].save_file_metadata.return_value = [1]
+        mock_deps['persistence'].close = MagicMock()
+        mock_deps['ingestion'].read_file.return_value = [{'date': '15.03.2026', 'amount': 100}]
+        mock_deps['validator'].validate_row.return_value = True
+        mock_deps['logic_service'].consolidate.return_value = [{'consolidated': True}]
+        mock_deps['writer'].write_report.return_value = True
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        start = datetime(2026, 3, 1)
+        end = datetime(2026, 3, 31)
+
+        with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
+             patch('threading.Thread') as mock_thread:
+            app_controller.run_consolidation_month(start, end, on_progress, on_complete)
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called()
+        args = on_complete.call_args[0]
+        assert args[0] is True
+        assert "01.03.2026" in args[1]
+        assert "31.03.2026" in args[1]
+
+    def test_no_data_in_range(self, app_controller, mock_deps):
+        """Нет данных за период — сообщение об ошибке."""
+        app_controller._cached_employees = {
+            'Alice': [{'path': '/a.xlsx'}],
+        }
+        mock_deps['persistence'].save_file_metadata.return_value = [1]
+        mock_deps['persistence'].close = MagicMock()
+        mock_deps['ingestion'].read_file.return_value = [{'date': '01.01.2026', 'amount': 100}]
+        mock_deps['validator'].validate_row.return_value = True
+        mock_deps['logic_service'].consolidate.return_value = []  # Нет данных
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        start = datetime(2026, 3, 1)
+        end = datetime(2026, 3, 31)
+
+        with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
+             patch('threading.Thread') as mock_thread:
+            app_controller.run_consolidation_month(start, end, on_progress, on_complete)
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called()
+        args = on_complete.call_args[0]
+        assert args[0] is False
+        assert "Нет данных за период" in args[1]
+
+    def test_no_files(self, app_controller, mock_deps):
+        """Нет файлов — быстрый возврат."""
+        app_controller._cached_employees = {}
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with patch('threading.Thread') as mock_thread:
+            app_controller.run_consolidation_month(
+                datetime(2026, 3, 1), datetime(2026, 3, 31), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called_with(False, "Нет файлов", None)
+
+    def test_session_type_is_monthly(self, app_controller, mock_deps):
+        """Session должен иметь type='monthly'."""
+        app_controller._cached_employees = {
+            'Alice': [{'path': '/a.xlsx'}],
+        }
+        mock_deps['persistence'].save_file_metadata.return_value = [1]
+        mock_deps['persistence'].close = MagicMock()
+        mock_deps['ingestion'].read_file.return_value = [{'date': '15.03.2026', 'amount': 100}]
+        mock_deps['validator'].validate_row.return_value = True
+        mock_deps['logic_service'].consolidate.return_value = [{'consolidated': True}]
+        mock_deps['writer'].write_report.return_value = True
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        start = datetime(2026, 3, 1)
+        end = datetime(2026, 3, 31)
+
+        with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
+             patch('threading.Thread') as mock_thread:
+            app_controller.run_consolidation_month(start, end, on_progress, on_complete)
+            run_thread_task(mock_thread)
+
+        call_args = mock_deps['persistence'].save_session.call_args
+        metadata = call_args[0][1]
+        assert metadata['type'] == 'monthly'
+        assert metadata['start_date'] == '01.03.2026'
+        assert metadata['end_date'] == '31.03.2026'
+
+    def test_fetches_map_if_not_cached(self, app_controller, mock_deps):
+        """Если _cached_employees пуст — должен получить из discovery."""
+        app_controller._cached_employees = {}
+        app_controller.discovery.get_employees_map.return_value = {
+            'Alice': [{'path': '/a.xlsx'}],
+        }
+        mock_deps['persistence'].save_file_metadata.return_value = [1]
+        mock_deps['persistence'].close = MagicMock()
+        mock_deps['ingestion'].read_file.return_value = [{'date': '15.03.2026', 'amount': 100}]
+        mock_deps['validator'].validate_row.return_value = True
+        mock_deps['logic_service'].consolidate.return_value = [{'consolidated': True}]
+        mock_deps['writer'].write_report.return_value = True
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
+             patch('threading.Thread') as mock_thread:
+            app_controller.run_consolidation_month(
+                datetime(2026, 3, 1), datetime(2026, 3, 31), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        app_controller.discovery.get_employees_map.assert_called_once()
+
+    def test_writer_failure(self, app_controller, mock_deps):
+        """Ошибка записи — onFailure."""
+        app_controller._cached_employees = {
+            'Alice': [{'path': '/a.xlsx'}],
+        }
+        mock_deps['persistence'].save_file_metadata.return_value = [1]
+        mock_deps['persistence'].close = MagicMock()
+        mock_deps['ingestion'].read_file.return_value = [{'date': '15.03.2026', 'amount': 100}]
+        mock_deps['validator'].validate_row.return_value = True
+        mock_deps['logic_service'].consolidate.return_value = [{'consolidated': True}]
+        mock_deps['writer'].write_report.return_value = False
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
+             patch('threading.Thread') as mock_thread:
+            app_controller.run_consolidation_month(
+                datetime(2026, 3, 1), datetime(2026, 3, 31), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called_with(False, "Ошибка записи", None)
+
+    def test_cross_month_range(self, app_controller, mock_deps):
+        """Диапазон может пересекать месяцы (например, 15 марта — 15 апреля)."""
+        app_controller._cached_employees = {
+            'Alice': [{'path': '/a.xlsx'}],
+        }
+        mock_deps['persistence'].save_file_metadata.return_value = [1]
+        mock_deps['persistence'].close = MagicMock()
+        mock_deps['ingestion'].read_file.return_value = [
+            {'date': '20.03.2026', 'amount': 100},  # в диапазоне
+            {'date': '10.04.2026', 'amount': 200},  # в диапазоне
+            {'date': '20.04.2026', 'amount': 300},  # вне диапазона
+        ]
+        mock_deps['validator'].validate_row.return_value = True
+        mock_deps['logic_service'].consolidate.return_value = [{'consolidated': True}]
+        mock_deps['writer'].write_report.return_value = True
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        start = datetime(2026, 3, 15)
+        end = datetime(2026, 4, 15)
+
+        with patch('os.path.exists', return_value=True), \
+             patch.object(app_controller, '_check_master_lock', return_value=True), \
+             patch('threading.Thread') as mock_thread:
+            app_controller.run_consolidation_month(start, end, on_progress, on_complete)
+            run_thread_task(mock_thread)
+
+        call_args = mock_deps['persistence'].save_staging_data.call_args
+        saved_rows = call_args[0][1]
+        assert len(saved_rows) == 2

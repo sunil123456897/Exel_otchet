@@ -1,9 +1,8 @@
-import os
 import logging
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Optional
 
 from core.ui.ui_sidebar import Sidebar
 from core.ui.ui_employee_table import EmployeeTable
@@ -16,100 +15,188 @@ from core.infra.config_controller import ConfigController
 from core.domain.utils_helpers import open_path
 from core.infra.utils_logging import setup_gui_logging
 
+# MVVM Imports
+from core.view_models.employee_list_viewmodel import EmployeeListViewModel
+from core.view_models.consolidation_viewmodel import ConsolidationViewModel
+
 class GuiMaster:
     def __init__(self, root: tk.Tk, config_controller: ConfigController, app_controller: AppController):
         self.root, self.config_controller, self.app_controller = root, config_controller, app_controller
         self.root.title("🚀 Master-Report v5.5 | Financial Consolidator")
         self.root.geometry("1200x900")
         self.root.configure(bg='#f0f2f5')
-        self.all_employee_data, self._cached_employees = [], {}
+        
+        # Initialize ViewModels
+        self.employee_vm = EmployeeListViewModel()
+        self.consolidation_vm = ConsolidationViewModel()
+        
+        # Subscribe to updates
+        self.employee_vm.set_update_callback(self.on_employee_vm_update)
+        self.consolidation_vm.set_callbacks(self.on_consolidation_progress, self.on_consolidation_complete)
+        
         ThemeManager.apply_styles()
         self.setup_ui()
         setup_gui_logging(self.log_panel.get_widget())
+        
+        # Initial status refresh
         self.root.after(100, self.refresh_status)
 
     def setup_ui(self):
-        self.sidebar = Sidebar(self.root, self); self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
-        self.main_area = ttk.Frame(self.root, padding="15", style='Main.TFrame'); self.main_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-        self.stats_panel = StatsPanel(self.sidebar, self); self.stats_panel.pack(fill=tk.X, pady=(0, 10))
-        self.log_panel = LogPanel(self.sidebar, self); self.log_panel.pack(fill=tk.BOTH, expand=True)
-        self.employee_table = EmployeeTable(self.main_area, self); self.employee_table.pack(fill=tk.BOTH, expand=True)
+        self.sidebar = Sidebar(self.root, self)
+        self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
+        
+        self.main_area = ttk.Frame(self.root, padding="15", style='Main.TFrame')
+        self.main_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        self.stats_panel = StatsPanel(self.sidebar, self)
+        self.stats_panel.pack(fill=tk.X, pady=(0, 10))
+        
+        self.log_panel = LogPanel(self.sidebar, self)
+        self.log_panel.pack(fill=tk.BOTH, expand=True)
+        
+        self.employee_table = EmployeeTable(self.main_area, self)
+        self.employee_table.pack(fill=tk.BOTH, expand=True)
+
+    # --- ViewModel Subscriptions ---
+
+    def on_employee_vm_update(self):
+        """Callback for EmployeeListViewModel updates."""
+        self.root.after(0, self._sync_employee_ui)
+
+    def _sync_employee_ui(self):
+        """Synchronize UI with current EmployeeListViewModel state."""
+        self.employee_table.clear_tree()
+        for emp in self.employee_vm.get_filtered_employees():
+            self.employee_table.insert_row((emp.name, emp.status_text, emp.path_text), emp.tag)
+        
+        self.stats_panel.update_stats(
+            self.employee_vm.get_ready_count(), 
+            self.employee_vm.get_total_count()
+        )
+        self.stats_panel.set_progress(self.employee_vm.get_progress_percent())
+        self.sidebar.set_refresh_state('normal')
+
+    def on_consolidation_progress(self, progress: float):
+        """Callback for progress updates from both ViewModels."""
+        self.root.after(0, lambda: self.stats_panel.set_progress(progress))
+
+    def on_consolidation_complete(self, ok: bool, msg: str, path: Optional[Path]):
+        """Callback for consolidation completion."""
+        def fin():
+            state = self.consolidation_vm.get_button_state()
+            self.sidebar.set_consolidate_state(state)
+            self.sidebar.set_consolidate_all_state(state)
+            self.sidebar.set_consolidate_month_state(state)
+            self.stats_panel.set_progress(100 if ok else self.consolidation_vm.progress)
+            
+            if ok:
+                logging.info(f"Успешно: {msg}")
+                if path and messagebox.askyesno("Успех", "Консолидация завершена. Открыть файл?"):
+                    open_path(str(path))
+            else:
+                logging.error(f"Ошибка: {msg}")
+                messagebox.showerror("Ошибка", msg)
+        
+        self.root.after(0, fin)
+
+    # --- UI Commands (called by Sidebar, EmployeeTable, etc.) ---
 
     def refresh_status(self):
-        date = self.sidebar.get_date(); self.sidebar.set_refresh_state('disabled')
-        self.employee_table.clear_tree(); self.stats_panel.set_progress(0)
-        def on_prog(p): self.root.after(0, lambda: self.stats_panel.set_progress(p))
-        def on_comp(data, emps, ren):
-            def fin():
-                self.all_employee_data, self._cached_employees = data, emps; self.filter_tree()
-                self.stats_panel.update_stats(sum(1 for d in data if "🟢 ГОТОВО" in d[1]), len(data))
-                self.stats_panel.set_progress(100); self.sidebar.set_refresh_state('normal')
-                if ren: logging.info("Пути обновлены"); self.config_controller.save_config()
-            self.root.after(0, fin)
-        self.app_controller.refresh_status(date, on_prog, on_comp)
+        """Refresh employee statuses for the selected date."""
+        self.sidebar.set_refresh_state('disabled')
+        self.employee_table.clear_tree()
+        self.stats_panel.set_progress(0)
+        self.employee_vm.refresh(
+            self.app_controller, 
+            self.sidebar.get_date(), 
+            self.on_consolidation_progress
+        )
 
     def run_consolidation(self):
-        missing = [n for n, s, p, t in self.all_employee_data if "🟢 ГОТОВО" not in s]
-        if missing and not messagebox.askyesno("Предупреждение", f"Не сдано отчетов: {len(missing)}. Продолжить?"): return
+        """Consolidate reports for a single date."""
+        missing_names = self.employee_vm.get_missing_names()
+        if missing_names:
+            msg = f"Не сдано отчетов: {len(missing_names)}. Продолжить?"
+            if not messagebox.askyesno("Предупреждение", msg):
+                return
+        
         self.sidebar.set_consolidate_state('disabled')
-        def on_prog(p): self.root.after(0, lambda: self.stats_panel.set_progress(p))
-        def on_comp(ok, msg, path):
-            def fin():
-                self.sidebar.set_consolidate_state('normal'); self.stats_panel.set_progress(100)
-                if ok: (logging.info("Успешно!"), open_path(str(path)) if messagebox.askyesno("Успех", "Открыть файл?") else None)
-                else: logging.error(f"Ошибка: {msg}"); messagebox.showerror("Ошибка", msg)
-            self.root.after(0, fin)
-        self.app_controller.run_consolidation(self.sidebar.get_date(), on_prog, on_comp)
+        self.consolidation_vm.run_consolidation(
+            self.app_controller, 
+            self.sidebar.get_date()
+        )
 
     def run_consolidation_all_dates(self):
+        """Consolidate all available reports across all dates."""
         self.sidebar.set_consolidate_all_state('disabled')
-        def on_prog(p): self.root.after(0, lambda: self.stats_panel.set_progress(p))
-        def on_comp(ok, msg, path):
-            def fin():
-                self.sidebar.set_consolidate_all_state('normal'); self.stats_panel.set_progress(100)
-                if ok: (logging.info("Готово!"), open_path(str(path)) if messagebox.askyesno("Успех", "Открыть файл?") else None)
-                else: logging.error(f"Ошибка: {msg}"); messagebox.showerror("Ошибка", msg)
-            self.root.after(0, fin)
-        self.app_controller.run_consolidation_all_dates(on_prog, on_comp)
+        self.consolidation_vm.run_consolidation_all_dates(self.app_controller)
+
+    def run_consolidation_month(self):
+        """Consolidate reports for a specific date range."""
+        start_date, end_date = self.sidebar.get_month_range()
+        if start_date > end_date:
+            messagebox.showerror("Ошибка", "Дата начала должна быть раньше даты окончания")
+            return
+            
+        self.sidebar.set_consolidate_month_state('disabled')
+        self.consolidation_vm.run_consolidation_month(
+            self.app_controller, 
+            start_date, 
+            end_date
+        )
 
     def add_employee_dialog(self):
+        """Open dialog to add a new employee."""
         name = ask_employee_name()
-        if name: self.config_controller.add_employee(name); self.refresh_status()
+        if name:
+            self.employee_vm.add_employee(self.config_controller, name)
+            self.refresh_status()
 
     def attach_file_dialog(self):
-        def on_attach(name, paths, app): self.config_controller.attach_files(name, paths, app); self.refresh_status()
+        """Open dialog to attach files to an employee."""
+        def on_attach(name, paths, append):
+            self.employee_vm.attach_files(self.config_controller, name, paths)
+            self.refresh_status()
         show_attach_file_dialog(self.root, self.config_controller.get_employees(), on_attach)
 
     def open_master_folder(self):
-        p = Path(self.config_controller.get_paths().get('master_file', 'Master_Report.xlsx'))
-        if not p.is_absolute(): p = Path(self.config_controller.config_path).parent / p
-        if p.parent.exists(): open_path(str(p.parent))
+        """Open the directory containing the master report file."""
+        p = self.employee_vm.get_master_path(self.config_controller)
+        if p and p.parent.exists():
+            open_path(str(p.parent))
 
     def copy_missing_to_clipboard(self):
-        missing = [n for n, s, p, t in self.all_employee_data if "🟢 ГОТОВО" not in s]
+        """Copy list of employees who haven't submitted reports to clipboard."""
+        missing = self.employee_vm.get_missing_names()
         if missing:
-            self.root.clipboard_clear(); self.root.clipboard_append(f"Должники за {self.sidebar.get_date().strftime('%d.%m')}:\n" + "\n".join([f"- {m}" for m in missing]))
-            messagebox.showinfo("Успех", "Скопировано")
+            date_str = self.sidebar.get_date().strftime('%d.%m')
+            text = f"Должники за {date_str}:\n" + "\n".join([f"- {m}" for m in missing])
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            messagebox.showinfo("Успех", "Список должников скопирован в буфер обмена")
 
     def filter_tree(self):
-        q = self.employee_table.get_search_query()
-        self.root.after(0, lambda: (self.employee_table.clear_tree(), [self.employee_table.insert_row((n, s, p), t) for n, s, p, t in self.all_employee_data if any(q in x.lower() for x in (n, s, p))]))
-
-    def _get_sel_path(self):
-        name = self.employee_table.get_selected_employee()
-        if not name: return None
-        metas = self._cached_employees.get(name, [])
-        return metas[0]['path'] if metas and isinstance(metas[0], dict) else metas[0] if metas else None
+        """Filter the employee table based on search query."""
+        self.employee_vm.search_query = self.employee_table.get_search_query()
+        self._sync_employee_ui()
 
     def open_employee_folder(self):
-        p = self._get_sel_path()
-        if p: open_path(str(Path(p).parent))
+        """Open the folder containing the selected employee's report."""
+        name = self.employee_table.get_selected_employee()
+        path = self.employee_vm.get_selected_employee_path(name)
+        if path:
+            open_path(str(Path(path).parent))
 
     def open_employee_file(self):
-        p = self._get_sel_path()
-        if p: open_path(p)
+        """Open the selected employee's report file."""
+        name = self.employee_table.get_selected_employee()
+        path = self.employee_vm.get_selected_employee_path(name)
+        if path:
+            open_path(path)
 
     def delete_employee(self):
+        """Delete the selected employee from configuration."""
         name = self.employee_table.get_selected_employee()
-        if name and messagebox.askyesno("Удалить", f"Удалить '{name}'?"): self.config_controller.delete_employee(name); self.refresh_status()
-
+        if name and messagebox.askyesno("Удалить", f"Удалить сотрудника '{name}'?"):
+            self.employee_vm.delete_employee(self.config_controller, name)
+            self.refresh_status()

@@ -43,8 +43,8 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
             y = int(m.group(5)) if m.group(5) else curr.year
             return datetime(y, month, d).strftime("%d.%m.%Y")
         except Exception:
-            logger.debug(f"Invalid date in sheet '{sheet_name}' (e.g. Feb 29 in non-leap year)")
-            return None
+            logger.warning(f"INVALID DATE in sheet '{sheet_name}'. Using 01.01.1900 as placeholder.")
+            return "01.01.1900"
     return None
 
 
@@ -141,18 +141,26 @@ class CalamineReader:
                 if sheet_name.startswith('_') or sheet_name in ("АНАЛИТИКА", "СВОД"):
                     continue
 
-                rows = wb.get_sheet_by_name(sheet_name).to_python()
-                if not rows:
-                    continue
-
+                sheet = wb.get_sheet_by_name(sheet_name)
+                
                 sheet_date = extract_date_from_sheet(sheet_name)
                 if not sheet_date:
                     logger.debug(f"Skipping sheet {sheet_name}: no date found")
                     continue
 
                 # Первый проход: поиск стандартных ключей
+                # Используем to_python() для первых 6000 строк - это безопасно и не паникует на пустых листах
+                try:
+                    rows_sample = sheet.to_python()
+                except Exception as e:
+                    logger.debug(f"Could not read sheet {sheet_name}: {e}")
+                    continue
+                    
+                if not rows_sample:
+                    continue
+                
                 standard_keys, max_score = set(), 0
-                for row in rows[:6000]:
+                for idx, row in enumerate(rows_sample[:6000]):
                     if not any(v is not None and v != "" for v in row):
                         continue
                     row_str = " ".join([str(v).lower() for v in row if v is not None])
@@ -169,11 +177,11 @@ class CalamineReader:
                     logger.debug(f"No headers found in sheet {sheet_name} (max score: {max_score})")
                     continue
 
-                # Второй проход: чтение данных
+                # Второй проход: чтение данных через итератор для экономии памяти
                 active_col_map, current_is_warning = None, False
                 trash_keywords_set = set(trash_keywords)
 
-                for i, row in enumerate(rows):
+                for i, row in enumerate(sheet.iter_rows()):
                     if not any(v is not None and v != "" for v in row):
                         continue
 
@@ -187,6 +195,7 @@ class CalamineReader:
                             tmp_map, used_aliases = self._map_columns(row)
                             if 'amount' in tmp_map and ('customer' in tmp_map or 'contractor' in tmp_map):
                                 active_col_map = tmp_map
+                                logger.debug(f"DEBUG: Found header in {sheet_name} row {i+1}: {active_col_map}")
                                 current_is_warning = used_aliases or (set(active_col_map.keys()) != standard_keys)
                                 continue
 

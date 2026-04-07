@@ -83,7 +83,9 @@ def test_xlsx(temp_dir):
     # Данные
     ws.append(["ООО Ромашка", "ИП Иванов", "10000", "10000", "0", "2.5", "10000", "5", "500", ""])
     ws.append(["ООО Василек", "ООО Партнер", "5000", "0", "5000", "1", "5000", "3", "150", "возврат"])
-    ws.append(["", "", "Итого", "", "", "", "", "", "", ""])  # Мусорная строка
+    
+    # Мусорная строка, которую Reader НЕ отфильтрует (так как есть '1' в сумме), но Validator ДОЛЖЕН
+    ws.append(["ИТОГО", "", "1", "0", "0", "0", "0", "0", "0", ""]) 
 
     wb.save(f)
     return f
@@ -122,7 +124,7 @@ def full_pipeline(temp_dir, schema_file, test_xlsx):
     logic = LogicService(persistence, config)
     writer = MasterWriter(config)
 
-    return {
+    yield {
         'ingestion': ingestion,
         'persistence': persistence,
         'validator': validator,
@@ -132,6 +134,13 @@ def full_pipeline(temp_dir, schema_file, test_xlsx):
         'test_file': test_xlsx,
         'temp_dir': temp_dir,
     }
+    
+    # Ensure database is closed for cleanup
+    persistence.close()
+    import gc
+    import time
+    gc.collect()
+    time.sleep(0.1) # Give OS time to release file handles
 
 
 class TestFullPipeline:
@@ -144,11 +153,11 @@ class TestFullPipeline:
 
         # 1. Ingestion
         rows = p['ingestion'].read_file(p['test_file'])
-        assert len(rows) > 0
+        assert len(rows) == 3
 
         # 2. Validation
         valid_rows = [r for r in rows if p['validator'].validate_row(r)]
-        assert len(valid_rows) > 0
+        assert len(valid_rows) == 2
 
         # 3. Persistence
         p['persistence'].save_session(session_id, {'type': 'integration_test'})
@@ -158,13 +167,15 @@ class TestFullPipeline:
 
         # Подождать writer thread
         import time
-        time.sleep(0.3)
+        time.sleep(0.5)
 
         # 4. Logic
         consolidated = p['logic'].consolidate(session_id)
-        assert len(consolidated) > 0
-        assert 'ЗАКАЗЧИК' in consolidated[0]
-        assert 'ИСПОЛНИТЕЛЬ' in consolidated[0]
+        assert len(consolidated) == 2
+        # Check for presence of main columns (using partial match for long keys)
+        row_keys = consolidated[0].keys()
+        assert any('ЗАКАЗЧИК' in k for k in row_keys)
+        assert any('ИСПОЛНИТЕЛЬ' in k for k in row_keys)
 
         # 5. Export
         output_path = p['temp_dir'] / 'master_output.xlsx'
@@ -177,16 +188,17 @@ class TestFullPipeline:
         assert len(wb.sheetnames) > 0
         wb.close()
 
-        # Cleanup
-        p['persistence'].close()
-
     def test_validation_filters_junk(self, full_pipeline):
         """Валидатор должен отфильтровать мусорные строки."""
         p = full_pipeline
         rows = p['ingestion'].read_file(p['test_file'])
+        
+        # In updated test_xlsx fixture, we have 3 rows that reader picks up
+        assert len(rows) == 3
 
         valid_count = sum(1 for r in rows if p['validator'].validate_row(r))
-        # Мусорная строка "Итого" должна быть отфильтрована
+        # "ИТОГО" junk row should be filtered out by Validator, leaving 2 valid rows
+        assert valid_count == 2
         assert valid_count < len(rows)
 
     def test_logic_applies_financial_rules(self, full_pipeline):
@@ -211,8 +223,6 @@ class TestFullPipeline:
             assert 'сумма платежа ПРИХОД' in row
             assert 'сумма платежа РАСХОД' in row
             assert 'комиссия' in row
-
-        p['persistence'].close()
 
     def test_empty_file_handling(self, full_pipeline, temp_dir):
         """Пустой файл — обработка без ошибок."""

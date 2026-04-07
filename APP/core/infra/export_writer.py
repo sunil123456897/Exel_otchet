@@ -50,6 +50,12 @@ class MasterWriter(IExporter):
         
         path_abs = os.path.abspath(self.master_path)
         tmp = path_abs + ".tmp"
+        
+        # Fix 5: Windows MAX_PATH Overflow bypass
+        if os.name == 'nt' and len(tmp) > 250:
+            tmp = "\\\\?\\" + tmp
+            path_abs = "\\\\?\\" + path_abs
+
         try:
             wb.save(tmp)
             if os.path.exists(tmp):
@@ -118,15 +124,22 @@ class MasterWriter(IExporter):
             e_val = float(row_cells[cols['расход'] - 1].value or 0) if cols['расход'] > 0 else 0
             t_val = float(row_cells[cols['итог'] - 1].value or 0) if cols['итог'] > 0 else 0
             c_val = abs(float(row_cells[cols['комиссия'] - 1].value or 0)) if cols['комиссия'] > 0 else 0
+            
+            # Fix 1 & 8: Highlighting for critical data loss
+            is_critical = rows_data[r_idx].get('is_critical', False)
+            fill_critical = PatternFill(patternType='solid', fgColor="FF9999") # Light red
 
             expected_total = i_val - e_val
             has_money = abs(i_val) > 0.02 or abs(e_val) > 0.02
-            is_math_err = (c_val == 0 and has_money and (abs(t_val) < 0.02 or abs(expected_total - t_val) > 0.02))
+            # Fix 3: Math error check accounting for commission
+            is_math_err = has_money and abs(expected_total - c_val - t_val) > 0.02
 
             for c_idx, cell in enumerate(row_cells, 1):
                 cell.border = self.st.border_thin
 
-                if is_math_err:
+                if is_critical:
+                    cell.fill = fill_critical
+                elif is_math_err:
                     cell.fill = fill_yellow
                 else:
                     cell.fill = fill_row
@@ -238,7 +251,7 @@ class MasterWriter(IExporter):
             ])
         return warning_rows
 
-    def write_daily_data(self, date, rows, wb=None):
+    def write_daily_data(self, date, rows, wb=None, sh_name_override=None):
         """Записать данные за одну дату в Excel.
         
         Состоит из этапов:
@@ -255,7 +268,7 @@ class MasterWriter(IExporter):
             wb = self._get_workbook()
             should_save = True
 
-        sh_name = date.strftime("%d.%m.%Y")
+        sh_name = sh_name_override or date.strftime("%d.%m.%Y")
         if sh_name in wb.sheetnames:
             del wb[sh_name]
         ws = wb.create_sheet(sh_name)
@@ -307,7 +320,11 @@ class MasterWriter(IExporter):
                 dbd.setdefault(d, []).append(r)
             self.master_path = str(path); wb = self._get_workbook()
             for d_str, rows in sorted(dbd.items()):
-                try: self.write_daily_data(datetime.strptime(d_str, "%d.%m.%Y"), rows, wb=wb)
+                try: 
+                    dt = datetime.strptime(d_str, "%d.%m.%Y")
+                    # Fix 4: Flag unknown dates in a separate sheet name
+                    sh_override = "UNKNOWN_DATE" if d_str == "01.01.1900" else None
+                    self.write_daily_data(dt, rows, wb=wb, sh_name_override=sh_override)
                 except Exception as e: logger.error(f"Date error {d_str}: {e}")
             if "ОШИБКИ ШАБЛОНА" in wb.sheetnames: del wb["ОШИБКИ ШАБЛОНА"]
             self._save_workbook(wb); return True

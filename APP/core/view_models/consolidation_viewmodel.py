@@ -83,6 +83,32 @@ class ConsolidationViewModel:
 
         app_controller.run_consolidation_all_dates(on_progress, on_complete)
 
+    def run_consolidation_month(
+        self,
+        app_controller,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> None:
+        """Запустить консолидацию за диапазон дат."""
+        if self._is_running:
+            return
+
+        self._is_running = True
+        self._progress = 0.0
+
+        def on_progress(p: float) -> None:
+            self._progress = p
+            if self._on_progress:
+                self._on_progress(p)
+
+        def on_complete(ok: bool, msg: str, path: Optional[Path]) -> None:
+            self._is_running = False
+            self._progress = 100.0 if ok else self._progress
+            if self._on_complete:
+                self._on_complete(ok, msg, path)
+
+        app_controller.run_consolidation_month(start_date, end_date, on_progress, on_complete)
+
     # === Queries ===
 
     @property

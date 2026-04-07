@@ -4,7 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Any
 
 from core.domain.interfaces import IValidator, ILogicService, IPersistence
-from core.domain.utils_helpers import to_decimal, to_decimal_percent
+from core.domain.utils_helpers import to_decimal, to_decimal_percent, NumericParsingError
 
 logger = logging.getLogger(__name__)
 
@@ -53,19 +53,24 @@ class LogicService(ILogicService):
         for r in raw_rows:
             f_val = str(r.get('filters', '')).lower()
             is_add, is_ret = any(kw in f_val for kw in self.inc_over), any(kw in f_val for kw in self.ret_kw)
+            is_critical = False
+            
             try:
                 amt = to_decimal(r.get('amount'))
-            except ValueError as e:
+            except (NumericParsingError, ValueError) as e:
                 logger.error(f"DATA INTEGRITY ERROR (Logic): {e} | Source: {r.get('_source_info')}")
                 amt = Decimal('0.00')
+                if isinstance(e, NumericParsingError): is_critical = True
                 
             try:
                 tot = to_decimal(r.get('total', 0))
-            except ValueError as e:
+            except (NumericParsingError, ValueError) as e:
+                # print(f"DEBUG: Caught error {type(e)}: {e}")
                 logger.error(f"DATA INTEGRITY ERROR (Logic): {e} | Source: {r.get('_source_info')}")
                 tot = Decimal('0.00')
+                is_critical = True # Simplify: any error here is critical for now
 
-            if amt == 0 and tot == 0 and not is_add: continue
+            if amt == 0 and tot == 0 and not is_add and not is_critical: continue
             
             # Financial routing:
             # - is_add (keywords like 'доп'): goes to INCOME
@@ -92,7 +97,7 @@ class LogicService(ILogicService):
                 
             is_warn = r.get('is_template_warning', False)
             if is_warn: logger.warning(f"Template warning: {r.get('_source_info')}")
-            res.append({'Дата': r.get('date', ''), 'Источник': r.get('_source_info', 'Unknown'), 'ЗАКАЗЧИК (название проекта, наименование ЮЛ)': self._sanitize(r.get('customer', '')), 'ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)': self._sanitize(r.get('contractor', '')), 'сумма платежа ПРИХОД': inc, 'сумма платежа РАСХОД': exp, 'комиссия': comm, 'ИТОГ': tot, '% посредника': pb_val, 'посредник 1(кэш)': to_decimal(r.get('broker1')), 'посредник 2': to_decimal(r.get('broker2')), 'фильтры': self._sanitize(r.get('filters', '')), 'is_critical': False, 'is_template_warning': is_warn})
+            res.append({'Дата': r.get('date', ''), 'Источник': r.get('_source_info', 'Unknown'), 'ЗАКАЗЧИК (название проекта, наименование ЮЛ)': self._sanitize(r.get('customer', '')), 'ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)': self._sanitize(r.get('contractor', '')), 'сумма платежа ПРИХОД': inc, 'сумма платежа РАСХОД': exp, 'комиссия': comm, 'ИТОГ': tot, '% посредника': pb_val, 'посредник 1(кэш)': to_decimal(r.get('broker1')), 'посредник 2': to_decimal(r.get('broker2')), 'фильтры': self._sanitize(r.get('filters', '')), 'is_critical': is_critical, 'is_template_warning': is_warn})
         return res
 
     def consolidate(self, session_id: str) -> List[Dict[str, Any]]:

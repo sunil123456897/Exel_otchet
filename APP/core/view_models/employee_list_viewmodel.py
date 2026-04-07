@@ -1,6 +1,7 @@
 """Employee List ViewModel — состояние и логика списка сотрудников."""
 from typing import List, Dict, Any, Callable, Optional
 from datetime import datetime
+from pathlib import Path
 import logging
 from dataclasses import dataclass, field
 
@@ -43,10 +44,7 @@ class EmployeeListViewModel:
     # === Commands (действия из UI) ===
 
     def refresh(self, app_controller, selected_date: datetime, on_progress: Callable[[float], None]) -> None:
-        """Запустить обновление статуса сотрудников.
-        
-        Делегирует AppController.refresh_status, но обрабатывает результат.
-        """
+        """Запустить обновление статуса сотрудников."""
         def on_complete(data: List[tuple], employees_map: Dict, rename_detected: bool) -> None:
             self._all_employees = [
                 EmployeeStatus(name=n, status_text=s, path_text=p, tag=t)
@@ -55,10 +53,32 @@ class EmployeeListViewModel:
             self._employees_map = employees_map
             self._rename_detected = rename_detected
 
+            if rename_detected:
+                app_controller.config_controller.save_config()
+
             if self._on_update:
                 self._on_update()
 
         app_controller.refresh_status(selected_date, on_progress, on_complete)
+
+    def add_employee(self, config_controller, name: str) -> None:
+        """Добавить нового сотрудника."""
+        config_controller.add_employee(name)
+
+    def delete_employee(self, config_controller, name: str) -> None:
+        """Удалить сотрудника."""
+        config_controller.delete_employee(name)
+
+    def attach_files(self, config_controller, name: str, paths: List[str]) -> None:
+        """Прикрепить файлы к сотруднику."""
+        config_controller.attach_files(name, paths)
+
+    def get_master_path(self, config_controller) -> Optional[Path]:
+        """Получить путь к мастер-файлу."""
+        p = Path(config_controller.get_paths().get('master_file', 'Master_Report.xlsx'))
+        if not p.is_absolute():
+            p = Path(config_controller.config_path).parent / p
+        return p
 
     # === Queries (состояние для UI) ===
 
