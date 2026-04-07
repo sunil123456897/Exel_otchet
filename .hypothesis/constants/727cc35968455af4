@@ -1,4 +1,0 @@
-# file: E:\Для Даши\Версия 5\APP\core\data_schemas.py
-# hypothesis_version: 6.151.10
-
-['%d.%m.%Y', ',', '-', '.', '.-', '0.00', 'allow', 'amount', 'before', 'broker1', 'broker2', 'commission', 'contractor', 'customer', 'date', 'expense', 'income', 'percent_broker', 'total']

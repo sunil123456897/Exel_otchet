@@ -1,4 +1,0 @@
-# file: E:\Для Даши\Версия 5\APP\core\theme.py
-# hypothesis_version: 6.151.10
-
-['#138496', '#153654', '#17a2b8', '#1f4e79', '#212529', '#218838', '#28a745', '#dc3545', '#e9ecef', '#f0f2f5', '#f8f9fa', '#ffc107', '#ffffff', 'Action.TButton', 'Audit.TButton', 'Header.TLabel', 'Main.TFrame', 'Segoe UI', 'Sidebar.TFrame', 'Sidebar.TLabel', 'Success.TButton', 'TButton', 'TLabel', 'TLabelframe', 'TLabelframe.Label', 'TProgressbar', 'Treeview', 'Treeview.Heading', 'active', 'bg_light', 'bold', 'clam', 'danger', 'flat', 'groove', 'info', 'primary', 'selected', 'sidebar', 'success', 'text', 'warning', 'white']
