@@ -1,4 +1,5 @@
 """Тесты для ConfigController."""
+
 import pytest
 import os
 import tempfile
@@ -13,7 +14,8 @@ from core.infra.config_controller import ConfigController
 def temp_config_file(tmp_path):
     """Создаёт временный config.yaml."""
     cfg = tmp_path / "config.yaml"
-    cfg.write_text("""
+    cfg.write_text(
+        """
 employees:
   - Иван П
   - Марго
@@ -24,12 +26,20 @@ paths:
 sh1:
   markers:
     amount: сумма платежа
-employee_paths:
-  Иван П:
-    - path: reports/ivan/report.xlsx
-      id: 12345
-      fp: abc123
-""", encoding='utf-8')
+""",
+        encoding="utf-8",
+    )
+    emp = tmp_path / "employees.yaml"
+    emp.write_text(
+        """
+Иван П:
+  - path: reports/ivan/report.xlsx
+    id: 12345
+    fp: abc123
+Марго: []
+""",
+        encoding="utf-8",
+    )
     return str(cfg)
 
 
@@ -44,8 +54,8 @@ class TestConfigControllerInit:
 
     def test_load_config_success(self, config_controller):
         assert config_controller.config is not None
-        assert 'Иван П' in config_controller.get_employees()
-        assert 'Марго' in config_controller.get_employees()
+        assert "Иван П" in config_controller.get_employees()
+        assert "Марго" in config_controller.get_employees()
 
     def test_load_config_missing_file(self, tmp_path):
         """Несуществующий файл — пустой конфиг."""
@@ -55,28 +65,23 @@ class TestConfigControllerInit:
     def test_load_config_invalid_yaml(self, tmp_path):
         """Невалидный YAML — пустой конфиг."""
         cfg_file = tmp_path / "bad.yaml"
-        cfg_file.write_text("{{invalid yaml:::", encoding='utf-8')
+        cfg_file.write_text("{{invalid yaml:::", encoding="utf-8")
         cfg = ConfigController(str(cfg_file))
-        # YAML может выбросить или вернуть None
         assert cfg.config is None or cfg.config == {}
 
     def test_yaml_settings_preserved(self, config_controller):
         """Настройки YAML должны сохранять комментарии."""
         assert config_controller.yaml.preserve_quotes is True
-        # indent() returns function in newer ruamel.yaml, check config was parsed
-        assert 'employees' in config_controller.config
+        assert "sh1" in config_controller.config
 
-    def test_load_config_invalid_yaml(self, tmp_path):
-        """Невалидный YAML — пустой/None конфиг."""
-        cfg_file = tmp_path / "bad.yaml"
-        cfg_file.write_text("{{invalid yaml:::", encoding='utf-8')
-        cfg = ConfigController(str(cfg_file))
-        assert cfg.config is None or cfg.config == {}
-
-    def test_load_config_missing_file(self, tmp_path):
-        """Несуществующий файл — пустой/None конфиг."""
-        cfg = ConfigController(str(tmp_path / "nonexistent.yaml"))
-        assert cfg.config is None or cfg.config == {}
+    def test_employees_loaded_from_separate_file(self, config_controller):
+        """Сотрудники должны загружаться из employees.yaml."""
+        assert "Иван П" in config_controller.employees
+        assert len(config_controller.employees["Иван П"]) == 1
+        assert (
+            config_controller.employees["Иван П"][0]["path"]
+            == "reports/ivan/report.xlsx"
+        )
 
 
 class TestAddEmployee:
@@ -112,7 +117,6 @@ class TestAddEmployee:
     def test_add_persists_to_file(self, config_controller, temp_config_file):
         """Добавление должно сохраняться в файл."""
         config_controller.add_employee("Борис")
-        # Перезагрузить конфиг из файла
         cc2 = ConfigController(temp_config_file)
         assert "Борис" in cc2.get_employees()
 
@@ -127,8 +131,7 @@ class TestDeleteEmployee:
     def test_delete_removes_custom_paths(self, config_controller):
         """Удаление сотрудника должно удалить его пути."""
         config_controller.delete_employee("Иван П")
-        emp_paths = config_controller.config.get('employee_paths', {})
-        assert "Иван П" not in emp_paths
+        assert "Иван П" not in config_controller.employees
 
     def test_delete_nonexistent_employee(self, config_controller):
         """Удаление несуществующего — без ошибок."""
@@ -151,11 +154,11 @@ class TestAttachFiles:
         f.write_bytes(b"test content")
 
         config_controller.attach_files("Марго", [str(f)])
-        paths = config_controller.config.get('employee_paths', {}).get('Марго', [])
+        paths = config_controller.employees.get("Марго", [])
         assert len(paths) == 1
-        assert paths[0]['path'] == str(f)
-        assert 'id' in paths[0]
-        assert 'fp' in paths[0]
+        assert paths[0]["path"] == str(f.absolute())
+        assert "id" in paths[0]
+        assert "fp" in paths[0]
 
     def test_attach_multiple_files(self, config_controller, tmp_path):
         f1 = tmp_path / "report1.xlsx"
@@ -164,13 +167,13 @@ class TestAttachFiles:
         f2.write_bytes(b"content2")
 
         config_controller.attach_files("Марго", [str(f1), str(f2)])
-        paths = config_controller.config.get('employee_paths', {}).get('Марго', [])
+        paths = config_controller.employees.get("Марго", [])
         assert len(paths) == 2
 
     def test_attach_file_not_exists(self, config_controller):
         """Несуществующий файл — пропускается."""
         config_controller.attach_files("Марго", ["/nonexistent/file.xlsx"])
-        paths = config_controller.config.get('employee_paths', {}).get('Марго', [])
+        paths = config_controller.employees.get("Марго", [])
         assert len(paths) == 0
 
     def test_attach_replace_mode(self, config_controller, tmp_path):
@@ -179,9 +182,9 @@ class TestAttachFiles:
         f.write_bytes(b"new")
 
         config_controller.attach_files("Иван П", [str(f)], append=False)
-        paths = config_controller.config.get('employee_paths', {}).get('Иван П', [])
+        paths = config_controller.employees.get("Иван П", [])
         assert len(paths) == 1
-        assert paths[0]['path'] == str(f)
+        assert paths[0]["path"] == str(f.absolute())
 
     def test_attach_deduplicates(self, config_controller, tmp_path):
         """Одинаковые пути — дедупликация."""
@@ -189,7 +192,7 @@ class TestAttachFiles:
         f.write_bytes(b"content")
 
         config_controller.attach_files("Марго", [str(f), str(f)])
-        paths = config_controller.config.get('employee_paths', {}).get('Марго', [])
+        paths = config_controller.employees.get("Марго", [])
         assert len(paths) == 1
 
     def test_attach_generates_md5_hash(self, config_controller, tmp_path):
@@ -198,9 +201,8 @@ class TestAttachFiles:
         f.write_bytes(b"hello world")
 
         config_controller.attach_files("Марго", [str(f)])
-        paths = config_controller.config.get('employee_paths', {}).get('Марго', [])
-        # MD5 от первых 8192 байт
-        assert len(paths[0]['fp']) == 32  # hex length
+        paths = config_controller.employees.get("Марго", [])
+        assert len(paths[0]["fp"]) == 32
 
     def test_attach_new_employee(self, config_controller, tmp_path):
         """Прикрепление к новому сотруднику — создаёт запись."""
@@ -208,8 +210,8 @@ class TestAttachFiles:
         f.write_bytes(b"content")
 
         config_controller.attach_files("Новый", [str(f)])
-        assert "Новый" not in config_controller.get_employees()  # Не добавляет в список
-        assert "Новый" in config_controller.config.get('employee_paths', {})
+        assert "Новый" in config_controller.get_employees()
+        assert "Новый" in config_controller.employees
 
 
 class TestGetters:
@@ -223,24 +225,22 @@ class TestGetters:
 
     def test_get_employees_empty(self, tmp_path):
         cfg_file = tmp_path / "empty.yaml"
-        cfg_file.write_text("", encoding='utf-8')
+        cfg_file.write_text("", encoding="utf-8")
         cc = ConfigController(str(cfg_file))
-        # Config may be None from empty YAML, getter may error
         if cc.config is not None:
             assert cc.get_employees() == []
 
     def test_get_paths(self, config_controller):
         paths = config_controller.get_paths()
         assert isinstance(paths, dict)
-        assert 'master_file' in paths
-        assert 'source_root' in paths
-        assert 'archive_dir' in paths
+        assert "master_file" in paths
+        assert "source_root" in paths
+        assert "archive_dir" in paths
 
     def test_get_paths_empty_config(self, tmp_path):
         cfg_file = tmp_path / "empty.yaml"
-        cfg_file.write_text("", encoding='utf-8')
+        cfg_file.write_text("", encoding="utf-8")
         cc = ConfigController(str(cfg_file))
-        # Config may be None from empty YAML
         if cc.config is not None:
             assert cc.get_paths() == {}
 
@@ -255,8 +255,7 @@ class TestSaveConfig:
 
     def test_save_error_handled(self, config_controller):
         """Ошибка записи — логирование без падения."""
-        with patch('builtins.open', side_effect=PermissionError("Access denied")):
-            # Не должно выбрасывать
+        with patch("builtins.open", side_effect=PermissionError("Access denied")):
             config_controller.save_config()
 
 
@@ -270,9 +269,10 @@ class TestEdgeCases:
     def test_employee_paths_as_string(self, tmp_path):
         """employee_paths может быть строкой вместо списка."""
         cfg_file = tmp_path / "str_paths.yaml"
-        cfg_file.write_text("employee_paths:\n  Emp: single_path.xlsx\n", encoding='utf-8')
+        emp_file = tmp_path / "employees.yaml"
+        cfg_file.write_text("paths: {}\nsh1: {}\n", encoding="utf-8")
+        emp_file.write_text("Emp: single_path.xlsx\n", encoding="utf-8")
         cc = ConfigController(str(cfg_file))
-        # attach_files должен обработать строку как список
         f = tmp_path / "new.xlsx"
         f.write_bytes(b"content")
         cc.attach_files("Emp", [str(f)])
@@ -282,6 +282,6 @@ class TestEdgeCases:
         f.write_bytes(b"content")
 
         config_controller.attach_files("Марго", [str(f)])
-        paths = config_controller.config.get('employee_paths', {}).get('Марго', [])
+        paths = config_controller.employees.get("Марго", [])
         assert len(paths) == 1
-        assert "#1" in paths[0]['path']
+        assert "#1" in paths[0]["path"]

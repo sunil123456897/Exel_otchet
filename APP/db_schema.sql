@@ -2,7 +2,6 @@
 -- Financial fields are stored as TEXT to maintain Decimal precision in Python.
 
 PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
 
 -- Session tracking
 CREATE TABLE IF NOT EXISTS sessions (

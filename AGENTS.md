@@ -47,7 +47,7 @@ This project is optimized for an agentic ecosystem. You MUST use specialized MCP
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Version5** (1189 symbols, 3415 relationships, 88 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Version5** (1210 symbols, 3440 relationships, 88 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -145,3 +145,65 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+<!-- opencode:start -->
+# OpenCode — Environment Configuration
+
+This project is configured for OpenCode with the following MCP servers and skills.
+
+## MCP Servers
+
+| Server | Type | Purpose |
+|--------|------|---------|
+| `sentrux` | local | Architectural integrity, health checks, DSM analysis |
+| `gitnexus` | local | Code intelligence, impact analysis, safe refactoring |
+| `context7` | local (npx) | Live documentation lookup for libraries and frameworks |
+| `maestro` | local (node) | Multi-agent orchestration (4-phase workflow) |
+
+## Skills (49 total)
+
+Skills are located in `.opencode/skills/` and `.claude/skills/`. Load via the `skill` tool.
+
+### Project-Critical Skills
+- `xlsx` — Excel operations (pandas + openpyxl)
+- `pdf` — PDF generation/analysis
+- `docx` — Word document manipulation
+- `python-development` — Python 3.12+ best practices
+
+### Methodology Skills (Superpowers)
+- `brainstorming` — Before any design or feature work
+- `systematic-debugging` — Before fixing any bug
+- `test-driven-development` — Before writing implementation code
+- `verification-before-completion` — Before claiming a task is done
+- `writing-plans` — Structured planning methodology
+
+### Orchestration Skills (Maestro)
+- `execution` — Phase 3 execution methodology
+- `implementation-planning` — Phase 2 implementation planning
+- `design-dialogue` — Phase 1 design dialogue
+- `validation` — Post-phase validation
+- `session-management` — Session state management
+- `delegation` — Subagent delegation patterns
+- `code-review` — Code review within orchestration
+
+### Documentation Skills (Context7)
+- `find-docs` — Retrieve up-to-date docs for any library
+- `context7-mcp` — Context7 MCP server usage
+- `context7-cli` — Context7 CLI usage
+
+### Analysis Skills
+- `criticalthink` — Rigorous critical analysis of previous responses
+- `generic-code-review` — Code review patterns
+- `reasoning-agent` — Structured reasoning
+
+## Config File
+
+Project config: `opencode.json` — contains MCP server definitions, permissions, and instructions.
+
+## Environment Variables
+
+| Variable | Purpose | Required |
+|----------|---------|----------|
+| `CONTEXT7_API_KEY` | Context7 rate-limit increase | No (optional) |
+| `MAESTRO_WORKSPACE_PATH` | Maestro workspace root | Auto-set |
+<!-- opencode:end -->

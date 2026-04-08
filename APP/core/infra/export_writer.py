@@ -7,52 +7,74 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill
 from core.domain.interfaces import IExporter
+from core.domain.utils_helpers import is_file_writable
 from core.infra.export_styles import ExcelStyles
 
 logger = logging.getLogger(__name__)
 
+
 class MasterWriter(IExporter):
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], config_path: str = ""):
         self.config = config
-        p = config.get('paths', {}) if isinstance(config, dict) else getattr(config, 'paths', {})
-        self.master_path = p.get('master_file', 'Master_Report.xlsx')
-        if not os.path.isabs(self.master_path) and not os.path.exists(self.master_path) and os.path.exists("Master_Report.xlsx"):
-            self.master_path = "Master_Report.xlsx"
+        self.config_dir = Path(config_path).parent if config_path else Path.cwd()
+        p = (
+            config.get("paths", {})
+            if isinstance(config, dict)
+            else getattr(config, "paths", {})
+        )
+        master = p.get("master_file", "Master_Report.xlsx")
+        master_path = Path(master)
+        if not master_path.is_absolute():
+            master_path = self.config_dir / master_path
+        self.master_path = str(master_path)
         self.st = ExcelStyles()
 
     def _apply_header_style(self, ws, row_idx=1):
         for cell in ws[row_idx]:
-            cell.fill, cell.font, cell.alignment, cell.border = self.st.fill_header, self.st.font_header, self.st.align_center, self.st.border_thin
+            cell.fill, cell.font, cell.alignment, cell.border = (
+                self.st.fill_header,
+                self.st.font_header,
+                self.st.align_center,
+                self.st.border_thin,
+            )
 
     def _get_workbook(self):
         path_abs = os.path.abspath(self.master_path)
         if os.path.exists(path_abs):
-            try: return openpyxl.load_workbook(path_abs)
-            except: return openpyxl.Workbook()
+            try:
+                return openpyxl.load_workbook(path_abs)
+            except:
+                return openpyxl.Workbook()
         wb = openpyxl.Workbook()
-        if "Sheet" in wb.sheetnames: wb.remove(wb["Sheet"])
+        if "Sheet" in wb.sheetnames:
+            wb.remove(wb["Sheet"])
         return wb
 
     def _save_workbook(self, wb):
         SPECIAL_ORDER = ["ВСЕ ОПЕРАЦИИ", "ДАШБОРД", "АНАЛИТИКА", "СВОД"]
+
         def key(n):
             if "." in n:
-                try: 
+                try:
                     p = n.split(".")
-                    if len(p) == 3: # DD.MM.YYYY
+                    if len(p) == 3:  # DD.MM.YYYY
                         return (0, int(p[2]), int(p[1]), int(p[0]))
                     return (0, 9999, int(p[1]), int(p[0]))
-                except: return (0, 9999, 99, 99)
+                except:
+                    return (0, 9999, 99, 99)
             return (1, 0, 0, SPECIAL_ORDER.index(n) if n in SPECIAL_ORDER else 99)
+
         for i, n in enumerate(sorted(wb.sheetnames, key=key)):
-            curr = wb.sheetnames.index(n); offset = i - curr
-            if offset != 0: wb.move_sheet(n, offset=offset)
-        
+            curr = wb.sheetnames.index(n)
+            offset = i - curr
+            if offset != 0:
+                wb.move_sheet(n, offset=offset)
+
         path_abs = os.path.abspath(self.master_path)
         tmp = path_abs + ".tmp"
-        
+
         # Fix 5: Windows MAX_PATH Overflow bypass
-        if os.name == 'nt' and len(tmp) > 250:
+        if os.name == "nt" and len(tmp) > 250:
             tmp = "\\\\?\\" + tmp
             path_abs = "\\\\?\\" + path_abs
 
@@ -60,31 +82,44 @@ class MasterWriter(IExporter):
             wb.save(tmp)
             if os.path.exists(tmp):
                 if os.path.exists(path_abs):
-                    try: os.replace(tmp, path_abs)
+                    try:
+                        os.replace(tmp, path_abs)
                     except PermissionError:
-                        if os.path.exists(tmp): os.remove(tmp)
+                        if os.path.exists(tmp):
+                            os.remove(tmp)
                         import tkinter.messagebox as mb
-                        mb.showerror("Файл занят", f"Закройте '{self.master_path}' в Excel!")
-                else: os.rename(tmp, path_abs)
-        except Exception as e: logger.error(f"Save failed: {e}")
+
+                        mb.showerror(
+                            "Файл занят", f"Закройте '{self.master_path}' в Excel!"
+                        )
+                else:
+                    os.rename(tmp, path_abs)
+        except Exception as e:
+            logger.error(f"Save failed: {e}")
 
     def _auto_adjust(self, ws):
-        numeric_keywords = ['приход', 'расход', 'комиссия', 'итог', 'посредник']
+        numeric_keywords = ["приход", "расход", "комиссия", "итог", "посредник"]
         for i in range(1, ws.max_column + 1):
             max_len = 0
-            for row in ws.iter_rows(min_row=1, max_row=min(100, ws.max_row), values_only=True):
-                if row[i-1]: max_len = max(max_len, len(str(row[i-1])))
-            let = get_column_letter(i); header = str(ws.cell(1, i).value or "").lower()
-            if any(kw in header for kw in numeric_keywords): ws.column_dimensions[let].width = max((max_len * 1.1) + 6, 15)
-            else: ws.column_dimensions[let].width = min(max_len + 4, 35)
+            for row in ws.iter_rows(
+                min_row=1, max_row=min(20, ws.max_row), values_only=True
+            ):
+                if row[i - 1]:
+                    max_len = max(max_len, len(str(row[i - 1])))
+            let = get_column_letter(i)
+            header = str(ws.cell(1, i).value or "").lower()
+            if any(kw in header for kw in numeric_keywords):
+                ws.column_dimensions[let].width = max((max_len * 1.1) + 6, 15)
+            else:
+                ws.column_dimensions[let].width = min(max_len + 4, 35)
 
     def _detect_header_columns(self, ws) -> tuple:
         """Определить позиции ключевых колонок по заголовкам.
-        
+
         Returns:
             (cols, num_indices, percent_broker_col) — словари позиций.
         """
-        num_kw = ['приход', 'расход', 'комиссия', 'итог', 'посредник']
+        num_kw = ["приход", "расход", "комиссия", "итог", "посредник"]
         cols = {kw: -1 for kw in num_kw}
         num_indices = set()
         percent_broker_col = -1
@@ -95,17 +130,19 @@ class MasterWriter(IExporter):
                 num_indices.add(i)
             for kw in num_kw:
                 if kw in val:
-                    if kw == 'комиссия' and 'посред' in val:
+                    if kw == "комиссия" and "посред" in val:
                         continue
                     cols[kw] = i
-            if val == '% посредника':
+            if val == "% посредника":
                 percent_broker_col = i
 
         return cols, num_indices, percent_broker_col
 
-    def _apply_cell_styling(self, ws, rows_data, warning_rows, cols, num_indices, percent_broker_col):
+    def _apply_cell_styling(
+        self, ws, rows_data, warning_rows, cols, num_indices, percent_broker_col
+    ):
         """Применить стили, подсветку и форматирование к ячейкам данных.
-        
+
         Args:
             ws: worksheet
             rows_data: list of row data dicts
@@ -114,20 +151,36 @@ class MasterWriter(IExporter):
             num_indices: set числовых колонок
             percent_broker_col: позиция % посредника
         """
-        fill_yellow = PatternFill(patternType='solid', fgColor="FFFF00")
+        fill_yellow = PatternFill(patternType="solid", fgColor="FFFF00")
 
         for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row)):
             is_warning = (r_idx + 2) in warning_rows
             fill_row = self.st.fill_odd if (r_idx + 1) % 2 == 1 else self.st.fill_even
 
-            i_val = float(row_cells[cols['приход'] - 1].value or 0) if cols['приход'] > 0 else 0
-            e_val = float(row_cells[cols['расход'] - 1].value or 0) if cols['расход'] > 0 else 0
-            t_val = float(row_cells[cols['итог'] - 1].value or 0) if cols['итог'] > 0 else 0
-            c_val = abs(float(row_cells[cols['комиссия'] - 1].value or 0)) if cols['комиссия'] > 0 else 0
-            
+            i_val = (
+                float(row_cells[cols["приход"] - 1].value or 0)
+                if cols["приход"] > 0
+                else 0
+            )
+            e_val = (
+                float(row_cells[cols["расход"] - 1].value or 0)
+                if cols["расход"] > 0
+                else 0
+            )
+            t_val = (
+                float(row_cells[cols["итог"] - 1].value or 0) if cols["итог"] > 0 else 0
+            )
+            c_val = (
+                abs(float(row_cells[cols["комиссия"] - 1].value or 0))
+                if cols["комиссия"] > 0
+                else 0
+            )
+
             # Fix 1 & 8: Highlighting for critical data loss
-            is_critical = rows_data[r_idx].get('is_critical', False)
-            fill_critical = PatternFill(patternType='solid', fgColor="FF9999") # Light red
+            is_critical = rows_data[r_idx].get("is_critical", False)
+            fill_critical = PatternFill(
+                patternType="solid", fgColor="FF9999"
+            )  # Light red
 
             expected_total = i_val - e_val
             has_money = abs(i_val) > 0.02 or abs(e_val) > 0.02
@@ -146,20 +199,28 @@ class MasterWriter(IExporter):
                 cell.font = self.st.font_standard
 
                 if c_idx in num_indices:
-                    self._format_numeric_cell(cell, c_idx, cols, ws, percent_broker_col, is_warning)
+                    self._format_numeric_cell(
+                        cell, c_idx, cols, ws, percent_broker_col, is_warning
+                    )
                 else:
                     cell.alignment = self.st.align_left
                     if is_warning and c_idx == 2:
                         cell.fill = self.st.fill_warning
 
-    def _format_numeric_cell(self, cell, c_idx, cols, ws, percent_broker_col, is_warning):
+    def _format_numeric_cell(
+        self, cell, c_idx, cols, ws, percent_broker_col, is_warning
+    ):
         """Отформатировать числовую ячейку (цвет, выравнивание, числовой формат)."""
         val = cell.value or 0
 
         # Подсветка дохода/расхода
-        if c_idx == cols['приход'] and isinstance(val, (int, float)) and val > 0.01:
+        if c_idx == cols["приход"] and isinstance(val, (int, float)) and val > 0.01:
             cell.fill, cell.font = self.st.fill_income, self.st.font_income
-        elif c_idx == cols['расход'] and isinstance(val, (int, float)) and abs(val) > 0.01:
+        elif (
+            c_idx == cols["расход"]
+            and isinstance(val, (int, float))
+            and abs(val) > 0.01
+        ):
             cell.fill, cell.font = self.st.fill_expense, self.st.font_expense
 
         # % посредника — конвертация и проверка
@@ -183,14 +244,18 @@ class MasterWriter(IExporter):
 
         # Числовой формат
         h = str(ws.cell(1, c_idx).value or "").lower()
-        if '%' in h and 'посред' in h:
-            fmt = 'General' if is_percent_err and isinstance(cell.value, str) else '#,##0.00'
+        if "%" in h and "посред" in h:
+            fmt = (
+                "General"
+                if is_percent_err and isinstance(cell.value, str)
+                else "#,##0.00"
+            )
             if not is_percent_err:
-                fmt = '0.00%'
-        elif 'комиссия' in h:
+                fmt = "0.00%"
+        elif "комиссия" in h:
             fmt = '0.00"%"'
         else:
-            fmt = '#,##0.00'
+            fmt = "#,##0.00"
 
         cell.alignment, cell.number_format = self.st.align_right, fmt
 
@@ -200,60 +265,70 @@ class MasterWriter(IExporter):
 
     def _build_total_row(self, ws, num_indices):
         """Создать строку ИТОГО с формулами SUM.
-        
+
         Returns:
             Номер строки ИТОГО.
         """
         total_row = ws.max_row + 1
         total_label = ws.cell(total_row, 1, "ИТОГО:")
         total_label.font, total_label.fill, total_label.border = (
-            self.st.font_total, self.st.fill_total, self.st.border_medium
+            self.st.font_total,
+            self.st.fill_total,
+            self.st.border_medium,
         )
 
         for c in range(1, ws.max_column + 1):
             if c not in num_indices:
                 continue
             h = str(ws.cell(1, c).value or "").lower()
-            if any(kw in h for kw in ['приход', 'расход', 'итог', 'посредник']) and '%' not in h:
+            if (
+                any(kw in h for kw in ["приход", "расход", "итог", "посредник"])
+                and "%" not in h
+            ):
                 let = get_column_letter(c)
                 cell = ws.cell(total_row, c)
                 cell.value = f"=SUM({let}2:{let}{total_row - 1})"
                 cell.fill, cell.font, cell.border, cell.number_format = (
-                    self.st.fill_total, self.st.font_total, self.st.border_medium, '#,##0.00'
+                    self.st.fill_total,
+                    self.st.font_total,
+                    self.st.border_medium,
+                    "#,##0.00",
                 )
 
         return total_row
 
     def _append_data_rows(self, ws, date, rows):
         """Добавить строки данных в worksheet.
-        
+
         Returns:
             Список номеров строк с template warning.
         """
         warning_rows = []
         date_str = date.strftime("%d.%m.%Y")
         for r in rows:
-            if r.get('is_template_warning'):
+            if r.get("is_template_warning"):
                 warning_rows.append(ws.max_row + 1)
-            ws.append([
-                date_str,
-                r.get('Источник', ''),
-                r.get('ЗАКАЗЧИК (название проекта, наименование ЮЛ)', ''),
-                r.get('ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)', ''),
-                float(r.get('сумма платежа ПРИХОД', 0)),
-                float(r.get('сумма платежа РАСХОД', 0)),
-                float(r.get('комиссия', 0)),
-                float(r.get('ИТОГ', 0)),
-                r.get('% посредника', 0),
-                float(r.get('посредник 1(кэш)', 0)),
-                float(r.get('посредник 2', 0)),
-                r.get('фильтры', ''),
-            ])
+            ws.append(
+                [
+                    date_str,
+                    r.get("Источник", ""),
+                    r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
+                    r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
+                    float(r.get("сумма платежа ПРИХОД", 0)),
+                    float(r.get("сумма платежа РАСХОД", 0)),
+                    float(r.get("комиссия", 0)),
+                    float(r.get("ИТОГ", 0)),
+                    r.get("% посредника", 0),
+                    float(r.get("посредник 1(кэш)", 0)),
+                    float(r.get("посредник 2", 0)),
+                    r.get("фильтры", ""),
+                ]
+            )
         return warning_rows
 
     def write_daily_data(self, date, rows, wb=None, sh_name_override=None):
         """Записать данные за одну дату в Excel.
-        
+
         Состоит из этапов:
         1. Создание/подготовка листа
         2. Запись заголовков
@@ -275,12 +350,22 @@ class MasterWriter(IExporter):
 
         # 1. Заголовки
         headers = [
-            "Дата", "Источник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход",
-            "Комиссия", "ИТОГ", "% посредника", "посредник 1(кэш)", "посредник 2", "Фильтры"
+            "Дата",
+            "Источник",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
+            "Комиссия",
+            "ИТОГ",
+            "% посредника",
+            "посредник 1(кэш)",
+            "посредник 2",
+            "Фильтры",
         ]
         ws.append(headers)
         self._apply_header_style(ws)
-        ws.freeze_panes = 'A2'
+        ws.freeze_panes = "A2"
 
         # 2. Строки данных
         warning_rows = self._append_data_rows(ws, date, rows)
@@ -289,7 +374,9 @@ class MasterWriter(IExporter):
         cols, num_indices, percent_broker_col = self._detect_header_columns(ws)
 
         # 4. Стилизация
-        self._apply_cell_styling(ws, rows, warning_rows, cols, num_indices, percent_broker_col)
+        self._apply_cell_styling(
+            ws, rows, warning_rows, cols, num_indices, percent_broker_col
+        )
 
         # 5. Строка ИТОГО
         self._build_total_row(ws, num_indices)
@@ -299,34 +386,45 @@ class MasterWriter(IExporter):
         if should_save:
             self._save_workbook(wb)
 
-    def write_report(self, data: List[Dict[str, Any]], path: Path, template_errors: List[Dict[str, Any]] = None) -> bool:
-        # Fix 6: Early Lock Check
-        p_str = os.path.abspath(str(path))
-        if os.path.exists(p_str):
-            try:
-                with open(p_str, 'a') as f: pass
-            except (IOError, PermissionError):
-                import tkinter.messagebox as mb
-                mb.showerror("Файл занят", f"Закройте '{p_str}' в Excel перед началом!")
-                return False
-        
+    def write_report(
+        self,
+        data: List[Dict[str, Any]],
+        path: Path,
+        template_errors: List[Dict[str, Any]] = None,
+    ) -> bool:
+        if not is_file_writable(str(path)):
+            import tkinter.messagebox as mb
+
+            mb.showerror(
+                "Файл занят",
+                f"Закройте '{os.path.abspath(str(path))}' в Excel перед началом!",
+            )
+            return False
+
         try:
             dbd = {}
             for r in data:
-                d = r.get('Дата')
+                d = r.get("Дата")
                 if not d:
                     d = "01.01.1900"
-                    logger.warning(f"TEMPORAL FALLBACK: Row from {r.get('Источник')} has no valid date. Using 01.01.1900.")
+                    logger.warning(
+                        f"TEMPORAL FALLBACK: Row from {r.get('Источник')} has no valid date. Using 01.01.1900."
+                    )
                 dbd.setdefault(d, []).append(r)
-            self.master_path = str(path); wb = self._get_workbook()
+            self.master_path = str(path)
+            wb = self._get_workbook()
             for d_str, rows in sorted(dbd.items()):
-                try: 
+                try:
                     dt = datetime.strptime(d_str, "%d.%m.%Y")
                     # Fix 4: Flag unknown dates in a separate sheet name
                     sh_override = "UNKNOWN_DATE" if d_str == "01.01.1900" else None
                     self.write_daily_data(dt, rows, wb=wb, sh_name_override=sh_override)
-                except Exception as e: logger.error(f"Date error {d_str}: {e}")
-            if "ОШИБКИ ШАБЛОНА" in wb.sheetnames: del wb["ОШИБКИ ШАБЛОНА"]
-            self._save_workbook(wb); return True
-        except Exception as e: logger.error(f"Write error: {e}"); return False
-
+                except Exception as e:
+                    logger.error(f"Date error {d_str}: {e}")
+            if "ОШИБКИ ШАБЛОНА" in wb.sheetnames:
+                del wb["ОШИБКИ ШАБЛОНА"]
+            self._save_workbook(wb)
+            return True
+        except Exception as e:
+            logger.error(f"Write error: {e}")
+            return False

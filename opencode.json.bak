@@ -1,0 +1,52 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode-go/glm-5.1",
+  "mcp": {
+    "sentrux": {
+      "type": "local",
+      "command": ["C:\\Users\\vanya\\bin\\sentrux.exe", "--mcp"],
+      "enabled": true
+    },
+    "gitnexus": {
+      "type": "local",
+      "command": ["C:\\Users\\vanya\\AppData\\Roaming\\npm\\gitnexus.cmd", "mcp"],
+      "enabled": true
+    },
+    "context7": {
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp"],
+      "enabled": true,
+      "environment": {
+        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
+      }
+    },
+    "maestro": {
+      "type": "local",
+      "command": ["node", "C:\\Users\\vanya\\.gemini\\extensions\\maestro\\mcp\\maestro-server.js"],
+      "enabled": true,
+      "environment": {
+        "MAESTRO_WORKSPACE_PATH": "{env:MAESTRO_WORKSPACE_PATH}",
+        "MAESTRO_MAX_RETRIES": "2",
+        "MAESTRO_AUTO_ARCHIVE": "true",
+        "MAESTRO_VALIDATION_STRICTNESS": "normal",
+        "MAESTRO_STATE_DIR": "docs/maestro",
+        "MAESTRO_MAX_CONCURRENT": "0",
+        "MAESTRO_EXECUTION_MODE": "ask"
+      }
+    }
+  },
+  "tools": {
+    "bash": "allow",
+    "edit": "allow",
+    "write": "allow"
+  },
+  "permission": {
+    "skill": {
+      "*": "allow"
+    }
+  },
+  "instructions": [
+    "AGENTS.md",
+    "CLAUDE.md"
+  ]
+}

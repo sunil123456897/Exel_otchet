@@ -1,4 +1,5 @@
 """Employee List ViewModel — состояние и логика списка сотрудников."""
+
 from typing import List, Dict, Any, Callable, Optional
 from datetime import datetime
 from pathlib import Path
@@ -11,10 +12,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class EmployeeStatus:
     """Статус одного сотрудника."""
+
     name: str
     status_text: str  # "🟢 ГОТОВО", "🔴 НЕТ ФАЙЛА", etc
-    path_text: str     # "file.xlsx" или "[3 файлов]"
-    tag: str           # "ready", "missing", "partial"
+    path_text: str  # "file.xlsx" или "[3 файлов]"
+    tag: str  # "ready", "missing", "partial"
 
     def to_tuple(self) -> tuple:
         return (self.name, self.status_text, self.path_text, self.tag)
@@ -22,7 +24,7 @@ class EmployeeStatus:
 
 class EmployeeListViewModel:
     """ViewModel для списка сотрудников.
-    
+
     Отделяет логику:
     - Фильтрация по поисковому запросу
     - Сортировка
@@ -43,9 +45,17 @@ class EmployeeListViewModel:
 
     # === Commands (действия из UI) ===
 
-    def refresh(self, app_controller, selected_date: datetime, on_progress: Callable[[float], None]) -> None:
+    def refresh(
+        self,
+        app_controller,
+        selected_date: datetime,
+        on_progress: Callable[[float], None],
+    ) -> None:
         """Запустить обновление статуса сотрудников."""
-        def on_complete(data: List[tuple], employees_map: Dict, rename_detected: bool) -> None:
+
+        def on_complete(
+            data: List[tuple], employees_map: Dict, rename_detected: bool
+        ) -> None:
             self._all_employees = [
                 EmployeeStatus(name=n, status_text=s, path_text=p, tag=t)
                 for n, s, p, t in data
@@ -75,9 +85,9 @@ class EmployeeListViewModel:
 
     def get_master_path(self, config_controller) -> Optional[Path]:
         """Получить путь к мастер-файлу."""
-        p = Path(config_controller.get_paths().get('master_file', 'Master_Report.xlsx'))
-        if not p.is_absolute():
-            p = Path(config_controller.config_path).parent / p
+        p = config_controller.resolve_path(
+            config_controller.get_paths().get("master_file", "Master_Report.xlsx")
+        )
         return p
 
     # === Queries (состояние для UI) ===
@@ -96,8 +106,12 @@ class EmployeeListViewModel:
             return self._all_employees
 
         return [
-            emp for emp in self._all_employees
-            if any(self._search_query in x.lower() for x in (emp.name, emp.status_text, emp.path_text))
+            emp
+            for emp in self._all_employees
+            if any(
+                self._search_query in x.lower()
+                for x in (emp.name, emp.status_text, emp.path_text)
+            )
         ]
 
     def get_ready_count(self) -> int:
@@ -128,7 +142,7 @@ class EmployeeListViewModel:
         if not metas:
             return None
         meta = metas[0]
-        return meta['path'] if isinstance(meta, dict) else meta
+        return meta["path"] if isinstance(meta, dict) else meta
 
     def get_progress_percent(self) -> float:
         """Процент готовности (для прогресс-бара)."""

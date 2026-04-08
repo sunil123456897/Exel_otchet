@@ -2,6 +2,7 @@
 Расширенные тесты для Bootstrap.
 Покрывает: path resolution edge cases, config validation, dependency injection wiring.
 """
+
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
@@ -47,156 +48,181 @@ class TestPathResolution:
 
     def test_relative_master_file_resolved(self, app_root, valid_config_content):
         config_file = app_root / "config.yaml"
-        config_file.write_text(valid_config_content, encoding='utf-8')
+        config_file.write_text(valid_config_content, encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('core.bootstrap.IngestionEngine'), \
-             patch('core.bootstrap.SQLiteManager'), \
-             patch('core.bootstrap.Validator'), \
-             patch('core.bootstrap.LogicService'), \
-             patch('core.bootstrap.MasterWriter'), \
-             patch('core.bootstrap.AppController'):
-
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
             mock_cfg.return_value.config = {
-                'paths': {
-                    'master_file': 'output/Master.xlsx',
-                    'source_root': 'REPORTS',
-                    'source_roots': ['REPORTS/g1'],
+                "paths": {
+                    "master_file": "output/Master.xlsx",
+                    "source_root": "REPORTS",
+                    "source_roots": ["REPORTS/g1"],
                 },
-                'sh1': {'markers': {}},
-                'database': {'path': 'cache.db', 'schema_path': 'schema.sql'},
-                'locking': {},
+                "sh1": {"markers": {}},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
             }
 
             Bootstrap.setup(app_root, str(config_file))
 
             cfg = mock_cfg.return_value.config
-            assert Path(cfg['paths']['master_file']).is_absolute()
-            assert 'output' in cfg['paths']['master_file']
+            assert Path(cfg["paths"]["master_file"]).is_absolute()
+            assert "output" in cfg["paths"]["master_file"]
 
     def test_absolute_paths_preserved(self, app_root, valid_config_content):
         """Абсолютные пути не должны меняться."""
         config_file = app_root / "config.yaml"
-        config_file.write_text(valid_config_content, encoding='utf-8')
+        config_file.write_text(valid_config_content, encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('core.bootstrap.IngestionEngine'), \
-             patch('core.bootstrap.SQLiteManager'), \
-             patch('core.bootstrap.Validator'), \
-             patch('core.bootstrap.LogicService'), \
-             patch('core.bootstrap.MasterWriter'), \
-             patch('core.bootstrap.AppController'):
-
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
             abs_path = str(app_root.parent / "external" / "master.xlsx")
             mock_cfg.return_value.config = {
-                'paths': {
-                    'master_file': abs_path,
-                    'source_root': 'REPORTS',
+                "paths": {
+                    "master_file": abs_path,
+                    "source_root": "REPORTS",
                 },
-                'sh1': {'markers': {}},
-                'database': {'path': 'cache.db', 'schema_path': 'schema.sql'},
-                'locking': {},
+                "sh1": {"markers": {}},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
             }
 
             Bootstrap.setup(app_root, str(config_file))
 
             cfg = mock_cfg.return_value.config
-            assert cfg['paths']['master_file'] == abs_path
+            assert cfg["paths"]["master_file"] == abs_path
 
     def test_empty_path_gets_default(self, app_root, valid_config_content):
         """Пустые пути должны получать дефолтные значения."""
         config_file = app_root / "config.yaml"
-        config_file.write_text(valid_config_content, encoding='utf-8')
+        config_file.write_text(valid_config_content, encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('core.bootstrap.IngestionEngine'), \
-             patch('core.bootstrap.SQLiteManager'), \
-             patch('core.bootstrap.Validator'), \
-             patch('core.bootstrap.LogicService'), \
-             patch('core.bootstrap.MasterWriter'), \
-             patch('core.bootstrap.AppController'):
-
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
             mock_cfg.return_value.config = {
-                'paths': {},
-                'sh1': {'markers': {}},
-                'database': {},
-                'locking': {},
+                "paths": {},
+                "sh1": {"markers": {}},
+                "database": {},
+                "locking": {},
             }
 
             Bootstrap.setup(app_root, str(config_file))
 
             cfg = mock_cfg.return_value.config
-            assert cfg['database']['path'] == str(app_root / 'cache.db')
-            assert cfg['paths']['master_file'] == str(app_root / 'Master_Report.xlsx')
+            assert cfg["database"]["path"] == str(app_root / "cache.db")
+            assert cfg["paths"]["master_file"] == str(app_root / "Master_Report.xlsx")
 
     def test_none_path_gets_default(self, app_root, valid_config_content):
         """None пути должны получать дефолтные значения."""
         config_file = app_root / "config.yaml"
-        config_file.write_text(valid_config_content, encoding='utf-8')
+        config_file.write_text(valid_config_content, encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('core.bootstrap.IngestionEngine'), \
-             patch('core.bootstrap.SQLiteManager'), \
-             patch('core.bootstrap.Validator'), \
-             patch('core.bootstrap.LogicService'), \
-             patch('core.bootstrap.MasterWriter'), \
-             patch('core.bootstrap.AppController'):
-
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
             mock_cfg.return_value.config = {
-                'paths': {'master_file': None, 'source_root': None},
-                'sh1': {'markers': {}},
-                'database': {'path': None, 'schema_path': None},
-                'locking': {},
+                "paths": {"master_file": None, "source_root": None},
+                "sh1": {"markers": {}},
+                "database": {"path": None, "schema_path": None},
+                "locking": {},
             }
 
             # None должно обрабатываться как отсутствие — дефолт
             Bootstrap.setup(app_root, str(config_file))
 
             cfg = mock_cfg.return_value.config
-            assert cfg['database']['path'] == str(app_root / 'cache.db')
+            assert cfg["database"]["path"] == str(app_root / "cache.db")
 
 
 class TestConfigValidation:
     """Валидация конфигурации."""
 
     def test_missing_paths_key(self, app_root):
-        """Отсутствие 'paths' — ValueError."""
+        """Отсутствие 'paths' — safe default вместо ValueError."""
         config_file = app_root / "config.yaml"
-        config_file.write_text("sh1: {markers: {}}", encoding='utf-8')
+        config_file.write_text("sh1: {markers: {}}", encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('tkinter.messagebox.showerror'):
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {"sh1": {"markers": {}}}
 
-            mock_cfg.return_value.config = {'sh1': {'markers': {}}}
-
-            with pytest.raises(ValueError, match="Файл config.yaml поврежден"):
-                Bootstrap.setup(app_root, str(config_file))
+            cfg_ctl, app_ctl, persistence = Bootstrap.setup(app_root, str(config_file))
+            assert cfg_ctl is not None
+            assert "paths" in mock_cfg.return_value.config
 
     def test_missing_sh1_key(self, app_root):
-        """Отсутствие 'sh1' — ValueError."""
+        """Отсутствие 'sh1' — safe default вместо ValueError."""
         config_file = app_root / "config.yaml"
-        config_file.write_text("paths: {}", encoding='utf-8')
+        config_file.write_text("paths: {}", encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('tkinter.messagebox.showerror'):
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {"paths": {}}
 
-            mock_cfg.return_value.config = {'paths': {}}
-
-            with pytest.raises(ValueError, match="Файл config.yaml поврежден"):
-                Bootstrap.setup(app_root, str(config_file))
+            cfg_ctl, app_ctl, persistence = Bootstrap.setup(app_root, str(config_file))
+            assert cfg_ctl is not None
+            assert "sh1" in mock_cfg.return_value.config
 
     def test_empty_config(self, app_root):
-        """Пустой конфиг — ValueError."""
+        """Пустой конфиг — safe default вместо ValueError."""
         config_file = app_root / "config.yaml"
-        config_file.write_text("", encoding='utf-8')
+        config_file.write_text("", encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('tkinter.messagebox.showerror'):
-
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
             mock_cfg.return_value.config = None
 
-            with pytest.raises(ValueError, match="Файл config.yaml поврежден"):
-                Bootstrap.setup(app_root, str(config_file))
+            cfg_ctl, app_ctl, persistence = Bootstrap.setup(app_root, str(config_file))
+            assert cfg_ctl is not None
+            assert isinstance(mock_cfg.return_value.config, dict)
 
 
 class TestDependencyInjection:
@@ -204,22 +230,23 @@ class TestDependencyInjection:
 
     def test_all_components_instantiated(self, app_root, valid_config_content):
         config_file = app_root / "config.yaml"
-        config_file.write_text(valid_config_content, encoding='utf-8')
+        config_file.write_text(valid_config_content, encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('core.bootstrap.IngestionEngine') as mock_ing, \
-             patch('core.bootstrap.SQLiteManager') as mock_db, \
-             patch('core.bootstrap.Validator') as mock_val, \
-             patch('core.bootstrap.LogicService') as mock_logic, \
-             patch('core.bootstrap.MasterWriter') as mock_writer, \
-             patch('core.bootstrap.AppController') as mock_app:
-
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine") as mock_ing,
+            patch("core.bootstrap.SQLiteManager") as mock_db,
+            patch("core.bootstrap.Validator") as mock_val,
+            patch("core.bootstrap.LogicService") as mock_logic,
+            patch("core.bootstrap.MasterWriter") as mock_writer,
+            patch("core.bootstrap.AppController") as mock_app,
+        ):
             mock_cfg.return_value.config = {
-                'paths': {'master_file': 'M.xlsx', 'source_root': 'R'},
-                'sh1': {'markers': {'amount': 'сумма'}},
-                'database': {'path': 'cache.db', 'schema_path': 'schema.sql'},
-                'locking': {},
-                'logic': {},
+                "paths": {"master_file": "M.xlsx", "source_root": "R"},
+                "sh1": {"markers": {"amount": "сумма"}},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
+                "logic": {},
             }
 
             Bootstrap.setup(app_root, str(config_file))
@@ -236,50 +263,52 @@ class TestDependencyInjection:
     def test_ingestion_gets_markers(self, app_root, valid_config_content):
         """IngestionEngine должен получить markers из конфига."""
         config_file = app_root / "config.yaml"
-        config_file.write_text(valid_config_content, encoding='utf-8')
+        config_file.write_text(valid_config_content, encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('core.bootstrap.IngestionEngine') as mock_ing, \
-             patch('core.bootstrap.SQLiteManager'), \
-             patch('core.bootstrap.Validator'), \
-             patch('core.bootstrap.LogicService'), \
-             patch('core.bootstrap.MasterWriter'), \
-             patch('core.bootstrap.AppController'):
-
-            markers = {'amount': 'сумма', 'income': 'приход'}
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine") as mock_ing,
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            markers = {"amount": "сумма", "income": "приход"}
             mock_cfg.return_value.config = {
-                'paths': {'master_file': 'M.xlsx', 'source_root': 'R'},
-                'sh1': {'markers': markers},
-                'database': {'path': 'cache.db', 'schema_path': 'schema.sql'},
-                'locking': {},
+                "paths": {"master_file": "M.xlsx", "source_root": "R"},
+                "sh1": {"markers": markers},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
             }
 
             Bootstrap.setup(app_root, str(config_file))
 
             # IngestionEngine вызывается с markers
-            mock_ing.assert_called_once_with(markers)
+            mock_ing.assert_called_once_with(markers, ("Q", "Z"))
 
     def test_sqlite_manager_gets_db_config(self, app_root, valid_config_content):
         """SQLiteManager должен получить путь к БД и схеме."""
         config_file = app_root / "config.yaml"
-        config_file.write_text(valid_config_content, encoding='utf-8')
+        config_file.write_text(valid_config_content, encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('core.bootstrap.IngestionEngine'), \
-             patch('core.bootstrap.SQLiteManager') as mock_db, \
-             patch('core.bootstrap.Validator'), \
-             patch('core.bootstrap.LogicService'), \
-             patch('core.bootstrap.MasterWriter'), \
-             patch('core.bootstrap.AppController'):
-
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager") as mock_db,
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
             mock_cfg.return_value.config = {
-                'paths': {'master_file': 'M.xlsx', 'source_root': 'R'},
-                'sh1': {'markers': {}},
-                'database': {
-                    'path': str(app_root / 'test_cache.db'),
-                    'schema_path': str(app_root / 'test_schema.sql'),
+                "paths": {"master_file": "M.xlsx", "source_root": "R"},
+                "sh1": {"markers": {}},
+                "database": {
+                    "path": str(app_root / "test_cache.db"),
+                    "schema_path": str(app_root / "test_schema.sql"),
                 },
-                'locking': {'retry_count': 5},
+                "locking": {"retry_count": 5},
             }
 
             Bootstrap.setup(app_root, str(config_file))
@@ -288,26 +317,27 @@ class TestDependencyInjection:
             assert mock_db.called
             # SQLiteManager receives (db_path, schema_path, config)
             assert len(args[0]) >= 2
-            assert 'test_cache.db' in str(args[0][0])
+            assert "test_cache.db" in str(args[0][0])
 
     def test_app_controller_gets_all_dependencies(self, app_root, valid_config_content):
         """AppController должен получить все 6 зависимостей."""
         config_file = app_root / "config.yaml"
-        config_file.write_text(valid_config_content, encoding='utf-8')
+        config_file.write_text(valid_config_content, encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('core.bootstrap.IngestionEngine') as mock_ing, \
-             patch('core.bootstrap.SQLiteManager') as mock_db, \
-             patch('core.bootstrap.Validator') as mock_val, \
-             patch('core.bootstrap.LogicService') as mock_logic, \
-             patch('core.bootstrap.MasterWriter') as mock_writer, \
-             patch('core.bootstrap.AppController') as mock_app:
-
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine") as mock_ing,
+            patch("core.bootstrap.SQLiteManager") as mock_db,
+            patch("core.bootstrap.Validator") as mock_val,
+            patch("core.bootstrap.LogicService") as mock_logic,
+            patch("core.bootstrap.MasterWriter") as mock_writer,
+            patch("core.bootstrap.AppController") as mock_app,
+        ):
             mock_cfg.return_value.config = {
-                'paths': {'master_file': 'M.xlsx', 'source_root': 'R'},
-                'sh1': {'markers': {}},
-                'database': {'path': 'cache.db', 'schema_path': 'schema.sql'},
-                'locking': {},
+                "paths": {"master_file": "M.xlsx", "source_root": "R"},
+                "sh1": {"markers": {}},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
             }
 
             Bootstrap.setup(app_root, str(config_file))
@@ -322,24 +352,27 @@ class TestDependencyInjection:
                 mock_writer.return_value,
             )
 
-    def test_logic_service_gets_persistence_and_config(self, app_root, valid_config_content):
+    def test_logic_service_gets_persistence_and_config(
+        self, app_root, valid_config_content
+    ):
         """LogicService получает persistence и config."""
         config_file = app_root / "config.yaml"
-        config_file.write_text(valid_config_content, encoding='utf-8')
+        config_file.write_text(valid_config_content, encoding="utf-8")
 
-        with patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('core.bootstrap.IngestionEngine'), \
-             patch('core.bootstrap.SQLiteManager') as mock_db, \
-             patch('core.bootstrap.Validator'), \
-             patch('core.bootstrap.LogicService') as mock_logic, \
-             patch('core.bootstrap.MasterWriter'), \
-             patch('core.bootstrap.AppController'):
-
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager") as mock_db,
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService") as mock_logic,
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
             mock_cfg.return_value.config = {
-                'paths': {'master_file': 'M.xlsx', 'source_root': 'R'},
-                'sh1': {'markers': {}},
-                'database': {'path': 'cache.db', 'schema_path': 'schema.sql'},
-                'locking': {},
+                "paths": {"master_file": "M.xlsx", "source_root": "R"},
+                "sh1": {"markers": {}},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
             }
 
             Bootstrap.setup(app_root, str(config_file))
@@ -356,11 +389,12 @@ class TestEdgeCases:
     def test_calamine_missing_returns_none(self, app_root):
         """Отсутствие python-calamine — возврат None."""
         config_file = app_root / "config.yaml"
-        config_file.write_text("paths: {}\nsh1: {}", encoding='utf-8')
+        config_file.write_text("paths: {}\nsh1: {}", encoding="utf-8")
 
-        with patch('importlib.util.find_spec', return_value=None), \
-             patch('logging.critical') as mock_critical:
-
+        with (
+            patch("importlib.util.find_spec", return_value=None),
+            patch("logging.critical") as mock_critical,
+        ):
             result = Bootstrap.setup(app_root, str(config_file))
 
             assert result == (None, None, None)
@@ -369,22 +403,23 @@ class TestEdgeCases:
     def test_calamine_present_continues(self, app_root, valid_config_content):
         """Наличие python-calamine — продолжение инициализации."""
         config_file = app_root / "config.yaml"
-        config_file.write_text(valid_config_content, encoding='utf-8')
+        config_file.write_text(valid_config_content, encoding="utf-8")
 
-        with patch('importlib.util.find_spec', return_value='python_calamine'), \
-             patch('core.bootstrap.ConfigController') as mock_cfg, \
-             patch('core.bootstrap.IngestionEngine'), \
-             patch('core.bootstrap.SQLiteManager'), \
-             patch('core.bootstrap.Validator'), \
-             patch('core.bootstrap.LogicService'), \
-             patch('core.bootstrap.MasterWriter'), \
-             patch('core.bootstrap.AppController'):
-
+        with (
+            patch("importlib.util.find_spec", return_value="python_calamine"),
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
             mock_cfg.return_value.config = {
-                'paths': {'master_file': 'M.xlsx', 'source_root': 'R'},
-                'sh1': {'markers': {}},
-                'database': {'path': 'cache.db', 'schema_path': 'schema.sql'},
-                'locking': {},
+                "paths": {"master_file": "M.xlsx", "source_root": "R"},
+                "sh1": {"markers": {}},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
             }
 
             cfg_ctl, app_ctl, persistence = Bootstrap.setup(app_root, str(config_file))
