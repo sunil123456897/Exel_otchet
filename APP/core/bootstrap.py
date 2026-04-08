@@ -5,11 +5,10 @@ import importlib.util
 from pathlib import Path
 from typing import Tuple, Optional, Dict, Any
 
-from core.infra.config_controller import ConfigController
+from core.infra import ConfigController, MasterWriter
 from core.infra.ingestion_engine import IngestionEngine
-from core.infra.persistence_manager import SQLiteManager
-from core.domain.logic_service import LogicService, Validator
-from core.infra.export_writer import MasterWriter
+from core.infra.session_repo import SessionRepository as SQLiteManager
+from core.domain import LogicService, Validator
 from core.app_controller import AppController
 
 

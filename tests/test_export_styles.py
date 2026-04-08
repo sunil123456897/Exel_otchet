@@ -1,7 +1,7 @@
 """Тесты для ExcelStyles."""
 import pytest
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-from core.infra.export_styles import ExcelStyles
+from core.infra.export_formatting import ExcelStyles
 
 
 class TestExcelStyles:

@@ -6,8 +6,8 @@ import logging
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 from pathlib import Path
-from core.infra.ingestion_core import CalamineReader
-from core.domain.utils_helpers import get_local_copy
+from core.infra.ingestion_reader import CalamineReader
+from core.infra.utils import get_local_copy
 from python_calamine import CalamineWorkbook
 
 MARKERS = {
@@ -34,7 +34,7 @@ def test_local_copy_success(tmp_path, reader, create_temp_xlsx):
     temp_copy_path = str(tmp_path / "local_temp_copy.xlsx")
 
     with patch(
-        "core.infra.ingestion_core.get_local_copy",
+        "core.infra.ingestion_reader.get_local_copy",
         return_value=(str(real_source_file), None),
     ):
         results = reader.read(Path(unc_path))
@@ -48,9 +48,9 @@ def test_network_failure_mid_copy(reader):
 
     with (
         patch(
-            "core.domain.utils_helpers.get_local_copy", return_value=(unc_path, None)
+            "core.infra.utils.get_local_copy", return_value=(unc_path, None)
         ),
-        patch("core.infra.ingestion_core.logger.error") as mock_log_error,
+        patch("core.infra.ingestion_reader.logger.error") as mock_log_error,
         patch(
             "python_calamine.CalamineWorkbook.from_path",
             side_effect=IOError("Connection reset by peer"),
@@ -74,14 +74,14 @@ def test_file_deleted_mid_read(tmp_path, reader, create_temp_xlsx):
 
     with (
         patch(
-            "core.domain.utils_helpers.get_local_copy",
+            "core.infra.utils.get_local_copy",
             return_value=(str(src_file), None),
         ),
         patch(
             "python_calamine.CalamineWorkbook.from_path",
             side_effect=FileNotFoundError("File disappeared during read!"),
         ),
-        patch("core.infra.ingestion_core.logger.error"),
+        patch("core.infra.ingestion_reader.logger.error"),
     ):
         results = reader.read(Path(unc_path))
         assert results == []
@@ -92,9 +92,9 @@ def test_unsupported_network_path(reader):
 
     with (
         patch(
-            "core.domain.utils_helpers.get_local_copy", return_value=(http_path, None)
+            "core.infra.utils.get_local_copy", return_value=(http_path, None)
         ),
-        patch("core.infra.ingestion_core.logger"),
+        patch("core.infra.ingestion_reader.logger"),
         patch(
             "python_calamine.CalamineWorkbook.from_path",
             side_effect=Exception("Skip read"),

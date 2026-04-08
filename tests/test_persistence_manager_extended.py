@@ -9,7 +9,7 @@ import queue
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from core.infra.persistence_manager import (
+from core.infra.session_repo import (
     SQLiteManager,
     DecimalEncoder,
     sanitize_data,

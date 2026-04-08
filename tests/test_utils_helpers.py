@@ -1,70 +1,73 @@
 """Расширенные тесты для utils_helpers.py — to_decimal, to_decimal_percent, open_path."""
+
 import pytest
 import os
 import subprocess
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
-from core.domain.utils_helpers import to_decimal, to_decimal_percent, open_path
+from core.domain.utils_helpers import to_decimal, to_decimal_percent
+from core.infra.utils import open_path
 
 
 class TestToDecimal:
     """Тесты to_decimal — преобразование в Decimal."""
 
     def test_none_returns_zero(self):
-        assert to_decimal(None) == Decimal('0.00')
+        assert to_decimal(None) == Decimal("0.00")
 
     def test_empty_string_returns_zero(self):
-        assert to_decimal("") == Decimal('0.00')
+        assert to_decimal("") == Decimal("0.00")
 
     def test_nan_float_returns_zero(self):
         import math
-        assert to_decimal(float('nan')) == Decimal('0.00')
+
+        assert to_decimal(float("nan")) == Decimal("0.00")
 
     def test_int_converts(self):
-        assert to_decimal(42) == Decimal('42.00')
+        assert to_decimal(42) == Decimal("42.00")
 
     def test_float_converts(self):
-        assert to_decimal(3.14) == Decimal('3.14')
+        assert to_decimal(3.14) == Decimal("3.14")
 
     def test_decimal_passthrough(self):
-        assert to_decimal(Decimal('10.50')) == Decimal('10.50')
+        assert to_decimal(Decimal("10.50")) == Decimal("10.50")
 
     def test_string_number(self):
-        assert to_decimal("100") == Decimal('100.00')
+        assert to_decimal("100") == Decimal("100.00")
 
     def test_string_decimal(self):
-        assert to_decimal("99.99") == Decimal('99.99')
+        assert to_decimal("99.99") == Decimal("99.99")
 
     def test_string_with_spaces(self):
-        assert to_decimal("  123.45  ") == Decimal('123.45')
+        assert to_decimal("  123.45  ") == Decimal("123.45")
 
     def test_string_with_non_breaking_space(self):
-        assert to_decimal("123\xa0456.78") == Decimal('123456.78')
+        assert to_decimal("123\xa0456.78") == Decimal("123456.78")
 
     def test_comma_as_decimal(self):
         """Одна запятая — десятичный разделитель (RU формат)."""
-        assert to_decimal("12,5") == Decimal('12.50')
+        assert to_decimal("12,5") == Decimal("12.50")
 
     def test_comma_as_thousands(self):
         """Множество запятых — разделитель тысяч."""
-        assert to_decimal("1,000,000") == Decimal('1000000.00')
+        assert to_decimal("1,000,000") == Decimal("1000000.00")
 
     def test_mixed_comma_dot_comma_decimal(self):
         """1.000,50 — запятая как десятичный."""
-        assert to_decimal("1.000,50") == Decimal('1000.50')
+        assert to_decimal("1.000,50") == Decimal("1000.50")
 
     def test_mixed_comma_dot_dot_decimal(self):
         """1,000.50 — точка как десятичный."""
-        assert to_decimal("1,000.50") == Decimal('1000.50')
+        assert to_decimal("1,000.50") == Decimal("1000.50")
 
     def test_scientific_notation(self):
-        assert to_decimal("1.5e2") == Decimal('150.00')
+        assert to_decimal("1.5e2") == Decimal("150.00")
 
     def test_trailing_comma_stripped(self):
-        assert to_decimal("100,") == Decimal('100.00')
+        assert to_decimal("100,") == Decimal("100.00")
 
     def test_trailing_dot_stripped(self):
-        assert to_decimal("100.") == Decimal('100.00')
+        assert to_decimal("100.") == Decimal("100.00")
 
     def test_invalid_string_raises(self):
         with pytest.raises(ValueError):
@@ -93,69 +96,69 @@ class TestToDecimal:
     def test_rounding_half_up(self):
         """ROUND_HALF_UP: 2.555 → 2.56."""
         result = to_decimal("2.555")
-        assert result == Decimal('2.56')
+        assert result == Decimal("2.56")
 
     def test_rounding_half_down(self):
         result = to_decimal("2.554")
-        assert result == Decimal('2.55')
+        assert result == Decimal("2.55")
 
     def test_zero_returns_zero(self):
-        assert to_decimal("0") == Decimal('0.00')
+        assert to_decimal("0") == Decimal("0.00")
 
     def test_negative_number(self):
-        assert to_decimal("-42.5") == Decimal('-42.50')
+        assert to_decimal("-42.5") == Decimal("-42.50")
 
     def test_very_small_number(self):
-        assert to_decimal("0.001") == Decimal('0.00')
+        assert to_decimal("0.001") == Decimal("0.00")
 
     def test_very_large_number(self):
-        assert to_decimal("999999999.99") == Decimal('999999999.99')
+        assert to_decimal("999999999.99") == Decimal("999999999.99")
 
     def test_whitespace_only(self):
-        assert to_decimal("   ") == Decimal('0.00')
+        assert to_decimal("   ") == Decimal("0.00")
 
 
 class TestToDecimalPercent:
     """Тесты to_decimal_percent."""
 
     def test_none_returns_zero(self):
-        assert to_decimal_percent(None) == Decimal('0')
+        assert to_decimal_percent(None) == Decimal("0")
 
     def test_empty_string_returns_zero(self):
-        assert to_decimal_percent("") == Decimal('0')
+        assert to_decimal_percent("") == Decimal("0")
 
     def test_nan_returns_zero(self):
-        assert to_decimal_percent(float('nan')) == Decimal('0')
+        assert to_decimal_percent(float("nan")) == Decimal("0")
 
     def test_int_returns_decimal(self):
-        assert to_decimal_percent(25) == Decimal('25')
+        assert to_decimal_percent(25) == Decimal("25")
 
     def test_float_returns_decimal(self):
-        assert to_decimal_percent(0.25) == Decimal('0.25')
+        assert to_decimal_percent(0.25) == Decimal("0.25")
 
     def test_string_number(self):
-        assert to_decimal_percent("15") == Decimal('15')
+        assert to_decimal_percent("15") == Decimal("15")
 
     def test_comma_to_dot(self):
-        assert to_decimal_percent("12,5") == Decimal('12.5')
+        assert to_decimal_percent("12,5") == Decimal("12.5")
 
     def test_percent_value_gt_1_divided_by_100(self):
         """50% → 0.5."""
         result = to_decimal_percent("50%")
-        assert result == Decimal('0.5')
+        assert result == Decimal("0.5")
 
     def test_percent_value_lt_1_not_divided(self):
         """0.25 — уже в долях, не делить."""
         result = to_decimal_percent("0.25")
-        assert result == Decimal('0.25')
+        assert result == Decimal("0.25")
 
     def test_no_percent_sign_not_divided(self):
         result = to_decimal_percent("50")
-        assert result == Decimal('50')
+        assert result == Decimal("50")
 
     def test_with_spaces(self):
         result = to_decimal_percent("  25%  ")
-        assert result == Decimal('0.25')
+        assert result == Decimal("0.25")
 
     def test_invalid_returns_original(self):
         """Нечисловое значение — вернуть как есть."""
@@ -170,23 +173,23 @@ class TestToDecimalPercent:
 class TestOpenPath:
     """Тесты open_path."""
 
-    @patch('core.domain.utils_helpers.platform')
+    @patch("core.infra.utils.platform")
     def test_windows_opens_file(self, mock_platform):
-        mock_platform.system.return_value = 'Windows'
-        with patch('os.startfile') as mock_start:
-            open_path('C:/test')
-            mock_start.assert_called_once_with('C:/test')
+        mock_platform.system.return_value = "Windows"
+        with patch("os.startfile") as mock_start:
+            open_path("C:/test")
+            mock_start.assert_called_once_with("C:/test")
 
-    @patch('core.domain.utils_helpers.platform')
+    @patch("core.infra.utils.platform")
     def test_mac_opens_open(self, mock_platform):
-        mock_platform.system.return_value = 'Darwin'
-        with patch('subprocess.run') as mock_run:
-            open_path('/Users/test')
+        mock_platform.system.return_value = "Darwin"
+        with patch("subprocess.run") as mock_run:
+            open_path("/Users/test")
             mock_run.assert_called_once_with(["open", "/Users/test"])
 
-    @patch('core.domain.utils_helpers.platform')
+    @patch("core.infra.utils.platform")
     def test_linux_opens_xdg(self, mock_platform):
-        mock_platform.system.return_value = 'Linux'
-        with patch('subprocess.run') as mock_run:
-            open_path('/home/test')
+        mock_platform.system.return_value = "Linux"
+        with patch("subprocess.run") as mock_run:
+            open_path("/home/test")
             mock_run.assert_called_once_with(["xdg-open", "/home/test"])

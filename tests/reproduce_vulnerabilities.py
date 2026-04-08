@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from core.domain.utils_helpers import to_decimal, NumericParsingError
 from core.domain.logic_service import LogicService
 from core.infra.export_writer import MasterWriter
-from core.infra.ingestion_core import extract_date_from_sheet, CalamineReader
+from core.infra.ingestion_reader import extract_date_from_sheet, CalamineReader
 
 class MockPersistence:
     def get_consolidated_data(self, session_id):
@@ -90,7 +90,7 @@ def test_unknown_date_sheet_logic():
 def test_calamine_reader_memory():
     # Check that CalamineReader uses iter_rows which is memory efficient
     import inspect
-    from core.infra.ingestion_core import CalamineReader
+    from core.infra.ingestion_reader import CalamineReader
     
     # Verify read method uses iter_rows
     read_source = inspect.getsource(CalamineReader.read)

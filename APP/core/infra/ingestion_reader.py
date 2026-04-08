@@ -17,8 +17,8 @@ from typing import List, Dict, Any, Optional
 
 from python_calamine import CalamineWorkbook
 
-from core.domain.utils_helpers import to_decimal, to_decimal_percent, get_local_copy
-from core.domain.data_schemas import FinancialRowSchema
+from core.domain.utils_helpers import to_decimal, to_decimal_percent
+from core.infra.utils import get_local_copy
 
 logger = logging.getLogger(__name__)
 

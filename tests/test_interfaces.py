@@ -86,7 +86,7 @@ class TestConcreteImplementations:
         assert hasattr(IngestionEngine, 'read_file')
 
     def test_sqlite_manager_implements_ipersistence(self):
-        from core.infra.persistence_manager import SQLiteManager
+        from core.infra.session_repo import SQLiteManager
         methods = [
             'init_db', 'save_session', 'save_file_metadata',
             'save_staging_data', 'get_template_errors',

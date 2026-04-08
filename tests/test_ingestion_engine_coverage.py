@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from core.infra.ingestion_engine import IngestionEngine
-from core.domain.utils_helpers import get_local_copy
+from core.infra.utils import get_local_copy
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def test_get_available_dates_network_mock(engine, tmp_path):
 
     with (
         patch(
-            "core.domain.utils_helpers.get_local_copy",
+            "core.infra.utils.get_local_copy",
             return_value=(str(network_path), None),
         ),
         patch("python_calamine.CalamineWorkbook.from_path") as mock_wb,
@@ -88,7 +88,7 @@ def test_scan_directory_network_drive(engine, tmp_path):
     q_path = Path("Q:\\some\\file.xlsx")
     q_local = str(tmp_path / "q_local.xlsx")
     with (
-        patch("core.domain.utils_helpers.get_local_copy", return_value=(q_local, None)),
+        patch("core.infra.utils.get_local_copy", return_value=(q_local, None)),
         patch("python_calamine.CalamineWorkbook.from_path") as mock_wb,
     ):
         mock_wb.return_value.sheet_names = ["Отчет 02.02"]
@@ -99,7 +99,7 @@ def test_scan_directory_network_drive(engine, tmp_path):
     z_path = Path("Z:\\some\\file.xlsx")
     z_local = str(tmp_path / "z_local.xlsx")
     with (
-        patch("core.domain.utils_helpers.get_local_copy", return_value=(z_local, None)),
+        patch("core.infra.utils.get_local_copy", return_value=(z_local, None)),
         patch("python_calamine.CalamineWorkbook.from_path") as mock_wb,
     ):
         mock_wb.return_value.sheet_names = ["Отчет 03.03"]

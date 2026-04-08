@@ -7,7 +7,7 @@ from decimal import Decimal
 from unittest.mock import patch, MagicMock
 import openpyxl
 
-from core.infra.ingestion_core import CalamineReader, extract_date_from_sheet
+from core.infra.ingestion_reader import CalamineReader, extract_date_from_sheet
 
 
 @pytest.fixture

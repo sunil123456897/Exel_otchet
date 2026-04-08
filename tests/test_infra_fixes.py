@@ -9,12 +9,12 @@ from pathlib import Path
 from decimal import Decimal
 from unittest.mock import MagicMock, patch, DEFAULT
 
-from core.infra.ingestion_core import CalamineReader
+from core.infra.ingestion_reader import CalamineReader
 from core.infra.config_controller import ConfigController
 from core.bootstrap import Bootstrap
 from core.infra.utils_logging import TextHandler
 from core.app_controller import AppController
-from core.infra.persistence_manager import SQLiteManager
+from core.infra.session_repo import SQLiteManager
 from core.infra.export_writer import MasterWriter
 
 
@@ -30,7 +30,7 @@ def temp_dir():
 
 # 1. Test CalamineReader iterator usage
 def test_calamine_reader_uses_iterator(mocker):
-    mock_wb = mocker.patch("core.infra.ingestion_core.CalamineWorkbook.from_path")
+    mock_wb = mocker.patch("core.infra.ingestion_reader.CalamineWorkbook.from_path")
     mock_instance = mock_wb.return_value
     mock_instance.sheet_names = ["01.01.2023"]
     mock_sheet = MagicMock()
@@ -99,7 +99,7 @@ def test_pre_flight_lock_check(temp_dir, mocker):
     )
 
     on_complete = MagicMock()
-    mocker.patch.object(app_ctl, "_run_engine", return_value=True)
+    mocker.patch("core.app_controller.check_master_lock", return_value=False)
 
     original_open = open
 

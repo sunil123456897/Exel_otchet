@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import List, Dict, Any
 from python_calamine import CalamineWorkbook
 
-from core.domain.interfaces import IDataSource
-from core.domain.utils_helpers import get_local_copy
-from core.infra.ingestion_core import CalamineReader, extract_date_from_sheet
+from core.domain import IDataSource
+from core.infra.utils import get_local_copy
+from core.infra.ingestion_reader import CalamineReader, extract_date_from_sheet
 
 logger = logging.getLogger(__name__)
 

@@ -1,13 +1,6 @@
-import os
-import subprocess
-import platform
 import re
-import hashlib
-import shutil
-import tempfile
-from pathlib import Path
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Optional
+from typing import Any
 
 
 class NumericParsingError(ValueError):
@@ -16,21 +9,9 @@ class NumericParsingError(ValueError):
     pass
 
 
-# Pre-compiled regex for speed - escaping hyphen to avoid ranges
 RE_NUMERIC_CLEAN = re.compile(r"[^\d., \-eEP]")
 RE_NUMERIC_PERCENT_CLEAN = re.compile(r"[^\d.,\-]")
-
-# Translation table for fast removal of spaces
 TRANS_REMOVE_SPACE = str.maketrans({" ": None, "\xa0": None})
-
-
-def open_path(path: str):
-    if platform.system() == "Windows":
-        os.startfile(path)
-    elif platform.system() == "Darwin":
-        subprocess.run(["open", path])
-    else:
-        subprocess.run(["xdg-open", path])
 
 
 def to_decimal(val: Any) -> Decimal:
@@ -44,7 +25,6 @@ def to_decimal(val: Any) -> Decimal:
         raise NumericParsingError(f"Invalid numeric value: {s_raw}")
 
     try:
-        # Fast path: translate spaces then regex clean
         s = s_raw.translate(TRANS_REMOVE_SPACE)
         s = RE_NUMERIC_CLEAN.sub("", s)
 
@@ -61,20 +41,14 @@ def to_decimal(val: Any) -> Decimal:
             res = Decimal(s).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             return -abs(res) if "(" in s_raw and ")" in s_raw else res
 
-        # Handle separators faster
         if "," in s and "." in s:
-            # Complex case: mixed separators. Use the last one as decimal point
             last_dot = s.rfind(".")
             last_comma = s.rfind(",")
             if last_comma > last_dot:
-                # Comma is the decimal point
                 s = s.replace(".", "").replace(",", ".")
             else:
-                # Dot is the decimal point
                 s = s.replace(",", "")
         elif "," in s:
-            # Only commas - likely decimal point in RU locale or thousands separator
-            # If there's only one comma, it's likely decimal
             if s.count(",") == 1:
                 s = s.replace(",", ".")
             else:
@@ -106,53 +80,3 @@ def to_decimal_percent(val: Any) -> Any:
         return res
     except:
         return val
-
-
-def is_file_writable(path: str) -> bool:
-    p = Path(path)
-    if not p.exists():
-        return True
-    try:
-        with open(str(p), "r+b") as f:
-            pass
-        return True
-    except (IOError, PermissionError, OSError):
-        return False
-
-
-_CACHE_DIR = Path(tempfile.gettempdir()) / "master_report_cache"
-
-
-def get_local_copy(network_path: str, drive_letters: tuple = ("Q", "Z")) -> tuple:
-    is_network = (
-        network_path.startswith("\\\\") or network_path[0].upper() in drive_letters
-    )
-    if not is_network:
-        return network_path, None
-
-    try:
-        stat = os.stat(network_path)
-    except OSError:
-        return network_path, None
-
-    key = hashlib.md5(
-        f"{network_path}_{stat.st_mtime}_{stat.st_size}".encode()
-    ).hexdigest()
-    suffix = Path(network_path).suffix
-    local_path = _CACHE_DIR / f"{key}{suffix}"
-
-    if local_path.exists():
-        return str(local_path), None
-
-    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.copy2(network_path, str(local_path))
-        return str(local_path), None
-    except Exception:
-        fd, temp_file = tempfile.mkstemp(suffix=suffix)
-        os.close(fd)
-        try:
-            shutil.copy2(network_path, temp_file)
-            return temp_file, temp_file
-        except Exception:
-            return network_path, None

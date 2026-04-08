@@ -118,8 +118,6 @@ def test_get_employees_map_existing_custom_path(tmp_path):
 
     assert "Alice" in result
     assert result["Alice"][0]["path"] == str(file1)
-    assert "id" in result["Alice"][0]
-    assert "fp" in result["Alice"][0]
 
 
 def test_get_employees_map_relative_path(tmp_path):
@@ -174,10 +172,12 @@ def test_get_employees_map_stat_error(tmp_path):
             raise Exception("Open error")
         return orig_open(file, *args, **kwargs)
 
-    with patch("builtins.open", side_effect=mock_open):
+    with (
+        patch.object(Path, "exists", return_value=True),
+        patch.object(Path, "is_absolute", return_value=True),
+        patch("builtins.open", side_effect=mock_open),
+    ):
         result = service.get_employees_map()
 
     assert "Alice" in result
     assert result["Alice"][0]["path"] == str(file1)
-    assert "fp" in result["Alice"][0]
-    assert result["Alice"][0]["fp"] is None

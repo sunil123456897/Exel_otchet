@@ -5,10 +5,14 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 import openpyxl
 from openpyxl.utils import get_column_letter
-from openpyxl.styles import PatternFill
-from core.domain.interfaces import IExporter
-from core.domain.utils_helpers import is_file_writable
-from core.infra.export_styles import ExcelStyles
+from core.domain import IExporter
+from core.infra import is_file_writable
+from core.infra.export_formatting import ExcelStyles
+from core.infra.export_formatting import (
+    detect_header_columns,
+    apply_cell_styling,
+    build_total_row,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +61,7 @@ class MasterWriter(IExporter):
             if "." in n:
                 try:
                     p = n.split(".")
-                    if len(p) == 3:  # DD.MM.YYYY
+                    if len(p) == 3:
                         return (0, int(p[2]), int(p[1]), int(p[0]))
                     return (0, 9999, int(p[1]), int(p[0]))
                 except:
@@ -73,7 +77,6 @@ class MasterWriter(IExporter):
         path_abs = os.path.abspath(self.master_path)
         tmp = path_abs + ".tmp"
 
-        # Fix 5: Windows MAX_PATH Overflow bypass
         if os.name == "nt" and len(tmp) > 250:
             tmp = "\\\\?\\" + tmp
             path_abs = "\\\\?\\" + path_abs
@@ -113,196 +116,7 @@ class MasterWriter(IExporter):
             else:
                 ws.column_dimensions[let].width = min(max_len + 4, 35)
 
-    def _detect_header_columns(self, ws) -> tuple:
-        """Определить позиции ключевых колонок по заголовкам.
-
-        Returns:
-            (cols, num_indices, percent_broker_col) — словари позиций.
-        """
-        num_kw = ["приход", "расход", "комиссия", "итог", "посредник"]
-        cols = {kw: -1 for kw in num_kw}
-        num_indices = set()
-        percent_broker_col = -1
-
-        for i, cell in enumerate(ws[1], 1):
-            val = str(cell.value or "").lower()
-            if any(kw in val for kw in num_kw):
-                num_indices.add(i)
-            for kw in num_kw:
-                if kw in val:
-                    if kw == "комиссия" and "посред" in val:
-                        continue
-                    cols[kw] = i
-            if val == "% посредника":
-                percent_broker_col = i
-
-        return cols, num_indices, percent_broker_col
-
-    def _apply_cell_styling(
-        self, ws, rows_data, warning_rows, cols, num_indices, percent_broker_col
-    ):
-        """Применить стили, подсветку и форматирование к ячейкам данных.
-
-        Args:
-            ws: worksheet
-            rows_data: list of row data dicts
-            warning_rows: номера строк с template warning
-            cols: словарь позиций колонок
-            num_indices: set числовых колонок
-            percent_broker_col: позиция % посредника
-        """
-        fill_yellow = PatternFill(patternType="solid", fgColor="FFFF00")
-
-        for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row)):
-            is_warning = (r_idx + 2) in warning_rows
-            fill_row = self.st.fill_odd if (r_idx + 1) % 2 == 1 else self.st.fill_even
-
-            i_val = (
-                float(row_cells[cols["приход"] - 1].value or 0)
-                if cols["приход"] > 0
-                else 0
-            )
-            e_val = (
-                float(row_cells[cols["расход"] - 1].value or 0)
-                if cols["расход"] > 0
-                else 0
-            )
-            t_val = (
-                float(row_cells[cols["итог"] - 1].value or 0) if cols["итог"] > 0 else 0
-            )
-            c_val = (
-                abs(float(row_cells[cols["комиссия"] - 1].value or 0))
-                if cols["комиссия"] > 0
-                else 0
-            )
-
-            # Fix 1 & 8: Highlighting for critical data loss
-            is_critical = rows_data[r_idx].get("is_critical", False)
-            fill_critical = PatternFill(
-                patternType="solid", fgColor="FF9999"
-            )  # Light red
-
-            expected_total = i_val - e_val
-            has_money = abs(i_val) > 0.02 or abs(e_val) > 0.02
-            # Fix 3: Math error check accounting for commission
-            is_math_err = has_money and abs(expected_total - c_val - t_val) > 0.02
-
-            for c_idx, cell in enumerate(row_cells, 1):
-                cell.border = self.st.border_thin
-
-                if is_critical:
-                    cell.fill = fill_critical
-                elif is_math_err:
-                    cell.fill = fill_yellow
-                else:
-                    cell.fill = fill_row
-                cell.font = self.st.font_standard
-
-                if c_idx in num_indices:
-                    self._format_numeric_cell(
-                        cell, c_idx, cols, ws, percent_broker_col, is_warning
-                    )
-                else:
-                    cell.alignment = self.st.align_left
-                    if is_warning and c_idx == 2:
-                        cell.fill = self.st.fill_warning
-
-    def _format_numeric_cell(
-        self, cell, c_idx, cols, ws, percent_broker_col, is_warning
-    ):
-        """Отформатировать числовую ячейку (цвет, выравнивание, числовой формат)."""
-        val = cell.value or 0
-
-        # Подсветка дохода/расхода
-        if c_idx == cols["приход"] and isinstance(val, (int, float)) and val > 0.01:
-            cell.fill, cell.font = self.st.fill_income, self.st.font_income
-        elif (
-            c_idx == cols["расход"]
-            and isinstance(val, (int, float))
-            and abs(val) > 0.01
-        ):
-            cell.fill, cell.font = self.st.fill_expense, self.st.font_expense
-
-        # % посредника — конвертация и проверка
-        is_percent_err = False
-        if c_idx == percent_broker_col:
-            try:
-                v_float = float(val)
-                if abs(v_float) <= 1.0:
-                    cell.value = v_float
-                elif abs(v_float) <= 100.0:
-                    cell.value = v_float / 100.0
-                else:
-                    is_percent_err = True
-                    cell.value = v_float
-            except (ValueError, TypeError):
-                is_percent_err = True
-                cell.value = val
-
-            if is_percent_err:
-                cell.fill = self.st.fill_warning
-
-        # Числовой формат
-        h = str(ws.cell(1, c_idx).value or "").lower()
-        if "%" in h and "посред" in h:
-            fmt = (
-                "General"
-                if is_percent_err and isinstance(cell.value, str)
-                else "#,##0.00"
-            )
-            if not is_percent_err:
-                fmt = "0.00%"
-        elif "комиссия" in h:
-            fmt = '0.00"%"'
-        else:
-            fmt = "#,##0.00"
-
-        cell.alignment, cell.number_format = self.st.align_right, fmt
-
-        # Template warning — только Источник (c_idx == 2)
-        if is_warning and c_idx == 2:
-            cell.fill = self.st.fill_warning
-
-    def _build_total_row(self, ws, num_indices):
-        """Создать строку ИТОГО с формулами SUM.
-
-        Returns:
-            Номер строки ИТОГО.
-        """
-        total_row = ws.max_row + 1
-        total_label = ws.cell(total_row, 1, "ИТОГО:")
-        total_label.font, total_label.fill, total_label.border = (
-            self.st.font_total,
-            self.st.fill_total,
-            self.st.border_medium,
-        )
-
-        for c in range(1, ws.max_column + 1):
-            if c not in num_indices:
-                continue
-            h = str(ws.cell(1, c).value or "").lower()
-            if (
-                any(kw in h for kw in ["приход", "расход", "итог", "посредник"])
-                and "%" not in h
-            ):
-                let = get_column_letter(c)
-                cell = ws.cell(total_row, c)
-                cell.value = f"=SUM({let}2:{let}{total_row - 1})"
-                cell.fill, cell.font, cell.border, cell.number_format = (
-                    self.st.fill_total,
-                    self.st.font_total,
-                    self.st.border_medium,
-                    "#,##0.00",
-                )
-
-        return total_row
-
     def _append_data_rows(self, ws, date, rows):
-        """Добавить строки данных в worksheet.
-
-        Returns:
-            Список номеров строк с template warning.
-        """
         warning_rows = []
         date_str = date.strftime("%d.%m.%Y")
         for r in rows:
@@ -327,17 +141,6 @@ class MasterWriter(IExporter):
         return warning_rows
 
     def write_daily_data(self, date, rows, wb=None, sh_name_override=None):
-        """Записать данные за одну дату в Excel.
-
-        Состоит из этапов:
-        1. Создание/подготовка листа
-        2. Запись заголовков
-        3. Запись строк данных
-        4. Определение колонок
-        5. Стилизация ячеек
-        6. Строка ИТОГО
-        7. Автоподбор ширины + сохранение
-        """
         should_save = False
         if wb is None:
             wb = self._get_workbook()
@@ -348,7 +151,6 @@ class MasterWriter(IExporter):
             del wb[sh_name]
         ws = wb.create_sheet(sh_name)
 
-        # 1. Заголовки
         headers = [
             "Дата",
             "Источник",
@@ -367,21 +169,16 @@ class MasterWriter(IExporter):
         self._apply_header_style(ws)
         ws.freeze_panes = "A2"
 
-        # 2. Строки данных
         warning_rows = self._append_data_rows(ws, date, rows)
 
-        # 3. Определение колонок
-        cols, num_indices, percent_broker_col = self._detect_header_columns(ws)
+        cols, num_indices, percent_broker_col = detect_header_columns(ws)
 
-        # 4. Стилизация
-        self._apply_cell_styling(
-            ws, rows, warning_rows, cols, num_indices, percent_broker_col
+        apply_cell_styling(
+            ws, rows, warning_rows, cols, num_indices, percent_broker_col, self.st
         )
 
-        # 5. Строка ИТОГО
-        self._build_total_row(ws, num_indices)
+        build_total_row(ws, num_indices, self.st)
 
-        # 6. Автоподбор + сохранение
         self._auto_adjust(ws)
         if should_save:
             self._save_workbook(wb)
@@ -416,7 +213,6 @@ class MasterWriter(IExporter):
             for d_str, rows in sorted(dbd.items()):
                 try:
                     dt = datetime.strptime(d_str, "%d.%m.%Y")
-                    # Fix 4: Flag unknown dates in a separate sheet name
                     sh_override = "UNKNOWN_DATE" if d_str == "01.01.1900" else None
                     self.write_daily_data(dt, rows, wb=wb, sh_name_override=sh_override)
                 except Exception as e:

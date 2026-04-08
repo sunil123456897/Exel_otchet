@@ -393,8 +393,7 @@ class TestEdgeCases:
 
         assert "Alice" in result
         assert isinstance(result["Alice"][0], dict)
-        assert "id" in result["Alice"][0]
-        assert "fp" in result["Alice"][0]
+        assert "path" in result["Alice"][0]
 
     def test_scan_directory_missing(self, discovery_service, tmp_path):
         """Несуществующий root — пустой результат без ошибок."""

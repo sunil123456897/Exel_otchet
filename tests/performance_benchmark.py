@@ -12,8 +12,8 @@ import logging
 APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'APP'))
 sys.path.append(APP_ROOT)
 
-from core.infra.ingestion_core import CalamineReader
-from core.infra.persistence_manager import SQLiteManager
+from core.infra.ingestion_reader import CalamineReader
+from core.infra.session_repo import SQLiteManager
 
 # Configure logging to be less noisy
 logging.basicConfig(level=logging.ERROR)

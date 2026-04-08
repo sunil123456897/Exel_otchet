@@ -1,18 +1,15 @@
-"""DiscoveryService — поиск файлов, rename detection, привязка к сотрудникам."""
-
 import os
 import logging
 import hashlib
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any
 
 from core.infra.config_controller import ConfigController
 from core.infra.ingestion_engine import IngestionEngine
+from core.infra.path_resolver import resolve_employee_path
 
 
 class DiscoveryService:
-    """Обнаружение файлов сотрудников и определение переименований."""
-
     def __init__(
         self, config_controller: ConfigController, ingestion: IngestionEngine
     ) -> None:
@@ -21,11 +18,6 @@ class DiscoveryService:
         self.rename_detected = False
 
     def get_employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Получить карту сотрудник → список файлов.
-
-        Возвращает dict где ключ — имя сотрудника, значение — список
-        метаданных файлов (path, id, fp).
-        """
         config = self.config_controller.config
         custom_paths = self.config_controller.employees
         config_list = sorted(custom_paths.keys())
@@ -41,7 +33,6 @@ class DiscoveryService:
         )
         root_strings = [str(r) for r in roots_to_scan]
 
-        # Optimization: Skip full SMB scan only if all employees have explicit, absolute and existing paths
         all_have_custom = False
         if config_list and all(name in custom_paths for name in config_list):
             all_paths_ok = True
@@ -76,8 +67,6 @@ class DiscoveryService:
         discovered_map = {}
         for f in discovered_files:
             p = Path(f["path"])
-            # If the file is directly in the root folder, use the file name without extension.
-            # Otherwise, assume the parent folder name is the employee's name.
             name = p.stem if str(p.parent) in root_strings else p.parent.name
             discovered_map.setdefault(name, []).append(f)
 
@@ -92,109 +81,41 @@ class DiscoveryService:
         self.rename_detected = False
 
         for target_name in target_names:
-            paths_for_emp, seen_paths, seen_ids, seen_fps = [], set(), set(), set()
+            paths_for_emp, seen_paths = [], set()
             has_custom = False
 
             if target_name in custom_paths:
                 p_val = custom_paths[target_name]
                 p_list = p_val if isinstance(p_val, list) else [p_val]
                 updated_paths = []
+
                 for entry in p_list:
                     path_str = entry["path"] if isinstance(entry, dict) else entry
                     file_id = entry.get("id") if isinstance(entry, dict) else None
                     file_hash = entry.get("fp") if isinstance(entry, dict) else None
 
-                    p_abs = Path(path_str)
-                    # Resolve relative to Q: or other roots if not absolute OR if missing
-                    if not p_abs.is_absolute() or not p_abs.exists():
-                        found_meta = None
-                        # Try suffix match (e.g. "Отчет кураторов 1/Иван/отчет.xlsx")
-                        norm_path = path_str.replace("\\", "/").lower()
-                        for df in discovered_files:
-                            df_norm = df["path"].replace("\\", "/").lower()
-                            if df_norm.endswith(norm_path):
-                                found_meta = df
-                                break
+                    resolved, meta, renamed = resolve_employee_path(
+                        path_str,
+                        file_id=file_id,
+                        file_hash=file_hash,
+                        discovered_files=discovered_files,
+                        config_controller=self.config_controller,
+                    )
 
-                        if not found_meta and (file_id or file_hash):
-                            for df in discovered_files:
-                                if (file_id and df.get("id") == file_id) or (
-                                    file_hash
-                                    and df.get("fp")
-                                    and df.get("fp") == file_hash
-                                ):
-                                    found_meta = df
-                                    break
-
-                        if found_meta:
-                            p_abs = Path(found_meta["path"])
-                            self.rename_detected = True
-                            updated_paths.append(found_meta)
-                        elif p_abs.exists() or not p_abs.is_absolute():
-                            # If it doesn't exist but is relative, try resolving relative to config_path
-                            if not p_abs.is_absolute() and hasattr(
-                                self.config_controller, "config_path"
-                            ):
-                                alt_p = (
-                                    Path(self.config_controller.config_path).parent
-                                    / p_abs
-                                ).resolve()
-                                if alt_p.exists():
-                                    p_abs = alt_p
-
-                            if p_abs.exists():
-                                if isinstance(entry, dict):
-                                    entry["path"] = str(p_abs)
-                                    if "id" not in entry:
-                                        entry["id"] = (
-                                            int(
-                                                hashlib.md5(
-                                                    str(p_abs).encode()
-                                                ).hexdigest(),
-                                                16,
-                                            )
-                                            % 10**8
-                                        )
-                                    if "fp" not in entry:
-                                        entry["fp"] = None
-                                    updated_paths.append(entry)
-                                else:
-                                    updated_paths.append(
-                                        {
-                                            "path": str(p_abs),
-                                            "id": int(
-                                                hashlib.md5(
-                                                    str(p_abs).encode()
-                                                ).hexdigest(),
-                                                16,
-                                            )
-                                            % 10**8,
-                                            "fp": None,
-                                        }
-                                    )
+                    if renamed:
+                        self.rename_detected = True
+                        updated_paths.append(meta if meta else {"path": resolved})
+                    elif meta:
+                        updated_paths.append(meta)
                     else:
-                        if isinstance(entry, dict):
-                            if "id" not in entry:
-                                entry["id"] = (
-                                    int(
-                                        hashlib.md5(str(p_abs).encode()).hexdigest(), 16
-                                    )
-                                    % 10**8
-                                )
-                            if "fp" not in entry:
-                                entry["fp"] = None
-                            updated_paths.append(entry)
-                        else:
-                            updated_paths.append(
-                                {
-                                    "path": str(p_abs),
-                                    "id": int(
-                                        hashlib.md5(str(p_abs).encode()).hexdigest(), 16
-                                    )
-                                    % 10**8,
-                                    "fp": None,
-                                }
-                            )
+                        p_abs = Path(resolved)
+                        if p_abs.exists():
+                            entry_meta = {"path": str(p_abs)}
+                            if file_id is not None:
+                                entry_meta["id"] = file_id
+                            if file_hash is not None:
+                                entry_meta["fp"] = file_hash
+                            updated_paths.append(entry_meta)
 
                 for meta in updated_paths:
                     p = str(meta.get("path"))
@@ -207,7 +128,6 @@ class DiscoveryService:
                 if paths_for_emp:
                     has_custom = True
 
-            # Only auto-discover if no custom paths were successfully bound
             if not has_custom:
                 t_lower = target_name.lower()
                 for d_name, files in discovered_map.items():

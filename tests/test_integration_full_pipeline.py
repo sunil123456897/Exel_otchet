@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import openpyxl
 
 from core.infra.ingestion_engine import IngestionEngine
-from core.infra.persistence_manager import SQLiteManager
+from core.infra.session_repo import SQLiteManager
 from core.domain.logic_service import LogicService, Validator
 from core.infra.export_writer import MasterWriter
 

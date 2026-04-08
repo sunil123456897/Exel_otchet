@@ -5,7 +5,7 @@ import decimal
 import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from core.infra.persistence_manager import (
+from core.infra.session_repo import (
     SQLiteConnectionManager,
     SourceFileRepository,
     StagingDataRepository,

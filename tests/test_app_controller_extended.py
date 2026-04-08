@@ -73,7 +73,7 @@ class TestRefreshStatus:
         with (
             patch("os.path.exists", return_value=True),
             patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.refresh_status(
@@ -98,7 +98,7 @@ class TestRefreshStatus:
         with (
             patch("os.path.exists", return_value=True),
             patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.refresh_status(
@@ -126,7 +126,7 @@ class TestRefreshStatus:
         with (
             patch("os.path.exists", return_value=True),
             patch("os.stat", return_value=MagicMock(st_mtime=1000, st_size=1000)),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.refresh_status(
@@ -155,7 +155,7 @@ class TestRefreshStatus:
         with (
             patch("os.path.exists", return_value=True),
             patch("os.stat", return_value=MagicMock(st_mtime=1000, st_size=1000)),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.refresh_status(
@@ -188,7 +188,7 @@ class TestRefreshStatus:
         with (
             patch("os.path.exists", return_value=True),
             patch("os.stat", return_value=MagicMock(st_mtime=1000, st_size=1000)),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.refresh_status(
@@ -211,7 +211,7 @@ class TestRefreshStatus:
         with (
             patch("os.path.exists", return_value=True),
             patch("os.stat", side_effect=OSError("Access denied")),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.refresh_status(
@@ -239,7 +239,7 @@ class TestRunConsolidation:
         # Mock os.path.exists to return False for the missing path
         with (
             patch("os.path.exists", side_effect=lambda p: p != missing_path),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation(
@@ -270,7 +270,7 @@ class TestRunConsolidation:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation(
@@ -301,7 +301,7 @@ class TestRunConsolidation:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation(
@@ -333,7 +333,7 @@ class TestRunConsolidation:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation(
@@ -402,7 +402,7 @@ class TestRunConsolidationAllDates:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation_all_dates(on_progress, on_complete)
@@ -434,7 +434,7 @@ class TestRunConsolidationAllDates:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch.object(
                 app_controller.config_controller,
                 "resolve_path",
@@ -492,7 +492,7 @@ class TestEdgeCases:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation(
@@ -524,7 +524,7 @@ class TestEdgeCases:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation(
@@ -560,7 +560,7 @@ class TestRunConsolidationMonth:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation_month(start, end, on_progress, on_complete)
@@ -594,7 +594,7 @@ class TestRunConsolidationMonth:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation_month(start, end, on_progress, on_complete)
@@ -627,7 +627,7 @@ class TestRunConsolidationMonth:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation_month(start, end, on_progress, on_complete)
@@ -675,7 +675,7 @@ class TestRunConsolidationMonth:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation_month(start, end, on_progress, on_complete)
@@ -707,7 +707,7 @@ class TestRunConsolidationMonth:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation_month(
@@ -736,7 +736,7 @@ class TestRunConsolidationMonth:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation_month(
@@ -770,7 +770,7 @@ class TestRunConsolidationMonth:
 
         with (
             patch("os.path.exists", return_value=True),
-            patch.object(app_controller, "_check_master_lock", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_consolidation_month(start, end, on_progress, on_complete)
