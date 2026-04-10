@@ -32,10 +32,12 @@ class GuiCommands:
         self.sidebar.set_refresh_state("disabled")
         self.employee_table.clear_tree()
         self.stats_panel.set_progress(0)
+        curator = self.sidebar.get_curator()
         self.employee_vm.refresh(
             self.app_controller,
             self.sidebar.get_date(),
             self._on_consolidation_progress,
+            curator=curator,
         )
 
     def run_consolidation(self):
@@ -48,14 +50,18 @@ class GuiCommands:
             if not messagebox.askyesno("Предупреждение", msg):
                 return
 
+        curator = self.sidebar.get_curator()
         self.sidebar.set_consolidate_state("disabled")
         self.consolidation_vm.run_consolidation(
-            self.app_controller, self.sidebar.get_date()
+            self.app_controller, self.sidebar.get_date(), curator=curator
         )
 
     def run_consolidation_all_dates(self):
+        curator = self.sidebar.get_curator()
         self.sidebar.set_consolidate_all_state("disabled")
-        self.consolidation_vm.run_consolidation_all_dates(self.app_controller)
+        self.consolidation_vm.run_consolidation_all_dates(
+            self.app_controller, curator=curator
+        )
 
     def run_consolidation_month(self):
         start_date, end_date = self.sidebar.get_month_range()
@@ -65,9 +71,10 @@ class GuiCommands:
             )
             return
 
+        curator = self.sidebar.get_curator()
         self.sidebar.set_consolidate_month_state("disabled")
         self.consolidation_vm.run_consolidation_month(
-            self.app_controller, start_date, end_date
+            self.app_controller, start_date, end_date, curator=curator
         )
 
     def add_employee_dialog(self):

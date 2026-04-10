@@ -82,7 +82,7 @@ def detect_header_columns(ws) -> tuple:
     num_kw = ["приход", "расход", "комиссия", "итог", "посредник"]
     cols = {kw: -1 for kw in num_kw}
     num_indices = set()
-    percent_broker_col = -1
+    percent_broker_cols = set()
 
     for i, cell in enumerate(ws[1], 1):
         val = str(cell.value or "").lower()
@@ -93,14 +93,14 @@ def detect_header_columns(ws) -> tuple:
                 if kw == "комиссия" and "посред" in val:
                     continue
                 cols[kw] = i
-        if val == "% посредника":
-            percent_broker_col = i
+        if val == "% посредника" or val.startswith("% посредник"):
+            percent_broker_cols.add(i)
 
-    return cols, num_indices, percent_broker_col
+    return cols, num_indices, percent_broker_cols
 
 
 def apply_cell_styling(
-    ws, rows_data, warning_rows, cols, num_indices, percent_broker_col, st: ExcelStyles
+    ws, rows_data, warning_rows, cols, num_indices, percent_broker_cols, st: ExcelStyles
 ):
     fill_yellow = PatternFill(patternType="solid", fgColor="FFFF00")
 
@@ -141,7 +141,7 @@ def apply_cell_styling(
 
             if c_idx in num_indices:
                 format_numeric_cell(
-                    cell, c_idx, cols, ws, percent_broker_col, is_warning, st
+                    cell, c_idx, cols, ws, percent_broker_cols, is_warning, st
                 )
             else:
                 cell.alignment = st.align_left
@@ -150,7 +150,7 @@ def apply_cell_styling(
 
 
 def format_numeric_cell(
-    cell, c_idx, cols, ws, percent_broker_col, is_warning, st: ExcelStyles
+    cell, c_idx, cols, ws, percent_broker_cols, is_warning, st: ExcelStyles
 ):
     val = cell.value or 0
 
@@ -160,7 +160,7 @@ def format_numeric_cell(
         cell.fill, cell.font = st.fill_expense, st.font_expense
 
     is_percent_err = False
-    if c_idx == percent_broker_col:
+    if c_idx in percent_broker_cols:
         try:
             v_float = float(val)
             if abs(v_float) <= 1.0:

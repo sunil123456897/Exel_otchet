@@ -1,4 +1,6 @@
+import concurrent.futures
 import logging
+import os
 import threading
 import uuid
 from datetime import datetime
@@ -28,29 +30,45 @@ class AppController:
 
         self.discovery = DiscoveryService(config_controller, ingestion)
         self._cached_employees = {}
+        self._curator = None
 
     @property
     def rename_detected(self):
         return self.discovery.rename_detected
 
-    def _get_employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
-        return self.discovery.get_employees_map()
+    def _get_employees_map(self, curator=None) -> Dict[str, List[Dict[str, Any]]]:
+        return self.discovery.get_employees_map(curator=curator)
+
+    def _get_curator_config(self, curator=None) -> Optional[Dict[str, Any]]:
+        if not curator:
+            return None
+        return self.config_controller.config.get("curators", {}).get(curator)
+
+    def _resolve_master_path(self, curator=None, curator_config=None) -> Path:
+        if curator and curator_config:
+            out = curator_config.get("output_path")
+            if out:
+                return self.config_controller.resolve_path(out)
+        return get_master_path(self.config_controller)
 
     def refresh_status(
         self,
         selected_date,
         on_progress: Callable[[float], None],
         on_complete: Callable[[List[tuple], Dict, bool], None],
+        curator=None,
     ):
         if not check_master_lock(self.config_controller):
             on_complete([], {}, False)
             logging.error("Master file is locked. Please close it in Excel.")
             return
 
+        self._curator = curator
+
         def task():
             try:
                 logging.info("[NET] Начинаю поиск файлов в сети...")
-                employees_map = self._get_employees_map()
+                employees_map = self._get_employees_map(curator=curator)
                 unique_names = sorted(employees_map.keys())
                 if not unique_names:
                     on_complete([], {}, False)
@@ -99,9 +117,6 @@ class AppController:
                         status, tag = "[ERR] ОШИБКА", "missing"
                     return (name, status, path_str, tag)
 
-                import concurrent.futures
-                import os
-
                 with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
                     futures = {
                         executor.submit(check_employee, name): name
@@ -127,6 +142,7 @@ class AppController:
         selected_date,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        curator=None,
     ):
         if not check_master_lock(self.config_controller):
             on_complete(
@@ -135,8 +151,6 @@ class AppController:
             return
 
         def task():
-            import os
-
             session_id = str(uuid.uuid4())
             try:
                 date_str = selected_date.strftime("%d.%m.%Y")
@@ -155,15 +169,23 @@ class AppController:
                     on_complete(False, "Нет файлов", None)
                     return
 
-                consolidated_data = self.logic_service.consolidate(session_id)
+                curator_config = self._get_curator_config(curator)
+                consolidated_data = self.logic_service.consolidate(
+                    session_id, curator=curator, curator_config=curator_config
+                )
                 on_progress(75)
                 if not consolidated_data:
                     on_complete(False, "Нет данных за дату", None)
                     return
 
-                master_path = get_master_path(self.config_controller)
+                master_path = self._resolve_master_path(curator, curator_config)
 
-                if self.writer.write_report(consolidated_data, master_path):
+                if self.writer.write_report(
+                    consolidated_data,
+                    master_path,
+                    curator=curator,
+                    curator_config=curator_config,
+                ):
                     on_complete(True, "Успешно!", master_path)
                 else:
                     on_complete(False, "Ошибка записи", None)
@@ -177,6 +199,7 @@ class AppController:
         self,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        curator=None,
     ):
         if not check_master_lock(self.config_controller):
             on_complete(
@@ -185,11 +208,9 @@ class AppController:
             return
 
         def task():
-            import os
-
             session_id = str(uuid.uuid4())
             try:
-                employees_map = self._get_employees_map()
+                employees_map = self._get_employees_map(curator=curator)
                 self._cached_employees = employees_map
                 self.persistence.save_session(session_id, {"type": "all_dates"})
                 if not run_engine(
@@ -204,17 +225,24 @@ class AppController:
                     on_complete(False, "Нет файлов", None)
                     return
 
-                consolidated_data = self.logic_service.consolidate(session_id)
+                curator_config = self._get_curator_config(curator)
+                consolidated_data = self.logic_service.consolidate(
+                    session_id, curator=curator, curator_config=curator_config
+                )
                 errors = self.persistence.get_template_errors(session_id)
                 on_progress(75)
                 if not consolidated_data:
                     on_complete(False, "Нет данных", None)
                     return
 
-                master_path = get_master_path(self.config_controller)
+                master_path = self._resolve_master_path(curator, curator_config)
 
                 if self.writer.write_report(
-                    consolidated_data, master_path, template_errors=errors
+                    consolidated_data,
+                    master_path,
+                    template_errors=errors,
+                    curator=curator,
+                    curator_config=curator_config,
                 ):
                     on_complete(True, "Готово!", master_path)
                 else:
@@ -231,6 +259,7 @@ class AppController:
         end_date,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        curator=None,
     ):
         if not check_master_lock(self.config_controller):
             on_complete(
@@ -239,8 +268,6 @@ class AppController:
             return
 
         def task():
-            import os
-
             session_id = str(uuid.uuid4())
             try:
                 start_str = start_date.strftime("%d.%m.%Y")
@@ -250,7 +277,9 @@ class AppController:
                     {"start_date": start_str, "end_date": end_str, "type": "monthly"},
                 )
 
-                employees_map = self._cached_employees or self._get_employees_map()
+                employees_map = self._cached_employees or self._get_employees_map(
+                    curator=curator
+                )
                 if not employees_map:
                     on_complete(False, "Нет файлов", None)
                     return
@@ -269,7 +298,10 @@ class AppController:
                     on_complete(False, "Нет файлов", None)
                     return
 
-                consolidated_data = self.logic_service.consolidate(session_id)
+                curator_config = self._get_curator_config(curator)
+                consolidated_data = self.logic_service.consolidate(
+                    session_id, curator=curator, curator_config=curator_config
+                )
                 on_progress(75)
                 if not consolidated_data:
                     on_complete(
@@ -277,9 +309,14 @@ class AppController:
                     )
                     return
 
-                master_path = get_master_path(self.config_controller)
+                master_path = self._resolve_master_path(curator, curator_config)
 
-                if self.writer.write_report(consolidated_data, master_path):
+                if self.writer.write_report(
+                    consolidated_data,
+                    master_path,
+                    curator=curator,
+                    curator_config=curator_config,
+                ):
                     on_complete(True, f"Готово! ({start_str} — {end_str})", master_path)
                 else:
                     on_complete(False, "Ошибка записи", None)

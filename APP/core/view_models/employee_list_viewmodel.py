@@ -50,6 +50,7 @@ class EmployeeListViewModel:
         app_controller,
         selected_date: datetime,
         on_progress: Callable[[float], None],
+        curator=None,
     ) -> None:
         """Запустить обновление статуса сотрудников."""
 
@@ -69,7 +70,9 @@ class EmployeeListViewModel:
             if self._on_update:
                 self._on_update()
 
-        app_controller.refresh_status(selected_date, on_progress, on_complete)
+        app_controller.refresh_status(
+            selected_date, on_progress, on_complete, curator=curator
+        )
 
     def add_employee(self, config_controller, name: str) -> None:
         """Добавить нового сотрудника."""

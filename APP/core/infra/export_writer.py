@@ -16,6 +16,21 @@ from core.infra.export_formatting import (
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_HEADERS = [
+    "Дата",
+    "Источник",
+    "ЗАКАЗЧИК",
+    "ИСПОЛНИТЕЛЬ",
+    "Приход",
+    "Расход",
+    "Комиссия",
+    "ИТОГ",
+    "% посредника",
+    "посредник 1(кэш)",
+    "посредник 2",
+    "Фильтры",
+]
+
 
 class MasterWriter(IExporter):
     def __init__(self, config: Dict[str, Any], config_path: str = ""):
@@ -42,8 +57,8 @@ class MasterWriter(IExporter):
                 self.st.border_thin,
             )
 
-    def _get_workbook(self):
-        path_abs = os.path.abspath(self.master_path)
+    def _get_workbook(self, path=None):
+        path_abs = os.path.abspath(path or self.master_path)
         if os.path.exists(path_abs):
             try:
                 return openpyxl.load_workbook(path_abs)
@@ -54,7 +69,7 @@ class MasterWriter(IExporter):
             wb.remove(wb["Sheet"])
         return wb
 
-    def _save_workbook(self, wb):
+    def _save_workbook(self, wb, path=None):
         SPECIAL_ORDER = ["ВСЕ ОПЕРАЦИИ", "ДАШБОРД", "АНАЛИТИКА", "СВОД"]
 
         def key(n):
@@ -74,7 +89,7 @@ class MasterWriter(IExporter):
             if offset != 0:
                 wb.move_sheet(n, offset=offset)
 
-        path_abs = os.path.abspath(self.master_path)
+        path_abs = os.path.abspath(path or self.master_path)
         tmp = path_abs + ".tmp"
 
         if os.name == "nt" and len(tmp) > 250:
@@ -93,7 +108,8 @@ class MasterWriter(IExporter):
                         import tkinter.messagebox as mb
 
                         mb.showerror(
-                            "Файл занят", f"Закройте '{self.master_path}' в Excel!"
+                            "Файл занят",
+                            f"Закройте '{path or self.master_path}' в Excel!",
                         )
                 else:
                     os.rename(tmp, path_abs)
@@ -116,31 +132,67 @@ class MasterWriter(IExporter):
             else:
                 ws.column_dimensions[let].width = min(max_len + 4, 35)
 
-    def _append_data_rows(self, ws, date, rows):
+    def _append_data_rows(self, ws, date, rows, curator=None):
         warning_rows = []
         date_str = date.strftime("%d.%m.%Y")
         for r in rows:
             if r.get("is_template_warning"):
                 warning_rows.append(ws.max_row + 1)
-            ws.append(
-                [
-                    date_str,
-                    r.get("Источник", ""),
-                    r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
-                    r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                    float(r.get("сумма платежа ПРИХОД", 0)),
-                    float(r.get("сумма платежа РАСХОД", 0)),
-                    float(r.get("комиссия", 0)),
-                    float(r.get("ИТОГ", 0)),
-                    r.get("% посредника", 0),
-                    float(r.get("посредник 1(кэш)", 0)),
-                    float(r.get("посредник 2", 0)),
-                    r.get("фильтры", ""),
-                ]
-            )
+            if curator == "boris":
+                ws.append(
+                    [
+                        date_str,
+                        r.get("Источник", ""),
+                        r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
+                        r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
+                        float(r.get("сумма платежа ПРИХОД", 0)),
+                        float(r.get("сумма платежа РАСХОД", 0)),
+                        float(r.get("комиссия", 0)),
+                        float(r.get("ИТОГ", 0)),
+                        r.get("% посредника", 0),
+                        float(r.get("посредник 1(кэш)", 0)),
+                        r.get("% посредник 2", 0),
+                        float(r.get("посредник 2", 0)),
+                        r.get("фильтры", ""),
+                    ]
+                )
+            elif curator == "ivan":
+                ws.append(
+                    [
+                        r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
+                        r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
+                        float(r.get("сумма платежа ПРИХОД", 0)),
+                        float(r.get("комиссия", 0)),
+                        float(r.get("ИТОГ", 0)),
+                        r.get("% посредника", 0),
+                        float(r.get("посредник 1(кэш)", 0)),
+                        r.get("% посредник 2", 0),
+                        float(r.get("посредник 2", 0)),
+                        r.get("фильтры", ""),
+                    ]
+                )
+            else:
+                ws.append(
+                    [
+                        date_str,
+                        r.get("Источник", ""),
+                        r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
+                        r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
+                        float(r.get("сумма платежа ПРИХОД", 0)),
+                        float(r.get("сумма платежа РАСХОД", 0)),
+                        float(r.get("комиссия", 0)),
+                        float(r.get("ИТОГ", 0)),
+                        r.get("% посредника", 0),
+                        float(r.get("посредник 1(кэш)", 0)),
+                        float(r.get("посредник 2", 0)),
+                        r.get("фильтры", ""),
+                    ]
+                )
         return warning_rows
 
-    def write_daily_data(self, date, rows, wb=None, sh_name_override=None):
+    def write_daily_data(
+        self, date, rows, wb=None, sh_name_override=None, curator=None, headers=None
+    ):
         should_save = False
         if wb is None:
             wb = self._get_workbook()
@@ -151,30 +203,16 @@ class MasterWriter(IExporter):
             del wb[sh_name]
         ws = wb.create_sheet(sh_name)
 
-        headers = [
-            "Дата",
-            "Источник",
-            "ЗАКАЗЧИК",
-            "ИСПОЛНИТЕЛЬ",
-            "Приход",
-            "Расход",
-            "Комиссия",
-            "ИТОГ",
-            "% посредника",
-            "посредник 1(кэш)",
-            "посредник 2",
-            "Фильтры",
-        ]
-        ws.append(headers)
+        ws.append(headers or DEFAULT_HEADERS)
         self._apply_header_style(ws)
         ws.freeze_panes = "A2"
 
-        warning_rows = self._append_data_rows(ws, date, rows)
+        warning_rows = self._append_data_rows(ws, date, rows, curator=curator)
 
-        cols, num_indices, percent_broker_col = detect_header_columns(ws)
+        cols, num_indices, percent_broker_cols = detect_header_columns(ws)
 
         apply_cell_styling(
-            ws, rows, warning_rows, cols, num_indices, percent_broker_col, self.st
+            ws, rows, warning_rows, cols, num_indices, percent_broker_cols, self.st
         )
 
         build_total_row(ws, num_indices, self.st)
@@ -188,6 +226,8 @@ class MasterWriter(IExporter):
         data: List[Dict[str, Any]],
         path: Path,
         template_errors: List[Dict[str, Any]] = None,
+        curator=None,
+        curator_config=None,
     ) -> bool:
         if not is_file_writable(str(path)):
             import tkinter.messagebox as mb
@@ -197,6 +237,10 @@ class MasterWriter(IExporter):
                 f"Закройте '{os.path.abspath(str(path))}' в Excel перед началом!",
             )
             return False
+
+        headers = None
+        if curator_config and "headers" in curator_config:
+            headers = curator_config["headers"]
 
         try:
             dbd = {}
@@ -208,18 +252,24 @@ class MasterWriter(IExporter):
                         f"TEMPORAL FALLBACK: Row from {r.get('Источник')} has no valid date. Using 01.01.1900."
                     )
                 dbd.setdefault(d, []).append(r)
-            self.master_path = str(path)
-            wb = self._get_workbook()
+            wb = self._get_workbook(path=str(path))
             for d_str, rows in sorted(dbd.items()):
                 try:
                     dt = datetime.strptime(d_str, "%d.%m.%Y")
                     sh_override = "UNKNOWN_DATE" if d_str == "01.01.1900" else None
-                    self.write_daily_data(dt, rows, wb=wb, sh_name_override=sh_override)
+                    self.write_daily_data(
+                        dt,
+                        rows,
+                        wb=wb,
+                        sh_name_override=sh_override,
+                        curator=curator,
+                        headers=headers,
+                    )
                 except Exception as e:
                     logger.error(f"Date error {d_str}: {e}")
             if "ОШИБКИ ШАБЛОНА" in wb.sheetnames:
                 del wb["ОШИБКИ ШАБЛОНА"]
-            self._save_workbook(wb)
+            self._save_workbook(wb, path=str(path))
             return True
         except Exception as e:
             logger.error(f"Write error: {e}")

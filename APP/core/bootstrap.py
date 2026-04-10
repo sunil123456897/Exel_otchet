@@ -45,6 +45,7 @@ class Bootstrap:
         cfg.setdefault("paths", {})
         cfg.setdefault("sh1", {})
         cfg.setdefault("logic", {})
+        cfg.setdefault("curators", {})
 
         # Helper to resolve relative paths
         def resolve_rel(p: Optional[str], default_filename: str = None) -> str:

@@ -41,3 +41,40 @@ sh1:
     percent_broker: '% посредника'
     total: итог
 sh2: {}
+curators:
+  boris:
+    enabled: true
+    output_path: output/boris_report.xlsx
+    intermediary2_rate: 0.05
+    employees_key: борис
+    headers:
+      - Дата
+      - Источник
+      - ЗАКАЗЧИК
+      - ИСПОЛНИТЕЛЬ
+      - Приход
+      - Расход
+      - Комиссия
+      - ИТОГ
+      - '% посредник 1'
+      - посредник 1(кэш)
+      - '% посредник 2'
+      - посредник 2
+      - Фильтры
+  ivan:
+    enabled: true
+    output_path: output/ivan_report.xlsx
+    intermediary1_rate: 0.05
+    intermediary2_rate: 0.05
+    employees_key: иван
+    headers:
+      - Заказчик (название проекта, наименование ЮЛ)
+      - Исполнитель (наименование ЮЛ, банк)
+      - Сумма платежа
+      - Комиссия
+      - Итог
+      - '%'
+      - Комиссия посредника 1
+      - '% посредник 2'
+      - Комиссия посредника 2
+      - Фильтр

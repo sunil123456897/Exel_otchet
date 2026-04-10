@@ -1,8 +1,12 @@
 """Тесты для ViewModels."""
+
 import pytest
 from datetime import datetime
 from unittest.mock import MagicMock
-from core.view_models.employee_list_viewmodel import EmployeeListViewModel, EmployeeStatus
+from core.view_models.employee_list_viewmodel import (
+    EmployeeListViewModel,
+    EmployeeStatus,
+)
 from core.view_models.consolidation_viewmodel import ConsolidationViewModel
 
 
@@ -111,9 +115,9 @@ class TestConsolidationViewModel:
         )
 
         mock_controller = MagicMock()
-        mock_controller.run_consolidation = lambda date, on_prog, on_comp: (
+        mock_controller.run_consolidation = lambda date, on_prog, on_comp, **kwargs: (
             on_prog(50.0),
-            on_comp(True, "Успешно!", "/path/master.xlsx")
+            on_comp(True, "Успешно!", "/path/master.xlsx"),
         )
 
         vm.run_consolidation(mock_controller, datetime(2026, 4, 1))
@@ -143,9 +147,11 @@ class TestConsolidationViewModel:
         )
 
         mock_controller = MagicMock()
-        mock_controller.run_consolidation_all_dates = lambda on_prog, on_comp: (
-            on_prog(75.0),
-            on_comp(True, "Готово!", "/path/master.xlsx")
+        mock_controller.run_consolidation_all_dates = (
+            lambda on_prog, on_comp, **kwargs: (
+                on_prog(75.0),
+                on_comp(True, "Готово!", "/path/master.xlsx"),
+            )
         )
 
         vm.run_consolidation_all_dates(mock_controller)
@@ -163,7 +169,7 @@ class TestConsolidationViewModel:
         )
 
         mock_controller = MagicMock()
-        mock_controller.run_consolidation = lambda date, on_prog, on_comp: (
+        mock_controller.run_consolidation = lambda date, on_prog, on_comp, **kwargs: (
             on_comp(False, "DB error", None)
         )
 

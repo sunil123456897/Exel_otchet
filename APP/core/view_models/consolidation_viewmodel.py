@@ -47,24 +47,31 @@ class ConsolidationViewModel:
         return missing_count == 0
 
     def run_consolidation(
-        self, app_controller=None, selected_date: datetime = None
+        self, app_controller=None, selected_date: datetime = None, curator=None
     ) -> None:
         ctl = app_controller or self._app_controller
-        self._execute(lambda p, c: ctl.run_consolidation(selected_date, p, c))
+        self._execute(
+            lambda p, c: ctl.run_consolidation(selected_date, p, c, curator=curator)
+        )
 
-    def run_consolidation_all_dates(self, app_controller=None) -> None:
+    def run_consolidation_all_dates(self, app_controller=None, curator=None) -> None:
         ctl = app_controller or self._app_controller
-        self._execute(lambda p, c: ctl.run_consolidation_all_dates(p, c))
+        self._execute(
+            lambda p, c: ctl.run_consolidation_all_dates(p, c, curator=curator)
+        )
 
     def run_consolidation_month(
         self,
         app_controller=None,
         start_date: datetime = None,
         end_date: datetime = None,
+        curator=None,
     ) -> None:
         ctl = app_controller or self._app_controller
         self._execute(
-            lambda p, c: ctl.run_consolidation_month(start_date, end_date, p, c)
+            lambda p, c: ctl.run_consolidation_month(
+                start_date, end_date, p, c, curator=curator
+            )
         )
 
     @property

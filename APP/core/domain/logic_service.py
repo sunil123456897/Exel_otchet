@@ -86,7 +86,7 @@ class LogicService(ILogicService):
         return s
 
     def apply_financial_rules(
-        self, raw_rows: List[Dict[str, Any]]
+        self, raw_rows: List[Dict[str, Any]], curator=None, curator_config=None
     ) -> List[Dict[str, Any]]:
         res = []
         for r in raw_rows:
@@ -146,6 +146,25 @@ class LogicService(ILogicService):
             except ValueError:
                 pb_val = pb_raw
 
+            pb2_val = Decimal("0.00")
+            broker2_calc = Decimal("0.00")
+            if curator == "boris" and curator_config:
+                rate2 = Decimal(str(curator_config.get("intermediary2_rate", 0.05)))
+                pb2_val = rate2
+                base = tot if tot != 0 else amt
+                broker2_calc = (base * rate2).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            elif curator == "ivan" and curator_config:
+                rate1 = Decimal(str(curator_config.get("intermediary1_rate", 0.05)))
+                rate2 = Decimal(str(curator_config.get("intermediary2_rate", 0.05)))
+                pb2_val = rate2
+                base = tot if tot != 0 else amt
+                pb_val = rate1
+                broker2_calc = (base * rate2).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+
             is_warn = r.get("is_template_warning", False)
             if is_warn:
                 logger.warning(f"Template warning: {r.get('_source_info')}")
@@ -166,6 +185,8 @@ class LogicService(ILogicService):
                     "% посредника": pb_val,
                     "посредник 1(кэш)": to_decimal(r.get("broker1")),
                     "посредник 2": to_decimal(r.get("broker2")),
+                    "% посредник 2": pb2_val,
+                    "Посредник 2 (сумма)": broker2_calc,
                     "фильтры": self._sanitize(r.get("filters", "")),
                     "is_critical": is_critical,
                     "is_template_warning": is_warn,
@@ -173,8 +194,11 @@ class LogicService(ILogicService):
             )
         return res
 
-    def consolidate(self, session_id: str) -> List[Dict[str, Any]]:
-        """Загрузить данные из БД и применить финансовые правила."""
+    def consolidate(
+        self, session_id: str, curator=None, curator_config=None
+    ) -> List[Dict[str, Any]]:
         return self.apply_financial_rules(
-            self.persistence.get_consolidated_data(session_id)
+            self.persistence.get_consolidated_data(session_id),
+            curator=curator,
+            curator_config=curator_config,
         )
