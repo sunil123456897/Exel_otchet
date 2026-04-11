@@ -75,13 +75,13 @@ class LogicService(ILogicService):
         self.ret_kw = l_cfg.get("return_keywords", ["возврат"])
         self.commission_is_percent = l_cfg.get("commission_is_percent", True)
 
-    _FORMULA_CHARS = frozenset(("=", "+", "-", "@", "\t", "\r", "\n"))
+    _SANITIZE_CHARS = frozenset(("=", "+", "-", "@", "\t", "\r", "\n"))
 
     def _sanitize(self, val: Any) -> str:
         s = str(val) if val is not None else ""
         s_stripped = s.strip()
         if s_stripped and (
-            s_stripped[0] in self._FORMULA_CHARS
+            s_stripped[0] in self._SANITIZE_CHARS
             or any(c in s_stripped for c in ("\t", "\r", "\n"))
         ):
             return "'" + s

@@ -144,8 +144,9 @@ class EmployeeListViewModel:
 
     @property
     def employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Return a shallow copy of the employees map for thread safety."""
         with self._lock:
-            return dict(self._employees_map)
+            return self._employees_map.copy()
 
     def get_selected_employee_path(self, selected_name: Optional[str]) -> Optional[str]:
         """Получить путь выбранного сотрудника."""
