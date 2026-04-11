@@ -47,6 +47,7 @@ curators:
     output_path: output/boris_report.xlsx
     intermediary2_rate: 0.05
     employees_key: борис
+    direct_paths: []
     headers:
       - Дата
       - Источник
@@ -67,6 +68,7 @@ curators:
     intermediary1_rate: 0.05
     intermediary2_rate: 0.05
     employees_key: иван
+    direct_paths: []
     headers:
       - Заказчик (название проекта, наименование ЮЛ)
       - Исполнитель (наименование ЮЛ, банк)

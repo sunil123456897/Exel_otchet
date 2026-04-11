@@ -142,9 +142,25 @@ class DiscoveryService:
 
         if curator:
             cfg = self.config_controller.config
-            emp_key = (
-                cfg.get("curators", {}).get(curator, {}).get("employees_key", curator)
-            )
+            curator_cfg = cfg.get("curators", {}).get(curator, {})
+
+            # If direct_paths is specified and non-empty, use those directly
+            direct_paths = curator_cfg.get("direct_paths", [])
+            if direct_paths:
+                direct_map: Dict[str, List[Dict[str, Any]]] = {}
+                for dp in direct_paths:
+                    p = Path(dp)
+                    if p.exists():
+                        name = p.stem
+                        direct_map.setdefault(name, []).append({"path": str(p)})
+                    else:
+                        logging.warning(
+                            "[CURATOR] direct_path не найден: %s", dp
+                        )
+                return direct_map
+
+            # Fallback: use employees_key based filtering
+            emp_key = curator_cfg.get("employees_key", curator)
             curator_emps = self.config_controller.employees.get(emp_key, [])
             if isinstance(curator_emps, list):
                 curator_names = set()
