@@ -341,7 +341,7 @@ class TestRunConsolidation:
             )
             run_thread_task(mock_thread)
 
-        on_complete.assert_called_with(False, "Ошибка записи", None)
+        on_complete.assert_called_with(False, "Ошибка записи основного отчёта", None)
 
     def test_relative_master_path_resolved(self, app_controller, mock_deps):
         """Относительный путь к мастер-файлу должен быть разрешён."""
@@ -744,7 +744,7 @@ class TestRunConsolidationMonth:
             )
             run_thread_task(mock_thread)
 
-        on_complete.assert_called_with(False, "Ошибка записи", None)
+        on_complete.assert_called_with(False, "Ошибка записи основного отчёта", None)
 
     def test_cross_month_range(self, app_controller, mock_deps):
         """Диапазон может пересекать месяцы (например, 15 марта — 15 апреля)."""

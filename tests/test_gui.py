@@ -49,6 +49,7 @@ def test_run_consolidation(gui_app, mocker):
         EmployeeStatus("Alice", "🟢 ГОТОВО", "alice.xlsx", "ready")
     ]
     gui_app.sidebar.get_date.return_value = MagicMock()
+    gui_app.sidebar.get_selected_curators.return_value = []
     mocker.patch("tkinter.messagebox.askyesno", return_value=True)
     gui_app.run_consolidation()
     gui_app.app_controller.run_consolidation.assert_called_once()
@@ -64,7 +65,9 @@ def test_run_consolidation_cancel(gui_app, mocker):
     gui_app.app_controller.run_consolidation.assert_not_called()
 
 
-def test_run_consolidation_all_dates(gui_app):
+def test_run_consolidation_all_dates(gui_app, mocker):
+    gui_app.sidebar.get_selected_curators.return_value = []
+    mocker.patch("tkinter.messagebox.askyesno", return_value=True)
     gui_app.run_consolidation_all_dates()
     gui_app.app_controller.run_consolidation_all_dates.assert_called_once()
 
