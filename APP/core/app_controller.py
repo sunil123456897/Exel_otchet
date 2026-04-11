@@ -270,6 +270,8 @@ class AppController:
                 ):
                     if start_date_str and end_date_str:
                         msg = f"Готово! ({start_date_str} — {end_date_str})"
+                    elif session_type == "all_dates":
+                        msg = "Готово!"
                     else:
                         msg = "Успешно!"
                     on_complete(True, msg, master_path)

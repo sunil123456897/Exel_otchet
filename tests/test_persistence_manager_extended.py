@@ -168,7 +168,7 @@ class TestGetConnection:
 
             # Проверить synchronous
             sync = conn.execute("PRAGMA synchronous").fetchone()[0]
-            assert sync == 0  # OFF
+            assert sync == 1  # NORMAL
 
             # Проверить temp_store
             temp = conn.execute("PRAGMA temp_store").fetchone()[0]
