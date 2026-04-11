@@ -59,7 +59,7 @@ class IngestionEngine(IDataSource):
             if temp_file and os.path.exists(temp_file):
                 try:
                     os.remove(temp_file)
-                except:
+                except OSError:
                     pass
         return sorted(list(dates))
 

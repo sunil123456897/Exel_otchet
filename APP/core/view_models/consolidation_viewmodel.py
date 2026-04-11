@@ -1,5 +1,6 @@
 """Consolidation ViewModel — состояние и логика консолидации."""
 
+import threading
 from typing import Callable, Optional
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ logger = logging.getLogger(__name__)
 class ConsolidationViewModel:
     def __init__(self, app_controller=None) -> None:
         self._app_controller = app_controller
+        self._lock = threading.Lock()
         self._is_running = False
         self._progress = 0.0
         self._on_progress: Optional[Callable[[float], None]] = None
@@ -25,19 +27,22 @@ class ConsolidationViewModel:
         self._on_complete = on_complete
 
     def _execute(self, action_fn) -> None:
-        if self._is_running:
-            return
-        self._is_running = True
-        self._progress = 0.0
+        with self._lock:
+            if self._is_running:
+                return
+            self._is_running = True
+            self._progress = 0.0
 
         def on_progress(p: float) -> None:
-            self._progress = p
+            with self._lock:
+                self._progress = p
             if self._on_progress:
                 self._on_progress(p)
 
         def on_complete(ok: bool, msg: str, path: Optional[Path]) -> None:
-            self._is_running = False
-            self._progress = 100.0 if ok else self._progress
+            with self._lock:
+                self._is_running = False
+                self._progress = 100.0 if ok else self._progress
             if self._on_complete:
                 self._on_complete(ok, msg, path)
 
@@ -76,11 +81,13 @@ class ConsolidationViewModel:
 
     @property
     def is_running(self) -> bool:
-        return self._is_running
+        with self._lock:
+            return self._is_running
 
     @property
     def progress(self) -> float:
-        return self._progress
+        with self._lock:
+            return self._progress
 
     def get_button_state(self) -> str:
         return "disabled" if self._is_running else "normal"

@@ -68,6 +68,12 @@ class FinancialRowSchema(BaseModel):
                 if v and str(v).strip():
                     return v
                 return Decimal("0.00")
+            # Sanitize: remove extra dots/minus signs to avoid invalid Decimal
+            parts = s_clean.split(".")
+            if len(parts) > 2:
+                s_clean = parts[0] + "." + "".join(parts[1:])
+            if s_clean.count("-") > 1:
+                s_clean = ("-" if s_clean.startswith("-") else "") + s_clean.replace("-", "")
             return Decimal(s_clean)
         except (ValueError, TypeError, ArithmeticError):
             return v if v and str(v).strip() else Decimal("0.00")

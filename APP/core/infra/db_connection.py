@@ -37,7 +37,12 @@ class SQLiteConnectionManager:
 
         sqlite3.register_adapter(decimal.Decimal, str)
         sqlite3.register_converter(
-            "NUMERIC", lambda v: decimal.Decimal(v.decode("utf-8"))
+            "NUMERIC",
+            lambda v: (
+                decimal.Decimal(v.decode("utf-8"))
+                if v and v.strip()
+                else decimal.Decimal("0")
+            ),
         )
 
     def get_connection(self) -> sqlite3.Connection:

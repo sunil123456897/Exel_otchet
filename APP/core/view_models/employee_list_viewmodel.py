@@ -1,5 +1,6 @@
 """Employee List ViewModel — состояние и логика списка сотрудников."""
 
+import threading
 from typing import List, Dict, Any, Callable, Optional
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +34,7 @@ class EmployeeListViewModel:
     """
 
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self._all_employees: List[EmployeeStatus] = []
         self._employees_map: Dict[str, List[Dict[str, Any]]] = {}
         self._search_query: str = ""
@@ -57,12 +59,13 @@ class EmployeeListViewModel:
         def on_complete(
             data: List[tuple], employees_map: Dict, rename_detected: bool
         ) -> None:
-            self._all_employees = [
-                EmployeeStatus(name=n, status_text=s, path_text=p, tag=t)
-                for n, s, p, t in data
-            ]
-            self._employees_map = employees_map
-            self._rename_detected = rename_detected
+            with self._lock:
+                self._all_employees = [
+                    EmployeeStatus(name=n, status_text=s, path_text=p, tag=t)
+                    for n, s, p, t in data
+                ]
+                self._employees_map = employees_map
+                self._rename_detected = rename_detected
 
             if rename_detected:
                 app_controller.config_controller.save_config()
@@ -105,12 +108,14 @@ class EmployeeListViewModel:
 
     def get_filtered_employees(self) -> List[EmployeeStatus]:
         """Получить отфильтрованный список по поисковому запросу."""
+        with self._lock:
+            employees = list(self._all_employees)
         if not self._search_query:
-            return self._all_employees
+            return employees
 
         return [
             emp
-            for emp in self._all_employees
+            for emp in employees
             if any(
                 self._search_query in x.lower()
                 for x in (emp.name, emp.status_text, emp.path_text)
@@ -119,29 +124,35 @@ class EmployeeListViewModel:
 
     def get_ready_count(self) -> int:
         """Количество готовых сотрудников."""
-        return sum(1 for e in self._all_employees if "🟢 ГОТОВО" in e.status_text)
+        with self._lock:
+            return sum(1 for e in self._all_employees if "🟢 ГОТОВО" in e.status_text)
 
     def get_total_count(self) -> int:
         """Общее количество."""
-        return len(self._all_employees)
+        with self._lock:
+            return len(self._all_employees)
 
     def get_missing_names(self) -> List[str]:
         """Имена должников."""
-        return [e.name for e in self._all_employees if "🟢 ГОТОВО" not in e.status_text]
+        with self._lock:
+            return [e.name for e in self._all_employees if "🟢 ГОТОВО" not in e.status_text]
 
     @property
     def rename_detected(self) -> bool:
-        return self._rename_detected
+        with self._lock:
+            return self._rename_detected
 
     @property
     def employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
-        return self._employees_map
+        with self._lock:
+            return dict(self._employees_map)
 
     def get_selected_employee_path(self, selected_name: Optional[str]) -> Optional[str]:
         """Получить путь выбранного сотрудника."""
         if not selected_name:
             return None
-        metas = self._employees_map.get(selected_name, [])
+        with self._lock:
+            metas = self._employees_map.get(selected_name, [])
         if not metas:
             return None
         meta = metas[0]

@@ -12,12 +12,19 @@ class TextHandler(logging.Handler):
     def __init__(self, text_widget):
         super().__init__()
         self.text_widget = text_widget
-        self.msg_queue = queue.Queue()
+        self.msg_queue = queue.Queue(maxsize=10000)
         self._is_scheduled = False
 
     def emit(self, record):
         msg = self.format(record)
-        self.msg_queue.put(msg)
+        try:
+            self.msg_queue.put_nowait(msg)
+        except queue.Full:
+            try:
+                self.msg_queue.get_nowait()
+                self.msg_queue.put_nowait(msg)
+            except queue.Empty:
+                pass
         if not self._is_scheduled:
             self._is_scheduled = True
             self.text_widget.after_idle(self._process_queue)
@@ -36,7 +43,6 @@ class TextHandler(logging.Handler):
             self.text_widget.yview(tk.END)
         finally:
             self._is_scheduled = False
-            # Fix 9: Avoid UI freeze during burst by processing in chunks
             if not self.msg_queue.empty():
                 self._is_scheduled = True
                 self.text_widget.after(100, self._process_queue)
@@ -45,8 +51,10 @@ def setup_gui_logging(log_widget):
     handler = TextHandler(log_widget)
     handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s', datefmt='%H:%M:%S'))
     root = logging.getLogger()
+    # Prevent duplicate handlers
+    for h in root.handlers[:]:
+        if isinstance(h, TextHandler):
+            root.removeHandler(h)
     root.addHandler(handler)
     root.setLevel(logging.INFO)
     return handler
-
-

@@ -118,7 +118,7 @@ class TestSetupGuiLogging:
         assert isinstance(handler, TextHandler)
 
     def test_multiple_calls_add_multiple_handlers(self):
-        """Несколько вызовов — несколько хендлеров (не перезаписывает)."""
+        """Несколько вызовов — заменяет предыдущий TextHandler (предотвращает дубликаты)."""
         import tkinter as tk
         mock_widget1 = MagicMock()
         mock_widget2 = MagicMock()
@@ -127,5 +127,6 @@ class TestSetupGuiLogging:
         h2 = setup_gui_logging(mock_widget2)
 
         root = logging.getLogger()
-        assert h1 in root.handlers
+        # h1 should be replaced by h2 — only latest TextHandler remains
+        assert h1 not in root.handlers
         assert h2 in root.handlers

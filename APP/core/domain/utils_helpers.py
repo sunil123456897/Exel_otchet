@@ -78,5 +78,5 @@ def to_decimal_percent(val: Any) -> Any:
         if "%" in raw and res > 1:
             res = res / Decimal("100")
         return res
-    except:
+    except (ValueError, TypeError, ArithmeticError):
         return val
