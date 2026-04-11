@@ -183,5 +183,3 @@ class Sidebar(ttk.Frame):
 
     def set_consolidate_month_state(self, state):
         self.consolidate_month_btn.config(state=state)
-
-    
