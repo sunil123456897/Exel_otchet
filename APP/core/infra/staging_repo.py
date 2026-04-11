@@ -11,6 +11,8 @@ from core.infra.db_connection import SQLiteConnectionManager, sanitize_data
 
 
 class DBWriterThread(threading.Thread):
+    """Background thread that batches staging data writes to SQLite."""
+
     BATCH_SIZE = 10
     BATCH_TIMEOUT = 0.5
 
@@ -25,13 +27,23 @@ class DBWriterThread(threading.Thread):
         while self.running or not self.q.empty():
             batch = []
             try:
-                item = self.q.get(timeout=0.1)
+                item = self.q.get(timeout=self.BATCH_TIMEOUT)
                 if item is None:
+                    self.q.task_done()
                     break
                 batch.append(item)
                 while len(batch) < self.BATCH_SIZE:
                     try:
-                        batch.append(self.q.get_nowait())
+                        next_item = self.q.get_nowait()
+                        if next_item is None:
+                            self.q.task_done()
+                            # Process remaining batch before exiting
+                            if batch:
+                                self._process_batch(batch)
+                                for _ in batch:
+                                    self.q.task_done()
+                            return
+                        batch.append(next_item)
                     except queue.Empty:
                         break
                 self._process_batch(batch)
@@ -41,6 +53,12 @@ class DBWriterThread(threading.Thread):
                 continue
             except Exception as e:
                 self.logger.error(f"Error in DBWriterThread: {e}", exc_info=True)
+                # Mark batch items as done to avoid blocking join()
+                for _ in batch:
+                    try:
+                        self.q.task_done()
+                    except ValueError:
+                        pass
 
     def _process_batch(self, batch):
         sql = "INSERT INTO staging_data (file_id, row_index, raw_content_json, date_val, amount, employee_name, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)"

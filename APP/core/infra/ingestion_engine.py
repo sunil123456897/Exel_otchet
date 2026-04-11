@@ -3,6 +3,7 @@ import hashlib
 import logging
 import tempfile
 import shutil
+import time
 from pathlib import Path
 from typing import List, Dict, Any
 from python_calamine import CalamineWorkbook
@@ -12,6 +13,9 @@ from core.infra.utils import get_local_copy
 from core.infra.ingestion_reader import CalamineReader, extract_date_from_sheet
 
 logger = logging.getLogger(__name__)
+
+_FILE_READ_RETRIES = 3
+_FILE_READ_BACKOFF = 1.0
 
 
 class IngestionEngine(IDataSource):
@@ -91,6 +95,21 @@ class IngestionEngine(IDataSource):
         return res
 
     def read_file(self, file_path: Path) -> List[Dict[str, Any]]:
+        """Read Excel file with retry logic for transient network errors."""
         if not file_path.exists():
             return []
-        return self.reader.read(file_path)
+        last_err = None
+        for attempt in range(_FILE_READ_RETRIES):
+            try:
+                return self.reader.read(file_path)
+            except (OSError, IOError, PermissionError) as e:
+                last_err = e
+                logger.warning(
+                    f"File read retry {attempt + 1}/{_FILE_READ_RETRIES} for "
+                    f"{file_path}: {e}"
+                )
+                time.sleep(min(60, _FILE_READ_BACKOFF * (2 ** attempt)))
+            except Exception:
+                raise
+        logger.error(f"Failed to read {file_path} after {_FILE_READ_RETRIES} retries: {last_err}")
+        return []

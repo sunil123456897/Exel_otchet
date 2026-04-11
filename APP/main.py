@@ -1,6 +1,7 @@
 import sys
 import tkinter as tk
 import logging
+import logging.handlers
 from pathlib import Path
 
 app_root = Path(__file__).parent.absolute()
@@ -12,11 +13,17 @@ from core.ui.gui_master import GuiMaster
 
 
 def main():
+    log_file = app_root / "startup_log.txt"
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler(app_root / "startup_log.txt", encoding="utf-8"),
+            logging.handlers.RotatingFileHandler(
+                log_file,
+                encoding="utf-8",
+                maxBytes=10 * 1024 * 1024,  # 10 MB
+                backupCount=5,
+            ),
             logging.StreamHandler(),
         ],
     )

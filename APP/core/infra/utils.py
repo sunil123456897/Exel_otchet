@@ -32,6 +32,13 @@ _CACHE_DIR = Path(tempfile.gettempdir()) / "master_report_cache"
 
 
 def get_local_copy(network_path: str, drive_letters: tuple = ("Q", "Z")) -> tuple:
+    """Get a local cached copy of a network file.
+
+    Cache is invalidated when mtime or size changes on the remote file.
+    Returns (local_path, temp_file_to_cleanup_or_None).
+    """
+    if not network_path:
+        return network_path, None
     is_network = (
         network_path.startswith("\\\\") or network_path[0].upper() in drive_letters
     )
@@ -50,7 +57,16 @@ def get_local_copy(network_path: str, drive_letters: tuple = ("Q", "Z")) -> tupl
     local_path = _CACHE_DIR / f"{key}{suffix}"
 
     if local_path.exists():
-        return str(local_path), None
+        # Validate cached copy against current remote metadata
+        try:
+            cached_stat = os.stat(local_path)
+            if cached_stat.st_size != stat.st_size or cached_stat.st_mtime < stat.st_mtime:
+                # Size or mtime mismatch — stale cache, remove it
+                os.remove(local_path)
+            else:
+                return str(local_path), None
+        except OSError:
+            pass
 
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     try:

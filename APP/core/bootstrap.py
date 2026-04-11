@@ -1,15 +1,81 @@
 """Bootstrap — Composition Root для Dependency Injection."""
 
 import logging
+import logging.handlers
 import importlib.util
 from pathlib import Path
-from typing import Tuple, Optional, Dict, Any
+from typing import Tuple, Optional, Dict, Any, List
+
+from pydantic import BaseModel, field_validator
 
 from core.infra import ConfigController, MasterWriter
 from core.infra.ingestion_engine import IngestionEngine
 from core.infra.session_repo import SessionRepository as SQLiteManager
 from core.domain import LogicService, Validator
 from core.app_controller import AppController
+
+
+# ── Item 8: Pydantic config validation ──────────────────────
+
+class PathsConfig(BaseModel):
+    """Validates the 'paths' section of config."""
+    master_file: str = "Master_Report.xlsx"
+    source_root: str = "REPORTS"
+    source_roots: Optional[List[str]] = None
+
+class DatabaseConfig(BaseModel):
+    """Validates the 'database' section."""
+    path: str = "cache.db"
+    schema_path: str = "db_schema.sql"
+    timeout: float = 30.0
+
+class LockingConfig(BaseModel):
+    """Validates the 'locking' section."""
+    retry_count: int = 3
+    retry_backoff: float = 1.0
+
+class NetworkConfig(BaseModel):
+    """Validates the 'network' section."""
+    drive_letters: List[str] = ["Q", "Z"]
+
+class AppConfig(BaseModel):
+    """Top-level config model with safe defaults."""
+    paths: PathsConfig = PathsConfig()
+    database: DatabaseConfig = DatabaseConfig()
+    locking: LockingConfig = LockingConfig()
+    network: NetworkConfig = NetworkConfig()
+    sh1: Dict[str, Any] = {}
+    logic: Dict[str, Any] = {}
+    curators: Dict[str, Any] = {}
+    validation: Dict[str, Any] = {}
+
+    model_config = {"extra": "allow"}
+
+
+# ── Item 10: Path traversal protection ──────────────────────
+
+def _validate_path_safety(resolved: Path, app_root: Path) -> Path:
+    """Ensure resolved path does not escape the app_root via traversal.
+
+    Returns the resolved path, or raises ValueError if traversal detected.
+    """
+    try:
+        resolved_abs = resolved.resolve()
+        app_root_abs = app_root.resolve()
+        # Allow paths inside app_root or on the same drive (Windows network paths)
+        if str(resolved_abs).startswith(str(app_root_abs)):
+            return resolved_abs
+        # For absolute paths on other drives (Q:, Z:, UNC) we allow them
+        if resolved.is_absolute():
+            return resolved_abs
+        # Relative paths must stay inside app_root
+        raise ValueError(
+            f"Path traversal detected: '{resolved}' escapes app root '{app_root}'"
+        )
+    except (OSError, ValueError) as e:
+        if isinstance(e, ValueError):
+            raise
+        return resolved
 
 
 class Bootstrap:
@@ -35,12 +101,20 @@ class Bootstrap:
             return None, None, None
 
         cfg_ctl = ConfigController(config_path)
-        cfg = cfg_ctl.config
+        raw_cfg = cfg_ctl.config
 
-        # Fix 10: Config Validation - Changed to safe defaults instead of raising ValueError
-        if not isinstance(cfg, dict):
-            cfg_ctl.config = {}
-            cfg = cfg_ctl.config
+        # Item 8: Validate config via Pydantic (safe defaults on invalid input)
+        if not isinstance(raw_cfg, dict):
+            logging.warning("Config is not a dict — using safe defaults.")
+            raw_cfg = {}
+        try:
+            AppConfig(**raw_cfg)
+            cfg = raw_cfg  # Keep original dict for backward compat
+        except Exception as e:
+            logging.warning(f"Config validation warning: {e}. Using safe defaults.")
+            cfg = {}
+
+        cfg_ctl.config = cfg
 
         cfg.setdefault("paths", {})
         cfg.setdefault("sh1", {})
@@ -55,8 +129,12 @@ class Bootstrap:
                 return ""
             path = Path(p)
             if not path.is_absolute():
-                return str(app_root / path)
-            return p
+                resolved = app_root / path
+            else:
+                resolved = path
+            # Item 10: Validate path traversal
+            _validate_path_safety(resolved, app_root)
+            return str(resolved)
 
         # Resolve essential paths
         db_cfg = cfg.setdefault("database", {})
