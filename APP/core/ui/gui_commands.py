@@ -38,22 +38,6 @@ class GuiCommands:
             self._on_consolidation_progress,
         )
 
-    def _get_curator_display_names(self, curators):
-        """Map curator keys to display names for UI."""
-        mapping = {"boris": "Борис", "ivan": "Иван"}
-        return [mapping.get(c, c) for c in curators]
-
-    def _build_confirmation_message(self, selected_curators, suffix=""):
-        """Build a confirmation dialog message listing what will be built."""
-        parts = ["основной отчет"]
-        if selected_curators:
-            names = self._get_curator_display_names(selected_curators)
-            parts.append("дополнительные отчёты для: " + ", ".join(names))
-        msg = "Собрать " + " и ".join(parts)
-        if suffix:
-            msg += " " + suffix
-        return msg + "?"
-
     def run_consolidation(self):
         from core.view_models.consolidation_viewmodel import ConsolidationViewModel
         from core.ui.ui_dialogs import ask_employee_name
@@ -64,29 +48,22 @@ class GuiCommands:
             if not messagebox.askyesno("Предупреждение", msg):
                 return
 
-        selected_curators = self.sidebar.get_selected_curators()
-
-        confirm_msg = self._build_confirmation_message(selected_curators)
-        if not messagebox.askyesno("Подтверждение сборки", confirm_msg):
+        if not messagebox.askyesno("Подтверждение сборки", "Собрать основной отчет?"):
             return
 
         self.sidebar.set_consolidate_state("disabled")
         self.consolidation_vm.run_consolidation(
             self.app_controller,
             self.sidebar.get_date(),
-            selected_curators=selected_curators,
         )
 
     def run_consolidation_all_dates(self):
-        selected_curators = self.sidebar.get_selected_curators()
-
-        confirm_msg = self._build_confirmation_message(selected_curators, "(все даты)")
-        if not messagebox.askyesno("Подтверждение сборки", confirm_msg):
+        if not messagebox.askyesno("Подтверждение сборки", "Собрать основной отчет (все даты)?"):
             return
 
         self.sidebar.set_consolidate_all_state("disabled")
         self.consolidation_vm.run_consolidation_all_dates(
-            self.app_controller, selected_curators=selected_curators
+            self.app_controller,
         )
 
     def run_consolidation_month(self):
@@ -97,16 +74,12 @@ class GuiCommands:
             )
             return
 
-        selected_curators = self.sidebar.get_selected_curators()
-
-        confirm_msg = self._build_confirmation_message(selected_curators)
-        if not messagebox.askyesno("Подтверждение сборки", confirm_msg):
+        if not messagebox.askyesno("Подтверждение сборки", "Собрать основной отчет?"):
             return
 
         self.sidebar.set_consolidate_month_state("disabled")
         self.consolidation_vm.run_consolidation_month(
             self.app_controller, start_date, end_date,
-            selected_curators=selected_curators,
         )
 
     def add_employee_dialog(self):

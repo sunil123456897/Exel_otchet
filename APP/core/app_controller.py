@@ -3,7 +3,6 @@ import logging
 import os
 import threading
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 
@@ -11,10 +10,6 @@ from core.infra import DiscoveryService
 from core.app.file_processor import check_master_lock, run_engine, get_master_path
 
 _ADAPTIVE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
-
-# Progress allocation: Main report gets first half, curator reports get second half
-_MAIN_PROGRESS_PCT = 50
-_CURATOR_PROGRESS_PCT = 50
 
 
 class AppController:
@@ -39,29 +34,18 @@ class AppController:
         self.discovery = DiscoveryService(config_controller, ingestion)
         self._lock = threading.Lock()
         self._cached_employees = {}
-        self._curator = None
         self._active_threads: List[threading.Thread] = []
 
     @property
     def rename_detected(self):
         return self.discovery.rename_detected
 
-    def _get_employees_map(self, curator=None) -> Dict[str, List[Dict[str, Any]]]:
+    def _get_employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
         """Discover and return employee-to-file mapping."""
-        return self.discovery.get_employees_map(curator=curator)
+        return self.discovery.get_employees_map()
 
-    def _get_curator_config(self, curator=None) -> Optional[Dict[str, Any]]:
-        """Return curator-specific config section, or None."""
-        if not curator:
-            return None
-        return self.config_controller.config.get("curators", {}).get(curator)
-
-    def _resolve_master_path(self, curator=None, curator_config=None) -> Path:
+    def _resolve_master_path(self) -> Path:
         """Resolve the output master report path."""
-        if curator and curator_config:
-            out = curator_config.get("output_path")
-            if out:
-                return self.config_controller.resolve_path(out)
         return get_master_path(self.config_controller)
 
     def _start_thread(self, target: Callable) -> None:
@@ -79,7 +63,6 @@ class AppController:
         selected_date,
         on_progress: Callable[[float], None],
         on_complete: Callable[[List[tuple], Dict, bool], None],
-        curator=None,
     ):
         """Refresh employee file status for the selected date."""
         if not check_master_lock(self.config_controller):
@@ -87,13 +70,10 @@ class AppController:
             logging.error("Master file is locked. Please close it in Excel.")
             return
 
-        with self._lock:
-            self._curator = curator
-
         def task():
             try:
                 logging.info("[NET] Начинаю поиск файлов в сети...")
-                employees_map = self._get_employees_map(curator=curator)
+                employees_map = self._get_employees_map()
                 unique_names = sorted(employees_map.keys())
                 if not unique_names:
                     on_complete([], {}, False)
@@ -171,7 +151,6 @@ class AppController:
         self,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
-        selected_curators: Optional[List[str]] = None,
         target_date_str: Optional[str] = None,
         start_date_str: Optional[str] = None,
         end_date_str: Optional[str] = None,
@@ -180,13 +159,11 @@ class AppController:
     ):
         """Core consolidation logic shared by all consolidation entry points.
 
-        Always builds the Main report first, then builds each selected curator
-        report in sequence.
+        Builds one Master report for all employees.
 
         Args:
             on_progress: Progress callback (0-100).
             on_complete: Completion callback (ok, message, path).
-            selected_curators: List of curator keys (e.g. ['boris', 'ivan']).
             target_date_str: Single date filter (dd.mm.YYYY) or None.
             start_date_str: Range start (dd.mm.YYYY) or None.
             end_date_str: Range end (dd.mm.YYYY) or None.
@@ -198,8 +175,6 @@ class AppController:
                 False, "Мастер-файл занят в Excel! Закройте его и повторите.", None
             )
             return
-
-        curators = selected_curators or []
 
         def task():
             session_id = str(uuid.uuid4())
@@ -213,9 +188,9 @@ class AppController:
                     meta["end_date"] = end_date_str
                 self.persistence.save_session(session_id, meta)
 
-                # ── Step 1: Build Main report ──
+                # Discover employees
                 if use_fresh_employees:
-                    employees_map = self._get_employees_map(curator=None)
+                    employees_map = self._get_employees_map()
                     with self._lock:
                         self._cached_employees = employees_map
                 else:
@@ -226,7 +201,7 @@ class AppController:
                             else None
                         )
                     if not employees_map:
-                        employees_map = self._get_employees_map(curator=None)
+                        employees_map = self._get_employees_map()
                         with self._lock:
                             if not self._cached_employees:
                                 self._cached_employees = employees_map
@@ -249,11 +224,9 @@ class AppController:
                     on_complete(False, "Нет файлов", None)
                     return
 
-                consolidated_data = self.logic_service.consolidate(
-                    session_id, curator=None, curator_config=None
-                )
+                consolidated_data = self.logic_service.consolidate(session_id)
                 errors = self.persistence.get_template_errors(session_id)
-                on_progress(_MAIN_PROGRESS_PCT)
+
                 if not consolidated_data:
                     if start_date_str and end_date_str:
                         on_complete(
@@ -267,7 +240,7 @@ class AppController:
                         on_complete(False, "Нет данных", None)
                     return
 
-                master_path = self._resolve_master_path(curator=None, curator_config=None)
+                master_path = self._resolve_master_path()
                 write_kwargs: Dict[str, Any] = {}
                 if errors:
                     write_kwargs["template_errors"] = errors
@@ -279,61 +252,7 @@ class AppController:
                     return
 
                 logging.info("[MAIN] Основной отчёт собран: %s", master_path)
-
-                # ── Step 2: Build curator reports ──
-                total_curators = len(curators)
-                for idx, curator_key in enumerate(curators):
-                    curator_config = self._get_curator_config(curator_key)
-                    if not curator_config:
-                        logging.warning(
-                            "[CURATOR] Нет конфига для куратора '%s', пропускаю.",
-                            curator_key,
-                        )
-                        continue
-
-                    curator_data = self.logic_service.consolidate(
-                        session_id,
-                        curator=curator_key,
-                        curator_config=curator_config,
-                    )
-                    if not curator_data:
-                        logging.warning(
-                            "[CURATOR] Нет данных для куратора '%s'.", curator_key
-                        )
-                        continue
-
-                    curator_path = self._resolve_master_path(
-                        curator_key, curator_config
-                    )
-                    c_kwargs: Dict[str, Any] = {
-                        "curator": curator_key,
-                        "curator_config": curator_config,
-                    }
-                    if errors:
-                        c_kwargs["template_errors"] = errors
-
-                    if not self.writer.write_report(
-                        curator_data, curator_path, **c_kwargs
-                    ):
-                        logging.error(
-                            "[CURATOR] Ошибка записи отчёта куратора '%s'.",
-                            curator_key,
-                        )
-                        continue
-
-                    logging.info(
-                        "[CURATOR] Отчёт куратора '%s' собран: %s",
-                        curator_key,
-                        curator_path,
-                    )
-                    # Update progress for each curator
-                    progress_pct = _MAIN_PROGRESS_PCT + (
-                        (idx + 1) / max(total_curators, 1)
-                    ) * _CURATOR_PROGRESS_PCT
-                    on_progress(progress_pct)
-
-                if not curators:
-                    on_progress(100)
+                on_progress(100)
 
                 if start_date_str and end_date_str:
                     msg = f"Готово! ({start_date_str} — {end_date_str})"
@@ -348,28 +267,16 @@ class AppController:
 
         self._start_thread(task)
 
-    @staticmethod
-    def _normalize_curators(selected_curators, curator):
-        """Convert legacy single curator kwarg to list format."""
-        if selected_curators is not None:
-            return selected_curators
-        if curator is not None:
-            return [curator]
-        return None
-
     def run_consolidation(
         self,
         selected_date,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
-        selected_curators: Optional[List[str]] = None,
-        curator=None,
     ):
         """Run consolidation for a single selected date."""
         self._run_consolidation_core(
             on_progress,
             on_complete,
-            selected_curators=self._normalize_curators(selected_curators, curator),
             target_date_str=selected_date.strftime("%d.%m.%Y"),
             session_type="daily",
         )
@@ -378,14 +285,11 @@ class AppController:
         self,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
-        selected_curators: Optional[List[str]] = None,
-        curator=None,
     ):
         """Run consolidation for all available dates."""
         self._run_consolidation_core(
             on_progress,
             on_complete,
-            selected_curators=self._normalize_curators(selected_curators, curator),
             session_type="all_dates",
             use_fresh_employees=True,
         )
@@ -396,14 +300,11 @@ class AppController:
         end_date,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
-        selected_curators: Optional[List[str]] = None,
-        curator=None,
     ):
         """Run consolidation for a date range (monthly)."""
         self._run_consolidation_core(
             on_progress,
             on_complete,
-            selected_curators=self._normalize_curators(selected_curators, curator),
             start_date_str=start_date.strftime("%d.%m.%Y"),
             end_date_str=end_date.strftime("%d.%m.%Y"),
             session_type="monthly",

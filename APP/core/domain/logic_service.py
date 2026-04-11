@@ -290,9 +290,11 @@ class LogicService(ILogicService):
     def consolidate(
         self, session_id: str, curator=None, curator_config=None
     ) -> List[Dict[str, Any]]:
-        """Perform SQL-based aggregation for the final report."""
+        """Perform SQL-based aggregation for the final report.
+
+        The curator/curator_config parameters are kept for backward
+        compatibility but are not used in the standard single-report flow.
+        """
         return self.apply_financial_rules(
             self.persistence.get_consolidated_data(session_id),
-            curator=curator,
-            curator_config=curator_config,
         )

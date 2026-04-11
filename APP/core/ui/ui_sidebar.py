@@ -49,18 +49,6 @@ class Sidebar(ttk.Frame):
         )
         self.refresh_btn.pack(fill=tk.X)
 
-        # Curator Selection (multi-target checkboxes)
-        curator_frame = ttk.LabelFrame(self, text="📋 КУРАТОРЫ", padding=10)
-        curator_frame.pack(fill=tk.X, pady=(0, 10))
-
-        self.curator_vars = {}
-        curator_options = [("boris", "Борис"), ("ivan", "Иван")]
-        for key, label in curator_options:
-            var = tk.BooleanVar(value=False)
-            cb = ttk.Checkbutton(curator_frame, text=label, variable=var)
-            cb.pack(anchor=tk.W, pady=2)
-            self.curator_vars[key] = var
-
         # Employee Management
         emp_frame = ttk.LabelFrame(self, text="👤 СОТРУДНИКИ", padding=10)
         emp_frame.pack(fill=tk.X, pady=(0, 10))
@@ -196,6 +184,4 @@ class Sidebar(ttk.Frame):
     def set_consolidate_month_state(self, state):
         self.consolidate_month_btn.config(state=state)
 
-    def get_selected_curators(self):
-        """Return list of selected curator keys (e.g. ['boris', 'ivan'])."""
-        return [key for key, var in self.curator_vars.items() if var.get()]
+    

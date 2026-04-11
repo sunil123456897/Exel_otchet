@@ -17,7 +17,7 @@ class DiscoveryService:
         self.ingestion = ingestion
         self.rename_detected = False
 
-    def get_employees_map(self, curator=None) -> Dict[str, List[Dict[str, Any]]]:
+    def get_employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
         config = self.config_controller.config
         custom_paths = self.config_controller.employees
         config_list = sorted(custom_paths.keys())
@@ -139,39 +139,5 @@ class DiscoveryService:
                                 seen_paths.add(p)
 
             result[target_name] = paths_for_emp
-
-        if curator:
-            cfg = self.config_controller.config
-            curator_cfg = cfg.get("curators", {}).get(curator, {})
-
-            # If direct_paths is specified and non-empty, use those directly
-            direct_paths = curator_cfg.get("direct_paths", [])
-            if direct_paths:
-                direct_map: Dict[str, List[Dict[str, Any]]] = {}
-                for dp in direct_paths:
-                    p = Path(dp)
-                    if p.exists():
-                        name = p.stem
-                        direct_map.setdefault(name, []).append({"path": str(p)})
-                    else:
-                        logging.warning(
-                            "[CURATOR] direct_path не найден: %s", dp
-                        )
-                return direct_map
-
-            # Fallback: use employees_key based filtering
-            emp_key = curator_cfg.get("employees_key", curator)
-            curator_emps = self.config_controller.employees.get(emp_key, [])
-            if isinstance(curator_emps, list):
-                curator_names = set()
-                for e in curator_emps:
-                    if isinstance(e, dict):
-                        curator_names.add(Path(e.get("path", "")).stem)
-                    else:
-                        curator_names.add(str(e))
-            else:
-                curator_names = {emp_key}
-            filtered = {k: v for k, v in result.items() if k in curator_names}
-            return filtered
 
         return result
