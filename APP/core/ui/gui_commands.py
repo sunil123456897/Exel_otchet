@@ -43,6 +43,17 @@ class GuiCommands:
         mapping = {"boris": "Борис", "ivan": "Иван"}
         return [mapping.get(c, c) for c in curators]
 
+    def _build_confirmation_message(self, selected_curators, suffix=""):
+        """Build a confirmation dialog message listing what will be built."""
+        parts = ["основной отчет"]
+        if selected_curators:
+            names = self._get_curator_display_names(selected_curators)
+            parts.append("дополнительные отчёты для: " + ", ".join(names))
+        msg = "Собрать " + " и ".join(parts)
+        if suffix:
+            msg += " " + suffix
+        return msg + "?"
+
     def run_consolidation(self):
         from core.view_models.consolidation_viewmodel import ConsolidationViewModel
         from core.ui.ui_dialogs import ask_employee_name
@@ -55,12 +66,7 @@ class GuiCommands:
 
         selected_curators = self.sidebar.get_selected_curators()
 
-        # Confirmation dialog listing what will be built
-        parts = ["основной отчет"]
-        if selected_curators:
-            names = self._get_curator_display_names(selected_curators)
-            parts.append("дополнительные отчёты для: " + ", ".join(names))
-        confirm_msg = "Собрать " + " и ".join(parts) + "?"
+        confirm_msg = self._build_confirmation_message(selected_curators)
         if not messagebox.askyesno("Подтверждение сборки", confirm_msg):
             return
 
@@ -74,11 +80,7 @@ class GuiCommands:
     def run_consolidation_all_dates(self):
         selected_curators = self.sidebar.get_selected_curators()
 
-        parts = ["основной отчет"]
-        if selected_curators:
-            names = self._get_curator_display_names(selected_curators)
-            parts.append("дополнительные отчёты для: " + ", ".join(names))
-        confirm_msg = "Собрать " + " и ".join(parts) + " (все даты)?"
+        confirm_msg = self._build_confirmation_message(selected_curators, "(все даты)")
         if not messagebox.askyesno("Подтверждение сборки", confirm_msg):
             return
 
@@ -97,11 +99,7 @@ class GuiCommands:
 
         selected_curators = self.sidebar.get_selected_curators()
 
-        parts = ["основной отчет"]
-        if selected_curators:
-            names = self._get_curator_display_names(selected_curators)
-            parts.append("дополнительные отчёты для: " + ", ".join(names))
-        confirm_msg = "Собрать " + " и ".join(parts) + "?"
+        confirm_msg = self._build_confirmation_message(selected_curators)
         if not messagebox.askyesno("Подтверждение сборки", confirm_msg):
             return
 

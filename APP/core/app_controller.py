@@ -12,6 +12,10 @@ from core.app.file_processor import check_master_lock, run_engine, get_master_pa
 
 _ADAPTIVE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
 
+# Progress allocation: Main report gets first half, curator reports get second half
+_MAIN_PROGRESS_PCT = 50
+_CURATOR_PROGRESS_PCT = 50
+
 
 class AppController:
     """Main orchestrator — coordinates file discovery, ingestion, and export."""
@@ -249,7 +253,7 @@ class AppController:
                     session_id, curator=None, curator_config=None
                 )
                 errors = self.persistence.get_template_errors(session_id)
-                on_progress(50)
+                on_progress(_MAIN_PROGRESS_PCT)
                 if not consolidated_data:
                     if start_date_str and end_date_str:
                         on_complete(
@@ -323,7 +327,9 @@ class AppController:
                         curator_path,
                     )
                     # Update progress for each curator
-                    progress_pct = 50 + ((idx + 1) / max(total_curators, 1)) * 50
+                    progress_pct = _MAIN_PROGRESS_PCT + (
+                        (idx + 1) / max(total_curators, 1)
+                    ) * _CURATOR_PROGRESS_PCT
                     on_progress(progress_pct)
 
                 if not curators:
@@ -342,6 +348,15 @@ class AppController:
 
         self._start_thread(task)
 
+    @staticmethod
+    def _normalize_curators(selected_curators, curator):
+        """Convert legacy single curator kwarg to list format."""
+        if selected_curators is not None:
+            return selected_curators
+        if curator is not None:
+            return [curator]
+        return None
+
     def run_consolidation(
         self,
         selected_date,
@@ -351,14 +366,10 @@ class AppController:
         curator=None,
     ):
         """Run consolidation for a single selected date."""
-        # Support legacy single-curator kwarg for backward compatibility
-        curators = selected_curators
-        if curators is None and curator is not None:
-            curators = [curator]
         self._run_consolidation_core(
             on_progress,
             on_complete,
-            selected_curators=curators,
+            selected_curators=self._normalize_curators(selected_curators, curator),
             target_date_str=selected_date.strftime("%d.%m.%Y"),
             session_type="daily",
         )
@@ -371,13 +382,10 @@ class AppController:
         curator=None,
     ):
         """Run consolidation for all available dates."""
-        curators = selected_curators
-        if curators is None and curator is not None:
-            curators = [curator]
         self._run_consolidation_core(
             on_progress,
             on_complete,
-            selected_curators=curators,
+            selected_curators=self._normalize_curators(selected_curators, curator),
             session_type="all_dates",
             use_fresh_employees=True,
         )
@@ -392,13 +400,10 @@ class AppController:
         curator=None,
     ):
         """Run consolidation for a date range (monthly)."""
-        curators = selected_curators
-        if curators is None and curator is not None:
-            curators = [curator]
         self._run_consolidation_core(
             on_progress,
             on_complete,
-            selected_curators=curators,
+            selected_curators=self._normalize_curators(selected_curators, curator),
             start_date_str=start_date.strftime("%d.%m.%Y"),
             end_date_str=end_date.strftime("%d.%m.%Y"),
             session_type="monthly",
