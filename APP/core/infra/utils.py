@@ -60,8 +60,8 @@ def get_local_copy(network_path: str, drive_letters: tuple = ("Q", "Z")) -> tupl
         # Validate cached copy against current remote metadata
         try:
             cached_stat = os.stat(local_path)
-            if cached_stat.st_size != stat.st_size:
-                # Size mismatch — stale cache, remove it
+            if cached_stat.st_size != stat.st_size or cached_stat.st_mtime < stat.st_mtime:
+                # Size or mtime mismatch — stale cache, remove it
                 os.remove(local_path)
             else:
                 return str(local_path), None

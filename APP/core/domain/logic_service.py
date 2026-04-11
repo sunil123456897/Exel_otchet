@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Default junk/header detection strings (configurable via config.validation)
 _DEFAULT_JUNK_TOTALS = frozenset({"итого", "всего", "итог"})
 _DEFAULT_JUNK_MARKERS = ("заказчик", "исполнитель", "приход", "расход")
-_DEFAULT_HEADER_WORDS = [
+_DEFAULT_HEADER_WORDS = (
     "% посредника",
     "заказчик",
     "исполнитель",
@@ -27,7 +27,7 @@ _DEFAULT_HEADER_WORDS = [
     "посредник",
     "приход",
     "расход",
-]
+)
 
 
 class Validator(IValidator):

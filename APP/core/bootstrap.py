@@ -108,11 +108,10 @@ class Bootstrap:
             logging.warning("Config is not a dict — using safe defaults.")
             raw_cfg = {}
         try:
-            validated = AppConfig(**raw_cfg)
+            AppConfig(**raw_cfg)
             cfg = raw_cfg  # Keep original dict for backward compat
         except Exception as e:
             logging.warning(f"Config validation warning: {e}. Using safe defaults.")
-            validated = AppConfig()
             cfg = {}
 
         cfg_ctl.config = cfg

@@ -108,7 +108,7 @@ class IngestionEngine(IDataSource):
                     f"File read retry {attempt + 1}/{_FILE_READ_RETRIES} for "
                     f"{file_path}: {e}"
                 )
-                time.sleep(_FILE_READ_BACKOFF * (2 ** attempt))
+                time.sleep(min(60, _FILE_READ_BACKOFF * (2 ** attempt)))
             except Exception:
                 raise
         logger.error(f"Failed to read {file_path} after {_FILE_READ_RETRIES} retries: {last_err}")

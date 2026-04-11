@@ -218,6 +218,9 @@ class AppController:
                         )
                     if not employees_map:
                         employees_map = self._get_employees_map(curator=curator)
+                        with self._lock:
+                            if not self._cached_employees:
+                                self._cached_employees = employees_map
 
                 if not employees_map:
                     on_complete(False, "Нет файлов", None)
