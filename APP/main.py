@@ -22,17 +22,33 @@ def main():
     )
     logger = logging.getLogger("Main")
     logger.info(f"--- STARTING: {app_root} ---")
+    app_ctl = None
+    root = None
     try:
         cfg_ctl, app_ctl, db = Bootstrap.setup(app_root, str(app_root / "config.yaml"))
         root = tk.Tk()
         app = GuiMaster(root, cfg_ctl, app_ctl)
-        root.protocol(
-            "WM_DELETE_WINDOW",
-            lambda: (logger.info("Shutdown..."), app_ctl.shutdown(), root.destroy()),
-        )
+
+        def on_close():
+            logger.info("Shutdown...")
+            try:
+                if app_ctl:
+                    app_ctl.shutdown()
+            except Exception as e:
+                logger.error(f"Shutdown error: {e}")
+            finally:
+                if root:
+                    root.destroy()
+
+        root.protocol("WM_DELETE_WINDOW", on_close)
         root.mainloop()
     except Exception as e:
         logger.critical(f"Failed: {e}", exc_info=True)
+        if app_ctl:
+            try:
+                app_ctl.shutdown()
+            except Exception:
+                pass
         sys.exit(1)
 
 

@@ -29,6 +29,7 @@ class AppController:
         self.writer = writer
 
         self.discovery = DiscoveryService(config_controller, ingestion)
+        self._lock = threading.Lock()
         self._cached_employees = {}
         self._curator = None
 
@@ -63,7 +64,8 @@ class AppController:
             logging.error("Master file is locked. Please close it in Excel.")
             return
 
-        self._curator = curator
+        with self._lock:
+            self._curator = curator
 
         def task():
             try:
@@ -129,7 +131,8 @@ class AppController:
                         on_progress(((i + 1) / total_count) * 100)
 
                 local_data.sort(key=lambda x: x[0])
-                self._cached_employees = employees_map
+                with self._lock:
+                    self._cached_employees = employees_map
                 on_complete(local_data, employees_map, self.rename_detected)
             except Exception as e:
                 logging.error(f"Refresh error: {e}")
@@ -157,11 +160,13 @@ class AppController:
                 self.persistence.save_session(
                     session_id, {"date": date_str, "type": "daily"}
                 )
+                with self._lock:
+                    cached = dict(self._cached_employees)
                 if not run_engine(
                     self.persistence,
                     self.ingestion,
                     self.validator,
-                    self._cached_employees,
+                    cached,
                     session_id,
                     date_str,
                     on_progress,
@@ -211,7 +216,8 @@ class AppController:
             session_id = str(uuid.uuid4())
             try:
                 employees_map = self._get_employees_map(curator=curator)
-                self._cached_employees = employees_map
+                with self._lock:
+                    self._cached_employees = employees_map
                 self.persistence.save_session(session_id, {"type": "all_dates"})
                 if not run_engine(
                     self.persistence,
@@ -277,9 +283,10 @@ class AppController:
                     {"start_date": start_str, "end_date": end_str, "type": "monthly"},
                 )
 
-                employees_map = self._cached_employees or self._get_employees_map(
-                    curator=curator
-                )
+                with self._lock:
+                    employees_map = dict(self._cached_employees) if self._cached_employees else None
+                if not employees_map:
+                    employees_map = self._get_employees_map(curator=curator)
                 if not employees_map:
                     on_complete(False, "Нет файлов", None)
                     return

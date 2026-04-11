@@ -62,7 +62,7 @@ class MasterWriter(IExporter):
         if os.path.exists(path_abs):
             try:
                 return openpyxl.load_workbook(path_abs)
-            except:
+            except (OSError, openpyxl.utils.exceptions.InvalidFileException):
                 return openpyxl.Workbook()
         wb = openpyxl.Workbook()
         if "Sheet" in wb.sheetnames:
@@ -79,7 +79,7 @@ class MasterWriter(IExporter):
                     if len(p) == 3:
                         return (0, int(p[2]), int(p[1]), int(p[0]))
                     return (0, 9999, int(p[1]), int(p[0]))
-                except:
+                except (ValueError, IndexError):
                     return (0, 9999, 99, 99)
             return (1, 0, 0, SPECIAL_ORDER.index(n) if n in SPECIAL_ORDER else 99)
 
@@ -115,6 +115,12 @@ class MasterWriter(IExporter):
                     os.rename(tmp, path_abs)
         except Exception as e:
             logger.error(f"Save failed: {e}")
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
 
     def _auto_adjust(self, ws):
         numeric_keywords = ["приход", "расход", "комиссия", "итог", "посредник"]

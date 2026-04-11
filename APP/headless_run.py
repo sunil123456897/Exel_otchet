@@ -12,6 +12,7 @@ from core.bootstrap import Bootstrap
 def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("Headless")
+    db = None
     try:
         _, app_ctl, db = Bootstrap.setup(app_root, str(app_root / "config.yaml"))
         done = threading.Event()
@@ -24,10 +25,14 @@ def main():
         logger.info("Triggering run_consolidation_all_dates...")
         app_ctl.run_consolidation_all_dates(lambda p: None, on_comp)
         
-        while not done.is_set():
-            time.sleep(0.5)
-            
-        db.close()
-    except Exception as e: logger.critical(f"Failed: {e}"); sys.exit(1)
+        if not done.wait(timeout=600):
+            logger.error("Timed out waiting for consolidation to complete")
+            sys.exit(1)
+    except Exception as e:
+        logger.critical(f"Failed: {e}")
+        sys.exit(1)
+    finally:
+        if db is not None:
+            db.close()
 
 if __name__ == "__main__": main()

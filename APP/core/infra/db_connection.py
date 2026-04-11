@@ -36,9 +36,15 @@ class SQLiteConnectionManager:
         self.retry_backoff = config.get("locking", {}).get("retry_backoff", 1.0)
 
         sqlite3.register_adapter(decimal.Decimal, str)
-        sqlite3.register_converter(
-            "NUMERIC", lambda v: decimal.Decimal(v.decode("utf-8"))
-        )
+
+        def _convert_numeric(v: bytes) -> decimal.Decimal:
+            try:
+                s = v.decode("utf-8").strip()
+                return decimal.Decimal(s) if s else decimal.Decimal("0")
+            except (decimal.InvalidOperation, UnicodeDecodeError):
+                return decimal.Decimal("0")
+
+        sqlite3.register_converter("NUMERIC", _convert_numeric)
 
     def get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(
