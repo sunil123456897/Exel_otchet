@@ -77,4 +77,5 @@ CREATE TABLE IF NOT EXISTS file_cache (
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_files_session ON source_files(session_id);
 CREATE INDEX IF NOT EXISTS idx_staging_file ON staging_data(file_id);
+CREATE INDEX IF NOT EXISTS idx_staging_employee_date ON staging_data(employee_name, date_val);
 CREATE INDEX IF NOT EXISTS idx_consolidated_session ON consolidated_results(session_id);

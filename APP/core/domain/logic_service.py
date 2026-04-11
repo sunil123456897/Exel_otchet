@@ -2,7 +2,7 @@
 
 import logging
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from core.domain.interfaces import IValidator, ILogicService, IPersistence
 from core.domain.utils_helpers import (
@@ -13,16 +13,39 @@ from core.domain.utils_helpers import (
 
 logger = logging.getLogger(__name__)
 
+# Default junk/header detection strings (configurable via config.validation)
+_DEFAULT_JUNK_TOTALS = frozenset({"итого", "всего", "итог"})
+_DEFAULT_JUNK_MARKERS = ("заказчик", "исполнитель", "приход", "расход")
+_DEFAULT_HEADER_WORDS = [
+    "% посредника",
+    "заказчик",
+    "исполнитель",
+    "сумма платежа",
+    "комиссия",
+    "итог",
+    "фильтры",
+    "посредник",
+    "приход",
+    "расход",
+]
+
 
 class Validator(IValidator):
     """Валидатор строк данных — отбрасывает мусор и заголовки."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
         self.config = config
-        self._junk_totals = frozenset({"итого", "всего", "итог"})
-        self._junk_markers = ("заказчик", "исполнитель", "приход", "расход")
+        v_cfg = config.get("validation", {})
+        self._junk_totals = frozenset(
+            v_cfg.get("junk_totals", _DEFAULT_JUNK_TOTALS)
+        )
+        self._junk_markers = tuple(
+            v_cfg.get("junk_markers", _DEFAULT_JUNK_MARKERS)
+        )
+        self._header_words = v_cfg.get("header_words", _DEFAULT_HEADER_WORDS)
 
     def validate_row(self, row: Dict[str, Any]) -> bool:
+        """Return True if row contains valid financial data, False if junk/header."""
         customer, contractor, filters = (
             str(row.get("customer", "")).strip(),
             str(row.get("contractor", "")).strip(),
@@ -41,27 +64,67 @@ class Validator(IValidator):
         row_str = " ".join(str(v).lower() for v in row.values() if v is not None)
         if sum(1 for m in self._junk_markers if m in row_str) >= 2:
             return False
-        hw = [
-            "% посредника",
-            "заказчик",
-            "исполнитель",
-            "сумма платежа",
-            "комиссия",
-            "итог",
-            "фильтры",
-            "посредник",
-            "приход",
-            "расход",
-        ]
         for key in ["amount", "income", "expense", "commission", "total"]:
             v = row.get(key)
-            if v is not None and any(w in str(v).lower() for w in hw):
+            if v is not None and any(w in str(v).lower() for w in self._header_words):
                 return False
         return True
 
     def get_errors(self) -> List[str]:
         """Вернуть список ошибок валидации (пусто — заглушка)."""
         return []
+
+
+# ──────────────────────────────────────────────────────────────
+# Curator Strategy Registry (Item 7 — replaces hardcoded if/elif)
+# ──────────────────────────────────────────────────────────────
+
+class CuratorStrategy:
+    """Base strategy — no extra broker calculations."""
+
+    def apply(
+        self,
+        curator_config: Dict[str, Any],
+        pb_val: Any,
+        amt: Decimal,
+        tot: Decimal,
+    ) -> tuple:
+        """Return (pb_val, pb2_val, broker2_calc)."""
+        return pb_val, Decimal("0.00"), Decimal("0.00")
+
+
+class BorisCuratorStrategy(CuratorStrategy):
+    """Boris-specific: calculates intermediary2 broker commission."""
+
+    def apply(self, curator_config, pb_val, amt, tot):
+        rate2 = Decimal(str(curator_config.get("intermediary2_rate", 0.05)))
+        base = tot if tot != 0 else amt
+        broker2_calc = (base * rate2).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        return pb_val, rate2, broker2_calc
+
+
+class IvanCuratorStrategy(CuratorStrategy):
+    """Ivan-specific: overrides both intermediary1 and intermediary2 rates."""
+
+    def apply(self, curator_config, pb_val, amt, tot):
+        rate1 = Decimal(str(curator_config.get("intermediary1_rate", 0.05)))
+        rate2 = Decimal(str(curator_config.get("intermediary2_rate", 0.05)))
+        base = tot if tot != 0 else amt
+        broker2_calc = (base * rate2).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        return rate1, rate2, broker2_calc
+
+
+# Global registry — add new curators here without modifying LogicService
+CURATOR_STRATEGIES: Dict[str, CuratorStrategy] = {
+    "boris": BorisCuratorStrategy(),
+    "ivan": IvanCuratorStrategy(),
+}
+
+_DEFAULT_STRATEGY = CuratorStrategy()
 
 
 class LogicService(ILogicService):
@@ -78,6 +141,7 @@ class LogicService(ILogicService):
     _SANITIZE_CHARS = frozenset(("=", "+", "-", "@", "\t", "\r", "\n"))
 
     def _sanitize(self, val: Any) -> str:
+        """Sanitize cell value to prevent Excel formula injection."""
         s = str(val) if val is not None else ""
         s_stripped = s.strip()
         if s_stripped and (
@@ -87,10 +151,48 @@ class LogicService(ILogicService):
             return "'" + s
         return s
 
+    def _build_error_row(self, r: Dict[str, Any], is_critical: bool = True) -> Dict[str, Any]:
+        """Build a row dict that marks a critical data integrity error.
+
+        The row is included in the output so it appears in the final report
+        highlighted in red, rather than being silently dropped.
+        """
+        return {
+            "Дата": r.get("date", ""),
+            "Источник": r.get("_source_info", "Unknown"),
+            "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": self._sanitize(
+                r.get("customer", "")
+            ),
+            "ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)": self._sanitize(
+                r.get("contractor", "")
+            ),
+            "сумма платежа ПРИХОД": Decimal("0.00"),
+            "сумма платежа РАСХОД": Decimal("0.00"),
+            "комиссия": Decimal("0.00"),
+            "ИТОГ": Decimal("0.00"),
+            "% посредника": Decimal("0.00"),
+            "посредник 1(кэш)": Decimal("0.00"),
+            "посредник 2": Decimal("0.00"),
+            "% посредник 2": Decimal("0.00"),
+            "Посредник 2 (сумма)": Decimal("0.00"),
+            "фильтры": self._sanitize(r.get("filters", "")),
+            "is_critical": is_critical,
+            "is_template_warning": r.get("is_template_warning", False),
+        }
+
+    def _get_curator_strategy(self, curator: Optional[str]) -> CuratorStrategy:
+        """Look up curator strategy from the registry."""
+        if not curator:
+            return _DEFAULT_STRATEGY
+        return CURATOR_STRATEGIES.get(curator, _DEFAULT_STRATEGY)
+
     def apply_financial_rules(
         self, raw_rows: List[Dict[str, Any]], curator=None, curator_config=None
     ) -> List[Dict[str, Any]]:
+        """Apply commissions, returns, and other business rules to raw rows."""
         res = []
+        strategy = self._get_curator_strategy(curator)
+
         for r in raw_rows:
             f_val = str(r.get("filters", "")).lower()
             is_add, is_ret = (
@@ -105,28 +207,27 @@ class LogicService(ILogicService):
                 logger.error(
                     f"DATA INTEGRITY ERROR (Logic): {e} | Source: {r.get('_source_info')}"
                 )
-                amt = Decimal("0.00")
                 if isinstance(e, NumericParsingError):
-                    is_critical = True
+                    # Critical parse error — record the row with is_critical flag
+                    # but do NOT silently substitute zero
+                    res.append(self._build_error_row(r, is_critical=True))
+                    continue
+                amt = Decimal("0.00")
 
             try:
                 tot = to_decimal(r.get("total", 0))
             except (NumericParsingError, ValueError) as e:
-                # print(f"DEBUG: Caught error {type(e)}: {e}")
                 logger.error(
                     f"DATA INTEGRITY ERROR (Logic): {e} | Source: {r.get('_source_info')}"
                 )
-                tot = Decimal("0.00")
-                is_critical = True  # Simplify: any error here is critical for now
+                # Critical parse error on total — record and skip
+                res.append(self._build_error_row(r, is_critical=True))
+                continue
 
             if amt == 0 and tot == 0 and not is_add and not is_critical:
                 continue
 
-            # Financial routing:
-            # - is_add (keywords like 'доп'): goes to INCOME
-            # - is_ret (keywords like 'возврат'): goes to EXPENSE as NEGATIVE
-            # - amt < 0 (standard expense): goes to EXPENSE as POSITIVE
-            # - standard: goes to INCOME
+            # Financial routing
             if is_add:
                 inc, exp = amt, Decimal("0.00")
             elif is_ret:
@@ -148,24 +249,14 @@ class LogicService(ILogicService):
             except ValueError:
                 pb_val = pb_raw
 
-            pb2_val = Decimal("0.00")
-            broker2_calc = Decimal("0.00")
-            if curator == "boris" and curator_config:
-                rate2 = Decimal(str(curator_config.get("intermediary2_rate", 0.05)))
-                pb2_val = rate2
-                base = tot if tot != 0 else amt
-                broker2_calc = (base * rate2).quantize(
-                    Decimal("0.01"), rounding=ROUND_HALF_UP
+            # Apply curator-specific broker logic via strategy
+            if curator_config:
+                pb_val, pb2_val, broker2_calc = strategy.apply(
+                    curator_config, pb_val, amt, tot
                 )
-            elif curator == "ivan" and curator_config:
-                rate1 = Decimal(str(curator_config.get("intermediary1_rate", 0.05)))
-                rate2 = Decimal(str(curator_config.get("intermediary2_rate", 0.05)))
-                pb2_val = rate2
-                base = tot if tot != 0 else amt
-                pb_val = rate1
-                broker2_calc = (base * rate2).quantize(
-                    Decimal("0.01"), rounding=ROUND_HALF_UP
-                )
+            else:
+                pb2_val = Decimal("0.00")
+                broker2_calc = Decimal("0.00")
 
             is_warn = r.get("is_template_warning", False)
             if is_warn:
@@ -199,6 +290,7 @@ class LogicService(ILogicService):
     def consolidate(
         self, session_id: str, curator=None, curator_config=None
     ) -> List[Dict[str, Any]]:
+        """Perform SQL-based aggregation for the final report."""
         return self.apply_financial_rules(
             self.persistence.get_consolidated_data(session_id),
             curator=curator,

@@ -53,7 +53,7 @@ class SQLiteConnectionManager:
             timeout=self.config.get("database", {}).get("timeout", 30.0),
         )
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA synchronous = OFF;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA temp_store = MEMORY;")
         conn.execute("PRAGMA cache_size = -64000;")
@@ -66,14 +66,20 @@ class SQLiteConnectionManager:
                     conn.executescript(f.read())
 
     def execute_with_retry(self, func, *args, **kwargs):
+        """Execute a function with exponential backoff on transient SQLite errors."""
         last_err = None
-        for i in range(self.retry_count):
+        for attempt in range(self.retry_count):
             try:
                 return func(*args, **kwargs)
             except sqlite3.OperationalError as e:
                 if any(x in str(e).lower() for x in ["locked", "busy"]):
                     last_err = e
-                    time.sleep(self.retry_backoff)
+                    delay = self.retry_backoff * (2 ** attempt)
+                    self.logger.warning(
+                        f"SQLite retry {attempt + 1}/{self.retry_count}: {e}, "
+                        f"waiting {delay:.1f}s"
+                    )
+                    time.sleep(delay)
                 else:
                     raise
         raise last_err
