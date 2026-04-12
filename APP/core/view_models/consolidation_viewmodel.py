@@ -53,23 +53,21 @@ class ConsolidationViewModel:
 
     def run_consolidation(
         self, app_controller=None, selected_date: datetime = None,
-        selected_curators=None, curator=None,
     ) -> None:
         ctl = app_controller or self._app_controller
         self._execute(
             lambda p, c: ctl.run_consolidation(
                 selected_date, p, c,
-                selected_curators=selected_curators, curator=curator,
             )
         )
 
     def run_consolidation_all_dates(
-        self, app_controller=None, selected_curators=None, curator=None,
+        self, app_controller=None,
     ) -> None:
         ctl = app_controller or self._app_controller
         self._execute(
             lambda p, c: ctl.run_consolidation_all_dates(
-                p, c, selected_curators=selected_curators, curator=curator,
+                p, c,
             )
         )
 
@@ -78,14 +76,11 @@ class ConsolidationViewModel:
         app_controller=None,
         start_date: datetime = None,
         end_date: datetime = None,
-        selected_curators=None,
-        curator=None,
     ) -> None:
         ctl = app_controller or self._app_controller
         self._execute(
             lambda p, c: ctl.run_consolidation_month(
                 start_date, end_date, p, c,
-                selected_curators=selected_curators, curator=curator,
             )
         )
 
