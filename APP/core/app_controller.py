@@ -63,6 +63,7 @@ class AppController:
         selected_date,
         on_progress: Callable[[float], None],
         on_complete: Callable[[List[tuple], Dict, bool], None],
+        curator=None,
     ):
         """Refresh employee file status for the selected date."""
         if not check_master_lock(self.config_controller):

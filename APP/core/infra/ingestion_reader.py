@@ -21,6 +21,7 @@ from core.domain.utils_helpers import to_decimal, to_decimal_percent
 from core.infra.utils import get_local_copy
 
 logger = logging.getLogger(__name__)
+MAX_HEADER_SCAN_ROWS = 6000
 
 
 def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
@@ -158,10 +159,29 @@ class CalamineReader:
                     logger.debug(f"Skipping sheet {sheet_name}: no date found")
                     continue
 
-                # Первый проход: поиск стандартных ключей
-                # Используем to_python() для первых 6000 строк - это безопасно и не паникует на пустых листах
+                # Первый проход: поиск стандартных ключей (не загружаем лист целиком в память)
                 try:
-                    rows_sample = sheet.to_python()
+                    rows_sample = []
+                    for idx, row in enumerate(sheet.iter_rows()):
+                        rows_sample.append(row)
+                        if idx >= MAX_HEADER_SCAN_ROWS - 1:
+                            break
+                except BaseException as iter_err:
+                    if isinstance(iter_err, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                        raise
+                    if iter_err.__class__.__name__ != "PanicException":
+                        raise
+                    # python-calamine can panic on some empty/broken sheets when iterating.
+                    # Fallback to to_python() only for this edge case.
+                    logger.debug(
+                        f"iter_rows failed for sheet {sheet_name} with {type(iter_err).__name__}: {iter_err}. "
+                        f"Falling back to to_python()."
+                    )
+                    try:
+                        rows_sample = sheet.to_python()[:MAX_HEADER_SCAN_ROWS]
+                    except Exception as e:
+                        logger.debug(f"Could not read sheet {sheet_name}: {e}")
+                        continue
                 except Exception as e:
                     logger.debug(f"Could not read sheet {sheet_name}: {e}")
                     continue
@@ -170,7 +190,7 @@ class CalamineReader:
                     continue
 
                 standard_keys, max_score = set(), 0
-                for idx, row in enumerate(rows_sample[:6000]):
+                for idx, row in enumerate(rows_sample[:MAX_HEADER_SCAN_ROWS]):
                     if not any(v is not None and v != "" for v in row):
                         continue
                     row_str = " ".join([str(v).lower() for v in row if v is not None])

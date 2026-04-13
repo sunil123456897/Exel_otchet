@@ -69,7 +69,7 @@ class MasterWriter(IExporter):
             wb.remove(wb["Sheet"])
         return wb
 
-    def _save_workbook(self, wb, path=None):
+    def _save_workbook(self, wb, path=None) -> bool:
         SPECIAL_ORDER = ["ВСЕ ОПЕРАЦИИ", "ДАШБОРД", "АНАЛИТИКА", "СВОД"]
 
         def key(n):
@@ -98,23 +98,25 @@ class MasterWriter(IExporter):
 
         try:
             wb.save(tmp)
-            if os.path.exists(tmp):
-                if os.path.exists(path_abs):
-                    try:
-                        os.replace(tmp, path_abs)
-                    except PermissionError:
-                        if os.path.exists(tmp):
-                            os.remove(tmp)
-                        import tkinter.messagebox as mb
+            if os.path.exists(path_abs):
+                try:
+                    os.replace(tmp, path_abs)
+                except PermissionError:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                    import tkinter.messagebox as mb
 
-                        mb.showerror(
-                            "Файл занят",
-                            f"Закройте '{path or self.master_path}' в Excel!",
-                        )
-                else:
-                    os.rename(tmp, path_abs)
+                    mb.showerror(
+                        "Файл занят",
+                        f"Закройте '{path or self.master_path}' в Excel!",
+                    )
+                    return False
+            else:
+                os.rename(tmp, path_abs)
+            return True
         except Exception as e:
             logger.error(f"Save failed: {e}")
+            return False
         finally:
             if os.path.exists(tmp):
                 try:
@@ -225,7 +227,8 @@ class MasterWriter(IExporter):
 
         self._auto_adjust(ws)
         if should_save:
-            self._save_workbook(wb)
+            if not self._save_workbook(wb):
+                logger.error("Failed to save workbook in write_daily_data()")
 
     def write_report(
         self,
@@ -275,8 +278,7 @@ class MasterWriter(IExporter):
                     logger.error(f"Date error {d_str}: {e}")
             if "ОШИБКИ ШАБЛОНА" in wb.sheetnames:
                 del wb["ОШИБКИ ШАБЛОНА"]
-            self._save_workbook(wb, path=str(path))
-            return True
+            return self._save_workbook(wb, path=str(path))
         except Exception as e:
             logger.error(f"Write error: {e}")
             return False
