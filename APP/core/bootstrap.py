@@ -67,7 +67,7 @@ def _validate_path_safety(resolved: Path, app_root: Path) -> Path:
         if str(resolved_abs).startswith(str(app_root_abs)):
             return resolved_abs
         # For absolute paths on other drives (Q:, Z:, UNC) we allow them
-        if resolved.is_absolute():
+        if _is_effectively_absolute(str(resolved)):
             return resolved_abs
         # Relative paths must stay inside app_root
         raise ValueError(

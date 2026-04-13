@@ -4,6 +4,7 @@ import pytest
 import os
 import tempfile
 from pathlib import Path
+from pathlib import PureWindowsPath
 from unittest.mock import patch, MagicMock
 from ruamel.yaml import YAML
 
@@ -248,7 +249,7 @@ class TestGetters:
 class TestPathResolution:
     def test_resolve_path_keeps_windows_drive_absolute(self, config_controller):
         p = config_controller.resolve_path("Q:/reports/Alice.xlsx")
-        assert str(p).replace("\\", "/") == "Q:/reports/Alice.xlsx"
+        assert PureWindowsPath(str(p)) == PureWindowsPath("Q:/reports/Alice.xlsx")
 
     def test_resolve_path_keeps_unc_absolute(self, config_controller):
         p = config_controller.resolve_path("\\\\server\\share\\Alice.xlsx")

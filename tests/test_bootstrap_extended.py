@@ -177,7 +177,7 @@ class TestPathResolution:
                 "paths": {
                     "master_file": "M.xlsx",
                     "source_root": "Q:/reports",
-                    "source_roots": ["Q:/reports", "\\\\server\\share\\reports"],
+                    "source_roots": ["Q:/reports", r"\\server\share\reports"],
                 },
                 "sh1": {"markers": {}},
                 "database": {"path": "cache.db", "schema_path": "schema.sql"},
@@ -189,7 +189,7 @@ class TestPathResolution:
             cfg = mock_cfg.return_value.config["paths"]
             assert cfg["source_root"] == "Q:/reports"
             assert cfg["source_roots"][0] == "Q:/reports"
-            assert cfg["source_roots"][1] == "\\\\server\\share\\reports"
+            assert cfg["source_roots"][1] == r"\\server\share\reports"
 
 
 class TestConfigValidation:
