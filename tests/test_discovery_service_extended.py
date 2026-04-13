@@ -280,6 +280,42 @@ class TestPathResolution:
                 result = ds.get_employees_map()
                 assert "Alice" in result
 
+    def test_relative_existing_paths_skip_scan_and_stay_relative(self, tmp_path):
+        """Существующие относительные пути не должны вызывать scan и переписывать config."""
+        app_dir = tmp_path / "APP"
+        app_dir.mkdir()
+        config_file = app_dir / "config.yaml"
+        config_file.touch()
+
+        reports_dir = tmp_path / "REPORTS" / "Alice"
+        reports_dir.mkdir(parents=True)
+        target_file = reports_dir / "main.xlsx"
+        extra_file = reports_dir / "extra.xlsx"
+        target_file.touch()
+        extra_file.touch()
+
+        config_controller = MagicMock()
+        config_controller.config = {
+            "employees": ["Alice"],
+            "paths": {"source_roots": [str(tmp_path / "REPORTS")]},
+        }
+        config_controller.config_path = str(config_file)
+        config_controller.employees = {"Alice": ["../REPORTS/Alice/main.xlsx"]}
+
+        ingestion = MagicMock()
+        ingestion.scan_directory.return_value = [
+            {"path": str(target_file), "id": 1, "fp": "h1"},
+            {"path": str(extra_file), "id": 2, "fp": "h2"},
+        ]
+
+        ds = DiscoveryService(config_controller, ingestion)
+        result = ds.get_employees_map()
+
+        ingestion.scan_directory.assert_not_called()
+        assert result["Alice"] == [{"path": str(target_file.resolve())}]
+        assert config_controller.employees["Alice"] == ["../REPORTS/Alice/main.xlsx"]
+        config_controller._save_employees.assert_not_called()
+
     def test_non_absolute_path_fallback_to_scan(self, discovery_service, tmp_path):
         """Неабсолютный путь без существующего файла — искать через scan."""
         root = tmp_path / "reports"
