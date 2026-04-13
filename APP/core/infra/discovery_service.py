@@ -17,6 +17,17 @@ class DiscoveryService:
         self.ingestion = ingestion
         self.rename_detected = False
 
+    @staticmethod
+    def _copy_config_entry(entry):
+        return dict(entry) if isinstance(entry, dict) else entry
+
+    @staticmethod
+    def _append_unique(entries, entry, seen):
+        path_value = entry["path"] if isinstance(entry, dict) else str(entry)
+        if path_value not in seen:
+            entries.append(entry)
+            seen.add(path_value)
+
     def get_employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
         config = self.config_controller.config
         custom_paths = self.config_controller.employees
@@ -88,7 +99,7 @@ class DiscoveryService:
         self.rename_detected = False
 
         for target_name in target_names:
-            paths_for_emp, seen_paths = [], set()
+            paths_for_emp, seen_result_paths = [], set()
             has_custom = False
 
             if target_name in custom_paths:
@@ -115,7 +126,7 @@ class DiscoveryService:
                         config_changed = True
                         updated_paths.append(meta if meta else {"path": resolved})
                     elif meta:
-                        updated_paths.append(dict(entry) if isinstance(entry, dict) else entry)
+                        updated_paths.append(self._copy_config_entry(entry))
                     else:
                         p_abs = Path(resolved)
                         if p_abs.exists():
@@ -124,25 +135,17 @@ class DiscoveryService:
                                 entry_meta["id"] = file_id
                             if file_hash is not None:
                                 entry_meta["fp"] = file_hash
-                            updated_paths.append(
-                                dict(entry) if isinstance(entry, dict) else entry
-                            )
+                            updated_paths.append(self._copy_config_entry(entry))
                             meta = entry_meta
 
                     if meta:
-                        p = str(meta.get("path"))
-                        if p not in seen_paths:
-                            paths_for_emp.append(meta)
-                            seen_paths.add(p)
-                            has_custom = True
+                        self._append_unique(paths_for_emp, meta, seen_result_paths)
+                        has_custom = True
 
                 deduped_paths = []
-                seen_stored_paths = set()
+                seen_config_paths = set()
                 for meta in updated_paths:
-                    p = meta["path"] if isinstance(meta, dict) else str(meta)
-                    if p not in seen_stored_paths:
-                        deduped_paths.append(meta)
-                        seen_stored_paths.add(p)
+                    self._append_unique(deduped_paths, meta, seen_config_paths)
 
                 if config_changed and deduped_paths != self.config_controller.employees.get(
                     target_name, []
@@ -155,10 +158,7 @@ class DiscoveryService:
                 for d_name, files in discovered_map.items():
                     if t_lower == d_name.lower():
                         for f in files:
-                            p = str(f["path"])
-                            if p not in seen_paths:
-                                paths_for_emp.append(f)
-                                seen_paths.add(p)
+                            self._append_unique(paths_for_emp, f, seen_result_paths)
 
             result[target_name] = paths_for_emp
 
