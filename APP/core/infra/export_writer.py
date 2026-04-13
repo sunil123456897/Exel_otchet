@@ -98,25 +98,22 @@ class MasterWriter(IExporter):
 
         try:
             wb.save(tmp)
-            if os.path.exists(tmp):
-                if os.path.exists(path_abs):
-                    try:
-                        os.replace(tmp, path_abs)
-                    except PermissionError:
-                        if os.path.exists(tmp):
-                            os.remove(tmp)
-                        import tkinter.messagebox as mb
+            if os.path.exists(path_abs):
+                try:
+                    os.replace(tmp, path_abs)
+                except PermissionError:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                    import tkinter.messagebox as mb
 
-                        mb.showerror(
-                            "Файл занят",
-                            f"Закройте '{path or self.master_path}' в Excel!",
-                        )
-                        return False
-                else:
-                    os.rename(tmp, path_abs)
-                return True
-            logger.error("Save failed: temporary file was not created")
-            return False
+                    mb.showerror(
+                        "Файл занят",
+                        f"Закройте '{path or self.master_path}' в Excel!",
+                    )
+                    return False
+            else:
+                os.rename(tmp, path_abs)
+            return True
         except Exception as e:
             logger.error(f"Save failed: {e}")
             return False
@@ -230,7 +227,8 @@ class MasterWriter(IExporter):
 
         self._auto_adjust(ws)
         if should_save:
-            self._save_workbook(wb)
+            if not self._save_workbook(wb):
+                logger.error("Failed to save workbook in write_daily_data()")
 
     def write_report(
         self,
