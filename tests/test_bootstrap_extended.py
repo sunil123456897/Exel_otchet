@@ -160,6 +160,37 @@ class TestPathResolution:
             cfg = mock_cfg.return_value.config
             assert cfg["database"]["path"] == str(app_root / "cache.db")
 
+    def test_windows_like_source_root_not_prefixed(self, app_root, valid_config_content):
+        config_file = app_root / "config.yaml"
+        config_file.write_text(valid_config_content, encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {
+                    "master_file": "M.xlsx",
+                    "source_root": "Q:/reports",
+                    "source_roots": ["Q:/reports", r"\\server\share\reports"],
+                },
+                "sh1": {"markers": {}},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
+
+            cfg = mock_cfg.return_value.config["paths"]
+            assert cfg["source_root"] == "Q:/reports"
+            assert cfg["source_roots"][0] == "Q:/reports"
+            assert cfg["source_roots"][1] == r"\\server\share\reports"
+
 
 class TestConfigValidation:
     """Валидация конфигурации."""

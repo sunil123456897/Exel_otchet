@@ -5,8 +5,12 @@ This module provides specialized functionality for the financial consolidation s
 Maintained for high modularity, testability, and structural integrity.
 """
 import logging
-import tkinter as tk
 import queue
+
+try:
+    import tkinter as tk
+except ModuleNotFoundError:  # pragma: no cover - headless environments
+    tk = None
 
 class TextHandler(logging.Handler):
     def __init__(self, text_widget):
@@ -48,6 +52,8 @@ class TextHandler(logging.Handler):
                 self.text_widget.after(100, self._process_queue)
 
 def setup_gui_logging(log_widget):
+    if tk is None:
+        raise RuntimeError("tkinter is not available in this environment")
     handler = TextHandler(log_widget)
     handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s', datefmt='%H:%M:%S'))
     root = logging.getLogger()

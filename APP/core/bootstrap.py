@@ -3,6 +3,7 @@
 import logging
 import logging.handlers
 import importlib.util
+import re
 from pathlib import Path
 from typing import Tuple, Optional, Dict, Any, List
 
@@ -66,7 +67,7 @@ def _validate_path_safety(resolved: Path, app_root: Path) -> Path:
         if str(resolved_abs).startswith(str(app_root_abs)):
             return resolved_abs
         # For absolute paths on other drives (Q:, Z:, UNC) we allow them
-        if resolved.is_absolute():
+        if _is_effectively_absolute(str(resolved)):
             return resolved_abs
         # Relative paths must stay inside app_root
         raise ValueError(
@@ -76,6 +77,15 @@ def _validate_path_safety(resolved: Path, app_root: Path) -> Path:
         if isinstance(e, ValueError):
             raise
         return resolved
+
+
+def _is_effectively_absolute(path_str: str) -> bool:
+    p = Path(path_str)
+    if p.is_absolute():
+        return True
+    if path_str.startswith("\\\\"):
+        return True
+    return bool(re.match(r"^[A-Za-z]:[\\/]", path_str))
 
 
 class Bootstrap:
@@ -128,7 +138,7 @@ class Bootstrap:
                     return str(app_root / default_filename)
                 return ""
             path = Path(p)
-            if not path.is_absolute():
+            if not _is_effectively_absolute(p):
                 resolved = app_root / path
             else:
                 resolved = path
