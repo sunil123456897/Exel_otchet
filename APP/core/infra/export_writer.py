@@ -69,7 +69,7 @@ class MasterWriter(IExporter):
             wb.remove(wb["Sheet"])
         return wb
 
-    def _save_workbook(self, wb, path=None):
+    def _save_workbook(self, wb, path=None) -> bool:
         SPECIAL_ORDER = ["ВСЕ ОПЕРАЦИИ", "ДАШБОРД", "АНАЛИТИКА", "СВОД"]
 
         def key(n):
@@ -111,10 +111,15 @@ class MasterWriter(IExporter):
                             "Файл занят",
                             f"Закройте '{path or self.master_path}' в Excel!",
                         )
+                        return False
                 else:
                     os.rename(tmp, path_abs)
+                return True
+            logger.error("Save failed: temporary file was not created")
+            return False
         except Exception as e:
             logger.error(f"Save failed: {e}")
+            return False
         finally:
             if os.path.exists(tmp):
                 try:
@@ -275,8 +280,7 @@ class MasterWriter(IExporter):
                     logger.error(f"Date error {d_str}: {e}")
             if "ОШИБКИ ШАБЛОНА" in wb.sheetnames:
                 del wb["ОШИБКИ ШАБЛОНА"]
-            self._save_workbook(wb, path=str(path))
-            return True
+            return self._save_workbook(wb, path=str(path))
         except Exception as e:
             logger.error(f"Write error: {e}")
             return False

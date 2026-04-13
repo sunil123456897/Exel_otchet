@@ -158,10 +158,13 @@ class CalamineReader:
                     logger.debug(f"Skipping sheet {sheet_name}: no date found")
                     continue
 
-                # Первый проход: поиск стандартных ключей
-                # Используем to_python() для первых 6000 строк - это безопасно и не паникует на пустых листах
+                # Первый проход: поиск стандартных ключей (не загружаем лист целиком в память)
                 try:
-                    rows_sample = sheet.to_python()
+                    rows_sample = []
+                    for idx, row in enumerate(sheet.iter_rows()):
+                        rows_sample.append(row)
+                        if idx >= 5999:
+                            break
                 except Exception as e:
                     logger.debug(f"Could not read sheet {sheet_name}: {e}")
                     continue
