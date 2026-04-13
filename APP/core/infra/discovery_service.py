@@ -41,7 +41,14 @@ class DiscoveryService:
                 p_list = p_val if isinstance(p_val, list) else [p_val]
                 for entry in p_list:
                     path_str = entry["path"] if isinstance(entry, dict) else entry
-                    p_abs = Path(path_str)
+                    resolved, _, _ = resolve_employee_path(
+                        path_str,
+                        file_id=entry.get("id") if isinstance(entry, dict) else None,
+                        file_hash=entry.get("fp") if isinstance(entry, dict) else None,
+                        discovered_files=[],
+                        config_controller=self.config_controller,
+                    )
+                    p_abs = Path(resolved)
                     if not p_abs.is_absolute() or not p_abs.exists():
                         all_paths_ok = False
                         break
@@ -88,6 +95,7 @@ class DiscoveryService:
                 p_val = custom_paths[target_name]
                 p_list = p_val if isinstance(p_val, list) else [p_val]
                 updated_paths = []
+                config_changed = False
 
                 for entry in p_list:
                     path_str = entry["path"] if isinstance(entry, dict) else entry
@@ -104,9 +112,12 @@ class DiscoveryService:
 
                     if renamed:
                         self.rename_detected = True
-                        updated_paths.append(meta if meta else {"path": resolved})
+                        config_changed = True
+                        stored_entry = meta if meta else {"path": resolved}
+                        updated_paths.append(stored_entry)
                     elif meta:
-                        updated_paths.append(meta)
+                        stored_entry = dict(entry) if isinstance(entry, dict) else entry
+                        updated_paths.append(stored_entry)
                     else:
                         p_abs = Path(resolved)
                         if p_abs.exists():
@@ -115,18 +126,30 @@ class DiscoveryService:
                                 entry_meta["id"] = file_id
                             if file_hash is not None:
                                 entry_meta["fp"] = file_hash
-                            updated_paths.append(entry_meta)
+                            stored_entry = dict(entry) if isinstance(entry, dict) else entry
+                            updated_paths.append(stored_entry)
+                            meta = entry_meta
 
+                    if meta:
+                        p = str(meta.get("path"))
+                        if p not in seen_paths:
+                            paths_for_emp.append(meta)
+                            seen_paths.add(p)
+                            has_custom = True
+
+                deduped_paths = []
+                seen_stored_paths = set()
                 for meta in updated_paths:
-                    p = str(meta.get("path"))
-                    if p not in seen_paths:
-                        paths_for_emp.append(meta)
-                        seen_paths.add(p)
+                    p = meta["path"] if isinstance(meta, dict) else str(meta)
+                    if p not in seen_stored_paths:
+                        deduped_paths.append(meta)
+                        seen_stored_paths.add(p)
 
-                self.config_controller.employees[target_name] = updated_paths
-                self.config_controller._save_employees()
-                if paths_for_emp:
-                    has_custom = True
+                if config_changed and deduped_paths != self.config_controller.employees.get(
+                    target_name, []
+                ):
+                    self.config_controller.employees[target_name] = deduped_paths
+                    self.config_controller._save_employees()
 
             if not has_custom:
                 t_lower = target_name.lower()
