@@ -165,6 +165,17 @@ class CalamineReader:
                         rows_sample.append(row)
                         if idx >= 5999:
                             break
+                except BaseException as iter_err:
+                    # python-calamine can panic on some empty/broken sheets when iterating.
+                    # Fallback to to_python() only for this edge case.
+                    logger.debug(
+                        f"iter_rows failed for sheet {sheet_name}: {iter_err}. Falling back to to_python()."
+                    )
+                    try:
+                        rows_sample = sheet.to_python()[:6000]
+                    except Exception as e:
+                        logger.debug(f"Could not read sheet {sheet_name}: {e}")
+                        continue
                 except Exception as e:
                     logger.debug(f"Could not read sheet {sheet_name}: {e}")
                     continue
