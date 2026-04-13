@@ -22,7 +22,10 @@ def resolve_employee_path(
     """
     discovered_files = discovered_files or []
     rename_detected = False
-    p_abs = Path(path_str)
+    if config_controller and hasattr(config_controller, "resolve_path"):
+        p_abs = config_controller.resolve_path(path_str)
+    else:
+        p_abs = Path(path_str)
 
     if p_abs.is_absolute() and p_abs.exists():
         meta = {"path": str(p_abs)}

@@ -1,6 +1,7 @@
 import os
 import logging
 import hashlib
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from ruamel.yaml import YAML
@@ -103,10 +104,21 @@ class ConfigController:
         return sorted(self.employees.keys())
 
     def resolve_path(self, path_str: str) -> Path:
+        if self._is_effectively_absolute(path_str):
+            return Path(path_str)
         p = Path(path_str)
         if p.is_absolute():
             return p
         return Path(self.config_path).parent / p
+
+    @staticmethod
+    def _is_effectively_absolute(path_str: str) -> bool:
+        p = Path(path_str)
+        if p.is_absolute():
+            return True
+        if path_str.startswith("\\\\"):
+            return True
+        return bool(re.match(r"^[A-Za-z]:[\\/]", path_str))
 
     def get_paths(self) -> Dict[str, str]:
         """Returns the general paths configuration."""
