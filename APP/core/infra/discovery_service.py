@@ -113,11 +113,9 @@ class DiscoveryService:
                     if renamed:
                         self.rename_detected = True
                         config_changed = True
-                        stored_entry = meta if meta else {"path": resolved}
-                        updated_paths.append(stored_entry)
+                        updated_paths.append(meta if meta else {"path": resolved})
                     elif meta:
-                        stored_entry = dict(entry) if isinstance(entry, dict) else entry
-                        updated_paths.append(stored_entry)
+                        updated_paths.append(dict(entry) if isinstance(entry, dict) else entry)
                     else:
                         p_abs = Path(resolved)
                         if p_abs.exists():
@@ -126,8 +124,9 @@ class DiscoveryService:
                                 entry_meta["id"] = file_id
                             if file_hash is not None:
                                 entry_meta["fp"] = file_hash
-                            stored_entry = dict(entry) if isinstance(entry, dict) else entry
-                            updated_paths.append(stored_entry)
+                            updated_paths.append(
+                                dict(entry) if isinstance(entry, dict) else entry
+                            )
                             meta = entry_meta
 
                     if meta:
