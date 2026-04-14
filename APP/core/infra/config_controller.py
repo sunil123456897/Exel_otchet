@@ -112,7 +112,7 @@ class ConfigController:
         p = Path(path_str)
         if p.is_absolute():
             return p
-        return Path(self.config_path).parent / p
+        return (Path(self.config_path).parent / p).resolve()
 
     @staticmethod
     def _is_effectively_absolute(path_str: str) -> bool:

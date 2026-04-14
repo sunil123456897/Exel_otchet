@@ -267,6 +267,17 @@ class TestPathResolution:
         p = config_controller.resolve_path("\\\\server\\share\\Alice.xlsx")
         assert str(p).startswith("\\\\server\\share\\")
 
+    def test_resolve_path_normalizes_parent_segments(self, tmp_path):
+        config_dir = tmp_path / "APP"
+        config_dir.mkdir()
+        cfg = config_dir / "config.yaml"
+        cfg.write_text("paths: {}\n", encoding="utf-8")
+
+        cc = ConfigController(str(cfg))
+
+        resolved = cc.resolve_path("../output/Master.xlsx")
+        assert resolved == (config_dir / "../output/Master.xlsx").resolve()
+
 
 class TestSaveConfig:
     """Тесты сохранения конфига."""
