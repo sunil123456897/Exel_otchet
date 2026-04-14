@@ -224,7 +224,7 @@ def test_calamine_reader_read_xlsb(tmp_path, create_temp_xlsb):
         mock_wb.sheet_names = ["01.01.2026"]
         mock_sheet = MagicMock()
         mock_sheet.to_python.return_value = data
-        mock_sheet.iter_rows.return_value = iter(data)
+        mock_sheet.iter_rows.side_effect = lambda: iter(data)
         mock_wb.get_sheet_by_name.return_value = mock_sheet
 
         mock_from_path.return_value = mock_wb

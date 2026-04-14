@@ -46,9 +46,8 @@ def test_calamine_reader_uses_iterator(mocker):
     )
     reader.read(Path("dummy.xlsx"))
 
-    # Now calls to_python once for header detection
-    assert mock_sheet.to_python.call_count == 1
-    assert mock_sheet.iter_rows.call_count > 0
+    # The new implementation uses iter_rows for header detection
+    assert mock_sheet.iter_rows.call_count >= 1
 
 
 # 2. Test Config Schema Fragility

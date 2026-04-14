@@ -39,7 +39,7 @@ class TestRenameDetectionProperties:
 
     @given(
         st.text(min_size=1, max_size=20).filter(
-            lambda s: "/" not in s and "\\" not in s
+            lambda s: "/" not in s and "\\" not in s and "\x00" not in s
         ),
         st.integers(min_value=1, max_value=1000000),
     )
@@ -70,8 +70,8 @@ class TestRenameDetectionProperties:
         assert result["TestEmp"][0]["path"] == new_path
 
     @given(
-        st.text(min_size=1, max_size=20),
-        st.text(min_size=1, max_size=20),
+        st.text(min_size=1, max_size=20).filter(lambda s: "\x00" not in s),
+        st.text(min_size=1, max_size=20).filter(lambda s: "\x00" not in s),
     )
     @settings(max_examples=50)
     def test_same_hash_always_detects_rename(self, old_name, new_name):

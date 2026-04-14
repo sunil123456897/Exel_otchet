@@ -83,6 +83,9 @@ class MasterWriter(IExporter):
                     return (0, 9999, 99, 99)
             return (1, 0, 0, SPECIAL_ORDER.index(n) if n in SPECIAL_ORDER else 99)
 
+        if not wb.sheetnames:
+            wb.create_sheet("СВОД")
+
         for i, n in enumerate(sorted(wb.sheetnames, key=key)):
             curr = wb.sheetnames.index(n)
             offset = i - curr

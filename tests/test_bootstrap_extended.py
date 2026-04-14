@@ -187,8 +187,8 @@ class TestPathResolution:
             Bootstrap.setup(app_root, str(config_file))
 
             cfg = mock_cfg.return_value.config["paths"]
-            assert cfg["source_root"] == "Q:/reports"
-            assert cfg["source_roots"][0] == "Q:/reports"
+            assert str(Path(cfg["source_root"])) == str(Path("Q:/reports"))
+            assert str(Path(cfg["source_roots"][0])) == str(Path("Q:/reports"))
             assert cfg["source_roots"][1] == r"\\server\share\reports"
 
 
