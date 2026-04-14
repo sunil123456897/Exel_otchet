@@ -149,13 +149,6 @@ class DiscoveryService:
                     self.config_controller.employees[target_name] = deduped_paths
                     self.config_controller._save_employees()
 
-            if not has_custom and target_name and target_name in custom_paths:
-                t_lower = target_name.lower()
-                for d_name, files in discovered_map.items():
-                    if t_lower == d_name.lower():
-                        for f in files:
-                            self._append_unique(paths_for_emp, f, seen_result_paths)
-
             result[target_name] = paths_for_emp
 
         return result

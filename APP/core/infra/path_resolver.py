@@ -8,6 +8,34 @@ from typing import List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def _path_suffix_candidates(path_str: str) -> List[str]:
+    norm = path_str.replace("\\", "/").lower().strip()
+    if not norm:
+        return []
+
+    candidates = [norm]
+    reports_marker = "/reports/"
+    idx = norm.find(reports_marker)
+    if idx != -1:
+        candidates.append(norm[idx + len(reports_marker) :])
+
+    parts = [part for part in norm.split("/") if part not in ("", ".", "..")]
+    if parts:
+        candidates.append("/".join(parts))
+    if len(parts) >= 2:
+        candidates.append("/".join(parts[-2:]))
+    if parts:
+        candidates.append(parts[-1])
+
+    deduped = []
+    seen = set()
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            deduped.append(candidate)
+            seen.add(candidate)
+    return deduped
+
+
 def resolve_employee_path(
     path_str: str,
     file_id=None,
@@ -33,19 +61,11 @@ def resolve_employee_path(
             except (TypeError, ValueError, OSError) as e:
                 logger.debug("resolve_path failed, using original path value: %s", e)
 
-    if p_abs.is_absolute() and p_abs.exists():
-        meta = {"path": str(p_abs)}
-        if file_id is not None:
-            meta["id"] = file_id
-        if file_hash is not None:
-            meta["fp"] = file_hash
-        return str(p_abs), meta, False
-
     found_meta = None
-    norm_path = path_str.replace("\\", "/").lower()
+    suffixes = _path_suffix_candidates(path_str)
     for df in discovered_files:
         df_norm = df["path"].replace("\\", "/").lower()
-        if df_norm.endswith(norm_path):
+        if any(df_norm.endswith(suffix) for suffix in suffixes):
             found_meta = df
             break
 
@@ -60,6 +80,14 @@ def resolve_employee_path(
     if found_meta:
         rename_detected = True
         return found_meta["path"], found_meta, rename_detected
+
+    if p_abs.is_absolute() and p_abs.exists():
+        meta = {"path": str(p_abs)}
+        if file_id is not None:
+            meta["id"] = file_id
+        if file_hash is not None:
+            meta["fp"] = file_hash
+        return str(p_abs), meta, False
 
     if (
         not p_abs.is_absolute()

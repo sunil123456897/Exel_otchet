@@ -104,6 +104,39 @@ class TestMultiFileEmployees:
 class TestRenameDetection:
     """Переименование и перемещение файлов."""
 
+    def test_legacy_relative_reports_path_migrates_to_matching_q_drive_file(
+        self, tmp_path
+    ):
+        legacy_path = (
+            "../REPORTS/Отчет кураторов 1/Оливия/Ежедневый отчет Оливия Г.xlsx"
+        )
+        q_match = r"Q:/Отчет кураторов 1/Оливия/Ежедневый отчет Оливия Г.xlsx"
+        q_other = r"Q:/Отчет кураторов 1/Оливия/Лишний файл.xlsx"
+
+        config_controller = MagicMock()
+        config_controller.config = {
+            "employees": ["Оливия"],
+            "paths": {"source_roots": [r"Q:/Отчет кураторов 1"]},
+        }
+        config_controller.config_path = str(tmp_path / "APP" / "config.yaml")
+        config_controller.employees = {
+            "Оливия": [{"path": legacy_path, "id": None, "fp": None}]
+        }
+
+        ingestion = MagicMock()
+        ingestion.scan_directory.return_value = [
+            {"path": q_other, "id": 1, "fp": "other"},
+            {"path": q_match, "id": 2, "fp": "match"},
+        ]
+
+        ds = DiscoveryService(config_controller, ingestion)
+
+        result = ds.get_employees_map()
+
+        assert result["Оливия"][0]["path"] == q_match
+        assert len(result["Оливия"]) == 1
+        assert ds.rename_detected is True
+
     def test_suffix_based_rename(self, discovery_service, tmp_path):
         """Файл с суффиксным совпадением должен быть определён как переименованный."""
         Path(tmp_path / "Отчет кураторов 1" / "Иван").mkdir(parents=True, exist_ok=True)

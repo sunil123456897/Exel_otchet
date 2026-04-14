@@ -12,7 +12,7 @@ import os
 import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings, assume, HealthCheck
 from hypothesis.strategies import text, lists, dictionaries
 
 from core.infra.discovery_service import DiscoveryService
@@ -210,7 +210,7 @@ class TestEdgeCaseProperties:
         assert result == {}
 
     @given(st.text(min_size=0, max_size=50))
-    @settings(max_examples=30)
+    @settings(max_examples=30, suppress_health_check=[HealthCheck.filter_too_much])
     def test_special_chars_in_employee_name(self, emp_name):
         """Специальные символы в именах не ломают логику."""
         assume(emp_name.strip())
