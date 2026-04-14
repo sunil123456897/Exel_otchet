@@ -8,6 +8,7 @@ import pytest
 import os
 from datetime import datetime
 from pathlib import Path
+import queue
 from unittest.mock import MagicMock, patch, call
 from core.app_controller import AppController
 
@@ -342,6 +343,42 @@ class TestRunConsolidation:
             run_thread_task(mock_thread)
 
         on_complete.assert_called_with(False, "Ошибка записи основного отчёта", None)
+
+    def test_staging_write_failure_marks_file_and_session_failed(
+        self, app_controller, mock_deps
+    ):
+        app_controller._cached_employees = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        mock_deps["persistence"].save_file_metadata.return_value = [1]
+        mock_deps["ingestion"].read_file.return_value = [
+            {"date": "01.04.2026", "amount": 100}
+        ]
+        mock_deps["validator"].validate_row.return_value = True
+        mock_deps["persistence"].wait_for_writes.side_effect = RuntimeError(
+            "staging write failed"
+        )
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_consolidation(
+                datetime(2026, 4, 1), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        mock_deps["persistence"].update_file_status.assert_any_call(
+            1, "error", "staging write failed"
+        )
+        mock_deps["persistence"].update_session_status.assert_called_with(
+            mock_deps["persistence"].save_session.call_args[0][0], "failed"
+        )
+        on_complete.assert_called_with(False, "staging write failed", None)
 
     def test_session_status_marked_completed(self, app_controller, mock_deps):
         app_controller._cached_employees = {

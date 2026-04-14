@@ -64,6 +64,7 @@ def process_file_task(
 
         if valid_rows:
             persistence.save_staging_data(file_id, valid_rows)
+            persistence.wait_for_writes()
         persistence.update_file_status(file_id, "processed")
         return len(valid_rows)
     except Exception as e:
@@ -118,7 +119,6 @@ def run_engine(
             processed_files += 1
             on_progress((processed_files / total_files) * 50)
 
-    persistence.wait_for_writes()
     logging.info(
         f"Ingestion complete. Total valid rows processed: {total_rows_processed}"
     )

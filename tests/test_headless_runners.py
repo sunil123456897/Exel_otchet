@@ -46,6 +46,25 @@ def test_headless_run_shutdowns_controller_on_timeout(monkeypatch):
     db.close.assert_not_called()
 
 
+def test_headless_run_respects_timeout_env_override(monkeypatch):
+    app_ctl = MagicMock()
+    db = MagicMock()
+    event = MagicMock()
+    event.wait.return_value = True
+
+    monkeypatch.setattr(sys, "argv", ["headless_run.py"])
+    monkeypatch.setenv("HEADLESS_RUN_TIMEOUT", "0")
+
+    with (
+        patch("headless_run.Bootstrap.setup", return_value=(None, app_ctl, db)),
+        patch("headless_run.threading.Event", return_value=event),
+    ):
+        headless_run.main()
+
+    event.wait.assert_called_once_with()
+    app_ctl.shutdown.assert_called_once()
+
+
 def test_toxic_run_shutdowns_controller_on_success(monkeypatch):
     app_ctl = MagicMock()
     db = MagicMock()
@@ -84,3 +103,23 @@ def test_toxic_run_shutdowns_controller_on_timeout(monkeypatch):
 
     app_ctl.shutdown.assert_called_once()
     db.close.assert_not_called()
+
+
+def test_toxic_run_respects_timeout_env_override(monkeypatch):
+    app_ctl = MagicMock()
+    db = MagicMock()
+    event = MagicMock()
+    event.wait.return_value = True
+
+    monkeypatch.setattr(sys, "argv", ["toxic_run.py"])
+    monkeypatch.setenv("CONFIG_PATH", "config.yaml")
+    monkeypatch.setenv("HEADLESS_RUN_TIMEOUT", "0")
+
+    with (
+        patch("toxic_run.Bootstrap.setup", return_value=(None, app_ctl, db)),
+        patch("toxic_run.threading.Event", return_value=event),
+    ):
+        toxic_run.main()
+
+    event.wait.assert_called_once_with()
+    app_ctl.shutdown.assert_called_once()

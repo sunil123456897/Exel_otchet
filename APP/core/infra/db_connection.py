@@ -53,6 +53,7 @@ class SQLiteConnectionManager:
             timeout=self.config.get("database", {}).get("timeout", 30.0),
         )
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA synchronous = NORMAL;")
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA temp_store = MEMORY;")
@@ -74,7 +75,7 @@ class SQLiteConnectionManager:
             except sqlite3.OperationalError as e:
                 if any(x in str(e).lower() for x in ["locked", "busy"]):
                     last_err = e
-                    delay = self.retry_backoff * (2 ** attempt)
+                    delay = self.retry_backoff * (2**attempt)
                     self.logger.warning(
                         f"SQLite retry {attempt + 1}/{self.retry_count}: {e}, "
                         f"waiting {delay:.1f}s"

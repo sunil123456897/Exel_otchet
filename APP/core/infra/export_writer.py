@@ -94,6 +94,7 @@ class MasterWriter(IExporter):
                 wb.move_sheet(n, offset=offset)
 
         path_abs = os.path.abspath(path or self.master_path)
+        Path(path_abs).parent.mkdir(parents=True, exist_ok=True)
         tmp = path_abs + ".tmp"
 
         if os.name == "nt" and len(tmp) > 250:

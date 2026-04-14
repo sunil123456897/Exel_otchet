@@ -454,6 +454,15 @@ class TestSaveWorkbook:
         )
         wb2.close()
 
+    def test_save_workbook_creates_missing_parent_directory(
+        self, master_writer, temp_output_dir
+    ):
+        wb = Workbook()
+        nested = temp_output_dir / "nested" / "reports" / "report.xlsx"
+
+        assert master_writer._save_workbook(wb, nested) is True
+        assert nested.exists()
+
 
 class TestEdgeCases:
     """Edge cases и corner cases."""

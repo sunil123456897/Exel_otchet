@@ -103,15 +103,17 @@ class IngestionEngine(IDataSource):
         last_err = None
         for attempt in range(_FILE_READ_RETRIES):
             try:
-                return self.reader.read(file_path)
+                return self.reader.read(file_path, strict_io=True)
             except (OSError, IOError, PermissionError) as e:
                 last_err = e
                 logger.warning(
                     f"File read retry {attempt + 1}/{_FILE_READ_RETRIES} for "
                     f"{file_path}: {e}"
                 )
-                time.sleep(min(60, _FILE_READ_BACKOFF * (2 ** attempt)))
+                time.sleep(min(60, _FILE_READ_BACKOFF * (2**attempt)))
             except Exception:
                 raise
-        logger.error(f"Failed to read {file_path} after {_FILE_READ_RETRIES} retries: {last_err}")
+        logger.error(
+            f"Failed to read {file_path} after {_FILE_READ_RETRIES} retries: {last_err}"
+        )
         return []

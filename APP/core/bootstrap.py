@@ -18,29 +18,39 @@ from core.app_controller import AppController
 
 # ── Item 8: Pydantic config validation ──────────────────────
 
+
 class PathsConfig(BaseModel):
     """Validates the 'paths' section of config."""
+
     master_file: str = "Master_Report.xlsx"
     source_root: str = "REPORTS"
     source_roots: Optional[List[str]] = None
 
+
 class DatabaseConfig(BaseModel):
     """Validates the 'database' section."""
+
     path: str = "cache.db"
     schema_path: str = "db_schema.sql"
     timeout: float = 30.0
 
+
 class LockingConfig(BaseModel):
     """Validates the 'locking' section."""
+
     retry_count: int = 3
     retry_backoff: float = 1.0
 
+
 class NetworkConfig(BaseModel):
     """Validates the 'network' section."""
+
     drive_letters: List[str] = ["Q", "Z"]
+
 
 class AppConfig(BaseModel):
     """Top-level config model with safe defaults."""
+
     paths: PathsConfig = PathsConfig()
     database: DatabaseConfig = DatabaseConfig()
     locking: LockingConfig = LockingConfig()
@@ -55,7 +65,10 @@ class AppConfig(BaseModel):
 
 # ── Item 10: Path traversal protection ──────────────────────
 
-def _validate_path_safety(resolved: Path, app_root: Path) -> Path:
+
+def _validate_path_safety(
+    resolved: Path, app_root: Path, allow_external: bool = False
+) -> Path:
     """Ensure resolved path does not escape the app_root via traversal.
 
     Returns the resolved path, or raises ValueError if traversal detected.
@@ -63,19 +76,14 @@ def _validate_path_safety(resolved: Path, app_root: Path) -> Path:
     try:
         resolved_abs = resolved.resolve()
         app_root_abs = app_root.resolve()
-        # Allow paths inside app_root or on the same drive (Windows network paths)
-        if str(resolved_abs).startswith(str(app_root_abs)):
+        if resolved_abs.is_relative_to(app_root_abs):
             return resolved_abs
-        # For absolute paths on other drives (Q:, Z:, UNC) we allow them
-        if _is_effectively_absolute(str(resolved)):
+        if allow_external:
             return resolved_abs
-        # Relative paths must stay inside app_root
         raise ValueError(
             f"Path traversal detected: '{resolved}' escapes app root '{app_root}'"
         )
-    except (OSError, ValueError) as e:
-        if isinstance(e, ValueError):
-            raise
+    except OSError:
         return resolved
 
 
@@ -117,12 +125,57 @@ class Bootstrap:
         if not isinstance(raw_cfg, dict):
             logging.warning("Config is not a dict — using safe defaults.")
             raw_cfg = {}
-        try:
-            AppConfig(**raw_cfg)
-            cfg = raw_cfg  # Keep original dict for backward compat
-        except Exception as e:
-            logging.warning(f"Config validation warning: {e}. Using safe defaults.")
-            cfg = {}
+        cfg = dict(raw_cfg)
+
+        def validate_section(
+            section_name: str, model_cls: type[BaseModel]
+        ) -> Dict[str, Any]:
+            section_raw = raw_cfg.get(section_name, {})
+            if section_raw is None:
+                section_raw = {}
+            if not isinstance(section_raw, dict):
+                logging.warning(
+                    "Config validation warning: %s is not a dict. Using safe defaults.",
+                    section_name,
+                )
+                return model_cls().model_dump(exclude_none=True)
+
+            validated = model_cls().model_dump(exclude_none=True)
+            extras = {
+                key: value
+                for key, value in section_raw.items()
+                if key not in model_cls.model_fields
+            }
+            for key in model_cls.model_fields:
+                if key not in section_raw:
+                    continue
+                try:
+                    partial = model_cls.model_validate({key: section_raw[key]})
+                    partial_dump = partial.model_dump(exclude_none=True)
+                    if key in partial_dump:
+                        validated[key] = partial_dump[key]
+                except Exception as e:
+                    logging.warning(
+                        "Config validation warning for %s.%s: %s. Using default value.",
+                        section_name,
+                        key,
+                        e,
+                    )
+            validated.update(extras)
+            return validated
+
+        cfg["paths"] = validate_section("paths", PathsConfig)
+        cfg["database"] = validate_section("database", DatabaseConfig)
+        cfg["locking"] = validate_section("locking", LockingConfig)
+        cfg["network"] = validate_section("network", NetworkConfig)
+        if not isinstance(cfg.get("sh1"), dict):
+            cfg["sh1"] = {}
+        if not isinstance(cfg.get("logic"), dict):
+            cfg["logic"] = {}
+        if not isinstance(cfg.get("curators"), dict):
+            cfg["curators"] = {}
+        if not isinstance(cfg.get("validation"), dict):
+            cfg["validation"] = {}
 
         cfg_ctl.config = cfg
 
@@ -138,12 +191,12 @@ class Bootstrap:
                     return str(app_root / default_filename)
                 return ""
             path = Path(p)
-            if not _is_effectively_absolute(p):
+            allow_external = _is_effectively_absolute(p)
+            if not allow_external:
                 resolved = app_root / path
             else:
                 resolved = path
-            # Item 10: Validate path traversal
-            _validate_path_safety(resolved, app_root)
+            resolved = _validate_path_safety(resolved, app_root, allow_external)
             return str(resolved)
 
         # Resolve essential paths

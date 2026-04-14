@@ -18,6 +18,7 @@ def main():
     logger = logging.getLogger("Headless-Toxic")
     app_ctl = None
     db = None
+    timeout = int(os.environ.get("HEADLESS_RUN_TIMEOUT", "600"))
     try:
         config_path = (
             sys.argv[1] if len(sys.argv) > 1 else os.environ.get("CONFIG_PATH")
@@ -40,7 +41,8 @@ def main():
         logger.info("Triggering run_consolidation_all_dates with Toxic Data...")
         app_ctl.run_consolidation_all_dates(lambda p: None, on_comp)
 
-        if not done.wait(timeout=600):
+        finished = done.wait(timeout=timeout) if timeout > 0 else done.wait()
+        if not finished:
             logger.error("Timed out waiting for consolidation to complete")
             sys.exit(1)
     except Exception as e:

@@ -113,7 +113,7 @@ class CalamineReader:
 
         return col_map, used_aliases
 
-    def read(self, file_path: Path) -> List[Dict[str, Any]]:
+    def read(self, file_path: Path, strict_io: bool = False) -> List[Dict[str, Any]]:
         """Прочитать все листы файла и вернуть список строк.
 
         Алгоритм:
@@ -147,7 +147,16 @@ class CalamineReader:
             "итог:",
         ]
 
-        target_path, temp_file = get_local_copy(f_path_abs, self.drive_letters)
+        try:
+            target_path, temp_file = get_local_copy(f_path_abs, self.drive_letters)
+        except (OSError, IOError, PermissionError) as e:
+            if strict_io:
+                raise
+            logger.error(f"Calamine error {f_path_abs}: {e}")
+            return all_rows
+        except Exception as e:
+            logger.error(f"Calamine error {f_path_abs}: {e}")
+            return all_rows
 
         try:
             wb = CalamineWorkbook.from_path(target_path)
@@ -352,6 +361,10 @@ class CalamineReader:
                                 f"Row {i + 1} in {sheet_name} has data but no financial values"
                             )
 
+        except (OSError, IOError, PermissionError) as e:
+            if strict_io:
+                raise
+            logger.error(f"Calamine error {f_path_abs}: {e}")
         except Exception as e:
             logger.error(f"Calamine error {f_path_abs}: {e}")
         except BaseException as e:

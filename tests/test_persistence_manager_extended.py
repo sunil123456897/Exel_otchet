@@ -155,6 +155,30 @@ class TestDBWriterThread:
         # Поток должен продолжать работать
         assert db_setup.writer_thread.is_alive()
 
+    def test_wait_for_writes_raises_staging_write_error(self, db_setup, monkeypatch):
+        session_id = "session_error"
+        db_setup.save_session(session_id, {})
+        file_id = db_setup.save_file_metadata(session_id, [{"path": "f.xlsx"}])[0]
+
+        rows = [
+            {
+                "_row_index": 1,
+                "date": "01.04.2026",
+                "amount": 100,
+                "employee_name": "Test",
+                "source_type": "Staff",
+            }
+        ]
+
+        def boom(batch):
+            raise RuntimeError("staging write failed")
+
+        monkeypatch.setattr(db_setup.writer_thread, "_process_batch", boom)
+        db_setup.save_staging_data(file_id, rows)
+
+        with pytest.raises(RuntimeError, match="staging write failed"):
+            db_setup.wait_for_writes()
+
 
 class TestGetConnection:
     """Тесты _get_connection."""
@@ -166,6 +190,9 @@ class TestGetConnection:
             mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode == "wal"
 
+            foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+            assert foreign_keys == 1
+
             # Проверить synchronous
             sync = conn.execute("PRAGMA synchronous").fetchone()[0]
             assert sync == 1  # NORMAL
@@ -173,6 +200,18 @@ class TestGetConnection:
             # Проверить temp_store
             temp = conn.execute("PRAGMA temp_store").fetchone()[0]
             assert temp == 2  # MEMORY
+        finally:
+            conn.close()
+
+    def test_foreign_keys_reject_orphan_source_file(self, db_setup):
+        conn = db_setup._get_connection()
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO source_files (session_id, file_path) VALUES (?, ?)",
+                    ("missing_session", "orphan.xlsx"),
+                )
+                conn.commit()
         finally:
             conn.close()
 

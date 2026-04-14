@@ -3,10 +3,12 @@ import shutil
 import pytest
 import tempfile
 import logging
+import time
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 from core.infra.ingestion_reader import CalamineReader
+from core.infra.ingestion_engine import IngestionEngine
 from python_calamine import CalamineWorkbook
 
 MARKERS = {
@@ -102,3 +104,23 @@ def test_unsupported_network_path(reader):
         results = reader.read(Path(http_path))
         # get_local_copy returns path as-is for non-network paths (http:// doesn't start with \\ and isn't a drive letter)
         assert results == []
+
+
+def test_ingestion_engine_retries_reader_os_error(tmp_path):
+    engine = IngestionEngine({})
+    source = tmp_path / "retry.xlsx"
+    source.touch()
+
+    attempts = {"count": 0}
+
+    def flaky_read(_, strict_io=False):
+        attempts["count"] += 1
+        raise OSError("network lost")
+
+    engine.reader.read = flaky_read
+
+    with patch("time.sleep"):
+        rows = engine.read_file(source)
+
+    assert rows == []
+    assert attempts["count"] == 3

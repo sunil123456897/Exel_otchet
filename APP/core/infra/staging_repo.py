@@ -16,12 +16,18 @@ class DBWriterThread(threading.Thread):
     BATCH_SIZE = 10
     BATCH_TIMEOUT = 0.5
 
-    def __init__(self, connection_manager: SQLiteConnectionManager, q: queue.Queue):
+    def __init__(
+        self,
+        connection_manager: SQLiteConnectionManager,
+        q: queue.Queue,
+        error_callback=None,
+    ):
         super().__init__(name="DBWriterThread", daemon=True)
         self.connection_manager = connection_manager
         self.q = q
         self.running = True
         self.logger = logging.getLogger(__name__)
+        self.error_callback = error_callback
 
     def run(self):
         while self.running or not self.q.empty():
@@ -53,6 +59,8 @@ class DBWriterThread(threading.Thread):
                 continue
             except Exception as e:
                 self.logger.error(f"Error in DBWriterThread: {e}", exc_info=True)
+                if self.error_callback is not None:
+                    self.error_callback(e)
                 # Mark batch items as done to avoid blocking join()
                 for _ in batch:
                     try:
@@ -109,8 +117,19 @@ class StagingDataRepository:
     def __init__(self, connection_manager: SQLiteConnectionManager):
         self.connection_manager = connection_manager
         self.write_queue = queue.Queue()
-        self.writer_thread = DBWriterThread(self.connection_manager, self.write_queue)
+        self._write_error = None
+        self._write_error_lock = threading.Lock()
+        self.writer_thread = DBWriterThread(
+            self.connection_manager,
+            self.write_queue,
+            error_callback=self._record_write_error,
+        )
         self.writer_thread.start()
+
+    def _record_write_error(self, error: Exception) -> None:
+        with self._write_error_lock:
+            if self._write_error is None:
+                self._write_error = error
 
     def save_staging_data(self, file_id: int, rows: List[Dict[str, Any]]) -> None:
         if not rows:
@@ -146,3 +165,8 @@ class StagingDataRepository:
 
     def wait_for_writes(self):
         self.write_queue.join()
+        with self._write_error_lock:
+            if self._write_error is not None:
+                err = self._write_error
+                self._write_error = None
+                raise err

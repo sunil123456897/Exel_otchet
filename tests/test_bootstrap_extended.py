@@ -160,7 +160,9 @@ class TestPathResolution:
             cfg = mock_cfg.return_value.config
             assert cfg["database"]["path"] == str(app_root / "cache.db")
 
-    def test_windows_like_source_root_not_prefixed(self, app_root, valid_config_content):
+    def test_windows_like_source_root_not_prefixed(
+        self, app_root, valid_config_content
+    ):
         config_file = app_root / "config.yaml"
         config_file.write_text(valid_config_content, encoding="utf-8")
 
@@ -190,6 +192,32 @@ class TestPathResolution:
             assert str(Path(cfg["source_root"])) == str(Path("Q:/reports"))
             assert str(Path(cfg["source_roots"][0])) == str(Path("Q:/reports"))
             assert cfg["source_roots"][1] == r"\\server\share\reports"
+
+    def test_relative_parent_escape_is_rejected(self, app_root, valid_config_content):
+        config_file = app_root / "config.yaml"
+        config_file.write_text(valid_config_content, encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+            pytest.raises(ValueError, match="Path traversal detected"),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {
+                    "master_file": "../outside/Master.xlsx",
+                    "source_root": "REPORTS",
+                },
+                "sh1": {"markers": {}},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
 
 
 class TestConfigValidation:
@@ -254,6 +282,41 @@ class TestConfigValidation:
             cfg_ctl, app_ctl, persistence = Bootstrap.setup(app_root, str(config_file))
             assert cfg_ctl is not None
             assert isinstance(mock_cfg.return_value.config, dict)
+
+    def test_invalid_database_timeout_preserves_valid_paths(self, app_root):
+        config_file = app_root / "config.yaml"
+        config_file.write_text("paths: {}", encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {
+                    "master_file": "output/Master.xlsx",
+                    "source_root": "REPORTS/custom",
+                },
+                "database": {
+                    "path": "cache.db",
+                    "schema_path": "schema.sql",
+                    "timeout": "slow",
+                },
+                "sh1": {"markers": {}},
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
+
+            cfg = mock_cfg.return_value.config
+            assert cfg["paths"]["master_file"].endswith(
+                str(Path("output") / "Master.xlsx")
+            )
+            assert cfg["paths"]["source_root"].endswith(str(Path("REPORTS") / "custom"))
 
 
 class TestDependencyInjection:
