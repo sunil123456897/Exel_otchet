@@ -400,7 +400,30 @@ class TestEmployeeDiscovery:
 
     def test_config_updates_employee_paths(self, discovery_service, tmp_path):
         """config.employee_paths должен обновляться после get_employees_map."""
-        pytest.skip("Complex path resolution depends on Windows temp structure")
+        old_path = str(tmp_path / "Alice_old.xlsx")
+        new_file = tmp_path / "Alice_new.xlsx"
+        new_file.touch()
+
+        config = {
+            "employees": ["Alice"],
+            "employee_paths": {"Alice": [{"path": old_path, "id": 42, "fp": "hash42"}]},
+            "paths": {"source_roots": [str(tmp_path)]},
+        }
+        ds = discovery_service(
+            config,
+            scan_result=[
+                {"path": str(new_file), "id": 42, "fp": "hash42"},
+            ],
+        )
+
+        result = ds.get_employees_map()
+
+        assert ds.rename_detected is True
+        assert result["Alice"][0]["path"] == str(new_file)
+        assert ds.config_controller.employees["Alice"] == [
+            {"path": str(new_file), "id": 42, "fp": "hash42"}
+        ]
+        ds.config_controller._save_employees.assert_called_once()
 
 
 class TestEdgeCases:

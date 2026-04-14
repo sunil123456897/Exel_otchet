@@ -213,13 +213,10 @@ class TestEdgeCaseProperties:
     @settings(max_examples=30)
     def test_special_chars_in_employee_name(self, emp_name):
         """Специальные символы в именах не ломают логику."""
-        import sys
-
-        if sys.platform == "win32":
-            pytest.skip("Windows path restrictions")
         assume(emp_name.strip())
         assume("/" not in emp_name and "\\" not in emp_name)
         assume(all(c not in emp_name for c in ':*?"<>|'))
+        assume(all(c.isprintable() for c in emp_name))
 
         config = {
             "employees": [emp_name],

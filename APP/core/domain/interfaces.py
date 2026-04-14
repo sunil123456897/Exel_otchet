@@ -3,8 +3,10 @@ from typing import List, Dict, Any, Optional
 from decimal import Decimal
 from pathlib import Path
 
+
 class IDataSource(ABC):
     """Interface for scanning and reading source Excel reports."""
+
     @abstractmethod
     def scan_directory(self, root_path: Path) -> List[Dict[str, Any]]:
         """Scans directory and returns list of candidate file metadata."""
@@ -15,8 +17,10 @@ class IDataSource(ABC):
         """Reads Excel file and returns a list of raw row dictionaries."""
         pass
 
+
 class IPersistence(ABC):
     """Interface for database operations (SQLite)."""
+
     @abstractmethod
     def init_db(self) -> None:
         """Initializes database tables and indexes."""
@@ -28,7 +32,9 @@ class IPersistence(ABC):
         pass
 
     @abstractmethod
-    def save_file_metadata(self, session_id: str, files: List[Dict[str, Any]]) -> List[int]:
+    def save_file_metadata(
+        self, session_id: str, files: List[Dict[str, Any]]
+    ) -> List[int]:
         """Saves file metadata and returns generated IDs."""
         pass
 
@@ -53,6 +59,18 @@ class IPersistence(ABC):
         pass
 
     @abstractmethod
+    def update_session_status(self, session_id: str, status: str) -> None:
+        """Updates session lifecycle status."""
+        pass
+
+    @abstractmethod
+    def update_file_status(
+        self, file_id: int, status: str, error_message: Optional[str] = None
+    ) -> None:
+        """Updates file processing status and optional error message."""
+        pass
+
+    @abstractmethod
     def get_consolidated_data(self, session_id: str) -> List[Dict[str, Any]]:
         """Retrieves aggregated data grouped by employee and date."""
         pass
@@ -62,8 +80,10 @@ class IPersistence(ABC):
         """Closes database connections."""
         pass
 
+
 class IValidator(ABC):
     """Interface for row-level validation and junk detection."""
+
     @abstractmethod
     def validate_row(self, row: Dict[str, Any]) -> bool:
         """Returns True if row is valid, False otherwise."""
@@ -74,10 +94,14 @@ class IValidator(ABC):
         """Returns list of validation errors for the last processed row."""
         pass
 
+
 class ILogicService(ABC):
     """Interface for financial transformations and consolidation."""
+
     @abstractmethod
-    def apply_financial_rules(self, raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def apply_financial_rules(
+        self, raw_rows: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """Applies commissions, returns, and other business rules."""
         pass
 
@@ -86,10 +110,11 @@ class ILogicService(ABC):
         """Performs SQL-based aggregation for the final report."""
         pass
 
+
 class IExporter(ABC):
     """Interface for generating final Excel master reports."""
+
     @abstractmethod
     def write_report(self, data: List[Dict[str, Any]], output_path: Path) -> bool:
         """Writes consolidated data to the target Excel file with formatting."""
         pass
-

@@ -77,7 +77,10 @@ class ConfigController:
             try:
                 stat = os.stat(p)
                 with open(p, "rb") as f:
-                    h = hashlib.md5(f.read(8192)).hexdigest()
+                    digest = hashlib.md5()
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        digest.update(chunk)
+                    h = digest.hexdigest()
                 new_metas.append({"path": str(p), "id": stat.st_ino, "fp": h})
             except Exception as e:
                 logging.error(f"Error generating metadata for {fp}: {e}")

@@ -24,7 +24,7 @@ def temp_dir():
     yield Path(d)
     try:
         shutil.rmtree(d)
-    except:
+    except OSError:
         pass
 
 

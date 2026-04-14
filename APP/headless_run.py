@@ -7,25 +7,32 @@ from datetime import datetime
 from pathlib import Path
 
 app_root = Path(__file__).parent.absolute()
-if str(app_root) not in sys.path: sys.path.insert(0, str(app_root))
+if str(app_root) not in sys.path:
+    sys.path.insert(0, str(app_root))
 
 from core.bootstrap import Bootstrap
+
 
 def main():
     parser = argparse.ArgumentParser(description="Run headless consolidation.")
     parser.add_argument("--date", type=str, help="Date to consolidate (DD.MM.YYYY)")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
     logger = logging.getLogger("Headless")
+    app_ctl = None
     db = None
     try:
         _, app_ctl, db = Bootstrap.setup(app_root, str(app_root / "config.yaml"))
         done = threading.Event()
-        
+
         def on_comp(ok, msg, path):
-            if ok: logger.info(f"DONE: {msg}")
-            else: logger.error(msg)
+            if ok:
+                logger.info(f"DONE: {msg}")
+            else:
+                logger.error(msg)
             done.set()
 
         if args.date:
@@ -35,7 +42,7 @@ def main():
         else:
             logger.info("Triggering run_consolidation_all_dates...")
             app_ctl.run_consolidation_all_dates(lambda p: None, on_comp)
-        
+
         if not done.wait(timeout=600):
             logger.error("Timed out waiting for consolidation to complete")
             sys.exit(1)
@@ -43,7 +50,11 @@ def main():
         logger.critical(f"Failed: {e}")
         sys.exit(1)
     finally:
-        if db is not None:
+        if app_ctl is not None:
+            app_ctl.shutdown()
+        elif db is not None:
             db.close()
 
-if __name__ == "__main__": main()
+
+if __name__ == "__main__":
+    main()

@@ -1,5 +1,6 @@
 """Тесты для ConfigController."""
 
+import hashlib
 import pytest
 import os
 import tempfile
@@ -204,6 +205,17 @@ class TestAttachFiles:
         config_controller.attach_files("Марго", [str(f)])
         paths = config_controller.employees.get("Марго", [])
         assert len(paths[0]["fp"]) == 32
+
+    def test_attach_hashes_entire_file_content(self, config_controller, tmp_path):
+        """Smart tracking должен хэшировать весь файл, а не только префикс."""
+        content = (b"a" * 8192) + b"tail-bytes-change-the-hash"
+        f = tmp_path / "large-report.xlsx"
+        f.write_bytes(content)
+
+        config_controller.attach_files("Марго", [str(f)])
+
+        paths = config_controller.employees.get("Марго", [])
+        assert paths[0]["fp"] == hashlib.md5(content).hexdigest()
 
     def test_attach_new_employee(self, config_controller, tmp_path):
         """Прикрепление к новому сотруднику — создаёт запись."""

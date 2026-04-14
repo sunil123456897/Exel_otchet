@@ -41,13 +41,21 @@ class SourceFileRepository:
             try:
                 conn.execute("BEGIN TRANSACTION")
                 for f in files:
+                    file_hash = f.get("hash")
+                    if file_hash is None:
+                        file_hash = f.get("fp")
+
+                    inode = f.get("inode")
+                    if inode is None:
+                        inode = f.get("id")
+
                     cur = conn.execute(
                         "INSERT INTO source_files (session_id, file_path, file_hash, inode, status) VALUES (?, ?, ?, ?, ?)",
                         (
                             session_id,
                             f["path"],
-                            f.get("hash"),
-                            f.get("inode"),
+                            file_hash,
+                            inode,
                             f.get("status", "pending"),
                         ),
                     )

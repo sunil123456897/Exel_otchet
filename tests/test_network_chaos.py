@@ -7,7 +7,6 @@ from decimal import Decimal
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 from core.infra.ingestion_reader import CalamineReader
-from core.infra.utils import get_local_copy
 from python_calamine import CalamineWorkbook
 
 MARKERS = {
@@ -48,7 +47,7 @@ def test_network_failure_mid_copy(reader):
 
     with (
         patch(
-            "core.infra.utils.get_local_copy", return_value=(unc_path, None)
+            "core.infra.ingestion_reader.get_local_copy", return_value=(unc_path, None)
         ),
         patch("core.infra.ingestion_reader.logger.error") as mock_log_error,
         patch(
@@ -74,7 +73,7 @@ def test_file_deleted_mid_read(tmp_path, reader, create_temp_xlsx):
 
     with (
         patch(
-            "core.infra.utils.get_local_copy",
+            "core.infra.ingestion_reader.get_local_copy",
             return_value=(str(src_file), None),
         ),
         patch(
@@ -92,7 +91,7 @@ def test_unsupported_network_path(reader):
 
     with (
         patch(
-            "core.infra.utils.get_local_copy", return_value=(http_path, None)
+            "core.infra.ingestion_reader.get_local_copy", return_value=(http_path, None)
         ),
         patch("core.infra.ingestion_reader.logger"),
         patch(

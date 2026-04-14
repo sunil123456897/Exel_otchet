@@ -52,9 +52,7 @@ class AppController:
         """Start a task thread and track it for graceful shutdown."""
         t = threading.Thread(target=target, daemon=True)
         with self._lock:
-            self._active_threads = [
-                th for th in self._active_threads if th.is_alive()
-            ]
+            self._active_threads = [th for th in self._active_threads if th.is_alive()]
             self._active_threads.append(t)
         t.start()
 
@@ -208,6 +206,7 @@ class AppController:
                                 self._cached_employees = employees_map
 
                 if not employees_map:
+                    self.persistence.update_session_status(session_id, "failed")
                     on_complete(False, "Нет файлов", None)
                     return
 
@@ -222,6 +221,7 @@ class AppController:
                     start_date_str=start_date_str,
                     end_date_str=end_date_str,
                 ):
+                    self.persistence.update_session_status(session_id, "failed")
                     on_complete(False, "Нет файлов", None)
                     return
 
@@ -229,6 +229,7 @@ class AppController:
                 errors = self.persistence.get_template_errors(session_id)
 
                 if not consolidated_data:
+                    self.persistence.update_session_status(session_id, "failed")
                     if start_date_str and end_date_str:
                         on_complete(
                             False,
@@ -249,11 +250,13 @@ class AppController:
                 if not self.writer.write_report(
                     consolidated_data, master_path, **write_kwargs
                 ):
+                    self.persistence.update_session_status(session_id, "failed")
                     on_complete(False, "Ошибка записи основного отчёта", None)
                     return
 
                 logging.info("[MAIN] Основной отчёт собран: %s", master_path)
                 on_progress(100)
+                self.persistence.update_session_status(session_id, "completed")
 
                 if start_date_str and end_date_str:
                     msg = f"Готово! ({start_date_str} — {end_date_str})"
@@ -264,6 +267,7 @@ class AppController:
                 on_complete(True, msg, master_path)
             except Exception as e:
                 logging.error(f"Error: {e}")
+                self.persistence.update_session_status(session_id, "failed")
                 on_complete(False, str(e), None)
 
         self._start_thread(task)

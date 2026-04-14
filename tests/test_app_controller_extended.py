@@ -343,6 +343,68 @@ class TestRunConsolidation:
 
         on_complete.assert_called_with(False, "Ошибка записи основного отчёта", None)
 
+    def test_session_status_marked_completed(self, app_controller, mock_deps):
+        app_controller._cached_employees = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        mock_deps["persistence"].save_file_metadata.return_value = [1]
+        mock_deps["ingestion"].read_file.return_value = [
+            {"date": "01.04.2026", "amount": 100}
+        ]
+        mock_deps["validator"].validate_row.return_value = True
+        mock_deps["logic_service"].consolidate.return_value = [{"consolidated": True}]
+        mock_deps["writer"].write_report.return_value = True
+        mock_deps["persistence"].get_template_errors.return_value = []
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_consolidation(
+                datetime(2026, 4, 1), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        mock_deps["persistence"].update_session_status.assert_called_with(
+            mock_deps["persistence"].save_session.call_args[0][0], "completed"
+        )
+
+    def test_session_status_marked_failed_on_writer_error(
+        self, app_controller, mock_deps
+    ):
+        app_controller._cached_employees = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        mock_deps["persistence"].save_file_metadata.return_value = [1]
+        mock_deps["ingestion"].read_file.return_value = [
+            {"date": "01.04.2026", "amount": 100}
+        ]
+        mock_deps["validator"].validate_row.return_value = True
+        mock_deps["logic_service"].consolidate.return_value = [{"consolidated": True}]
+        mock_deps["writer"].write_report.return_value = False
+        mock_deps["persistence"].get_template_errors.return_value = []
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_consolidation(
+                datetime(2026, 4, 1), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        mock_deps["persistence"].update_session_status.assert_called_with(
+            mock_deps["persistence"].save_session.call_args[0][0], "failed"
+        )
+
     def test_relative_master_path_resolved(self, app_controller, mock_deps):
         """Относительный путь к мастер-файлу должен быть разрешён."""
         app_controller._cached_employees = {

@@ -7,7 +7,6 @@ import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from core.infra.ingestion_engine import IngestionEngine
-from core.infra.utils import get_local_copy
 
 
 @pytest.fixture
@@ -29,9 +28,9 @@ def test_get_available_dates_network_mock(engine, tmp_path):
 
     with (
         patch(
-            "core.infra.utils.get_local_copy",
+            "core.infra.ingestion_engine.get_local_copy",
             return_value=(str(network_path), None),
-        ),
+        ) as mock_copy,
         patch("python_calamine.CalamineWorkbook.from_path") as mock_wb,
     ):
         mock_wb.return_value.sheet_names = ["Отчет 01.01"]
@@ -39,6 +38,10 @@ def test_get_available_dates_network_mock(engine, tmp_path):
         dates = engine.get_available_dates(network_path)
 
         assert "01.01.2026" in dates
+        mock_copy.assert_called_once_with(
+            os.path.abspath(str(network_path)), engine.drive_letters
+        )
+        mock_wb.assert_called_once_with(str(network_path))
 
 
 def test_get_available_dates_exception_logging(engine, tmp_path):
@@ -88,20 +91,32 @@ def test_scan_directory_network_drive(engine, tmp_path):
     q_path = Path("Q:\\some\\file.xlsx")
     q_local = str(tmp_path / "q_local.xlsx")
     with (
-        patch("core.infra.utils.get_local_copy", return_value=(q_local, None)),
+        patch(
+            "core.infra.ingestion_engine.get_local_copy", return_value=(q_local, None)
+        ) as mock_q_copy,
         patch("python_calamine.CalamineWorkbook.from_path") as mock_wb,
     ):
         mock_wb.return_value.sheet_names = ["Отчет 02.02"]
         dates = engine.get_available_dates(q_path)
         assert "02.02.2026" in dates
+        mock_q_copy.assert_called_once_with(
+            os.path.abspath(str(q_path)), engine.drive_letters
+        )
+        mock_wb.assert_called_once_with(q_local)
 
     # Case Z:
     z_path = Path("Z:\\some\\file.xlsx")
     z_local = str(tmp_path / "z_local.xlsx")
     with (
-        patch("core.infra.utils.get_local_copy", return_value=(z_local, None)),
+        patch(
+            "core.infra.ingestion_engine.get_local_copy", return_value=(z_local, None)
+        ) as mock_z_copy,
         patch("python_calamine.CalamineWorkbook.from_path") as mock_wb,
     ):
         mock_wb.return_value.sheet_names = ["Отчет 03.03"]
         dates = engine.get_available_dates(z_path)
         assert "03.03.2026" in dates
+        mock_z_copy.assert_called_once_with(
+            os.path.abspath(str(z_path)), engine.drive_letters
+        )
+        mock_wb.assert_called_once_with(z_local)

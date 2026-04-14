@@ -62,8 +62,9 @@ class MasterWriter(IExporter):
         if os.path.exists(path_abs):
             try:
                 return openpyxl.load_workbook(path_abs)
-            except (OSError, openpyxl.utils.exceptions.InvalidFileException):
-                return openpyxl.Workbook()
+            except (OSError, openpyxl.utils.exceptions.InvalidFileException) as e:
+                logger.error("Failed to open workbook %s: %s", path_abs, e)
+                return None
         wb = openpyxl.Workbook()
         if "Sheet" in wb.sheetnames:
             wb.remove(wb["Sheet"])
@@ -107,7 +108,9 @@ class MasterWriter(IExporter):
                 except PermissionError:
                     if os.path.exists(tmp):
                         os.remove(tmp)
-                    logger.error(f"Файл занят: Закройте '{path or self.master_path}' в Excel!")
+                    logger.error(
+                        f"Файл занят: Закройте '{path or self.master_path}' в Excel!"
+                    )
                     return False
             else:
                 os.rename(tmp, path_abs)
@@ -196,6 +199,31 @@ class MasterWriter(IExporter):
                 )
         return warning_rows
 
+    def _write_template_errors_sheet(self, wb, template_errors: List[Dict[str, Any]]):
+        sheet_name = "ОШИБКИ ШАБЛОНА"
+        if sheet_name in wb.sheetnames:
+            del wb[sheet_name]
+        if not template_errors:
+            return
+
+        ws = wb.create_sheet(sheet_name)
+        ws.append(["Файл", "Лист", "Строка", "Тип ошибки", "Детали"])
+        self._apply_header_style(ws)
+        ws.freeze_panes = "A2"
+
+        for error in template_errors:
+            ws.append(
+                [
+                    error.get("file_path", ""),
+                    error.get("sheet_name", ""),
+                    error.get("row_index", ""),
+                    error.get("error_type", ""),
+                    error.get("details", ""),
+                ]
+            )
+
+        self._auto_adjust(ws)
+
     def write_daily_data(
         self, date, rows, wb=None, sh_name_override=None, curator=None, headers=None
     ):
@@ -237,7 +265,9 @@ class MasterWriter(IExporter):
         curator_config=None,
     ) -> bool:
         if not is_file_writable(str(path)):
-            logger.error(f"Файл занят: {os.path.abspath(str(path))}. Закройте его в Excel перед началом!")
+            logger.error(
+                f"Файл занят: {os.path.abspath(str(path))}. Закройте его в Excel перед началом!"
+            )
             return False
 
         headers = None
@@ -255,6 +285,8 @@ class MasterWriter(IExporter):
                     )
                 dbd.setdefault(d, []).append(r)
             wb = self._get_workbook(path=str(path))
+            if wb is None:
+                return False
             for d_str, rows in sorted(dbd.items()):
                 try:
                     dt = datetime.strptime(d_str, "%d.%m.%Y")
@@ -269,8 +301,7 @@ class MasterWriter(IExporter):
                     )
                 except Exception as e:
                     logger.error(f"Date error {d_str}: {e}")
-            if "ОШИБКИ ШАБЛОНА" in wb.sheetnames:
-                del wb["ОШИБКИ ШАБЛОНА"]
+            self._write_template_errors_sheet(wb, template_errors or [])
             return self._save_workbook(wb, path=str(path))
         except Exception as e:
             logger.error(f"Write error: {e}")

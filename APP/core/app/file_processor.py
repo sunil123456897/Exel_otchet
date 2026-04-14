@@ -38,33 +38,37 @@ def process_file_task(
     logging.info(f"Processing file {path_str}")
     file_ids = persistence.save_file_metadata(session_id, [meta])
     file_id = file_ids[0]
+    try:
+        rows = ingestion.read_file(Path(path_str))
+        valid_rows = []
+        for row in rows:
+            row_date = row.get("date")
+            if not row_date:
+                continue
+            if target_date_str:
+                date_match = row_date == target_date_str
+            elif start_date_str and end_date_str:
+                try:
+                    rd = datetime.strptime(row_date, "%d.%m.%Y")
+                    sd = datetime.strptime(start_date_str, "%d.%m.%Y")
+                    ed = datetime.strptime(end_date_str, "%d.%m.%Y")
+                    date_match = sd <= rd <= ed
+                except ValueError:
+                    date_match = False
+            else:
+                date_match = True
 
-    rows = ingestion.read_file(Path(path_str))
-    valid_rows = []
-    for row in rows:
-        row_date = row.get("date")
-        if not row_date:
-            continue
-        if target_date_str:
-            date_match = row_date == target_date_str
-        elif start_date_str and end_date_str:
-            try:
-                rd = datetime.strptime(row_date, "%d.%m.%Y")
-                sd = datetime.strptime(start_date_str, "%d.%m.%Y")
-                ed = datetime.strptime(end_date_str, "%d.%m.%Y")
-                date_match = sd <= rd <= ed
-            except ValueError:
-                date_match = False
-        else:
-            date_match = True
+            if date_match and validator.validate_row(row):
+                row["employee_name"] = emp_name
+                valid_rows.append(row)
 
-        if date_match and validator.validate_row(row):
-            row["employee_name"] = emp_name
-            valid_rows.append(row)
-
-    if valid_rows:
-        persistence.save_staging_data(file_id, valid_rows)
-    return len(valid_rows)
+        if valid_rows:
+            persistence.save_staging_data(file_id, valid_rows)
+        persistence.update_file_status(file_id, "processed")
+        return len(valid_rows)
+    except Exception as e:
+        persistence.update_file_status(file_id, "error", str(e))
+        raise
 
 
 def run_engine(

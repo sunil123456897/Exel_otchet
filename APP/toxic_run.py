@@ -16,6 +16,7 @@ def main():
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
     logger = logging.getLogger("Headless-Toxic")
+    app_ctl = None
     db = None
     try:
         config_path = (
@@ -46,7 +47,9 @@ def main():
         logger.critical(f"Failed: {e}")
         sys.exit(1)
     finally:
-        if db is not None:
+        if app_ctl is not None:
+            app_ctl.shutdown()
+        elif db is not None:
             db.close()
 
 

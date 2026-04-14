@@ -112,6 +112,44 @@ class SessionRepository(IPersistence):
                 "file_stats": {s["status"]: s["cnt"] for s in stats},
             }
 
+    def update_session_status(self, session_id: str, status: str) -> None:
+        def _update():
+            conn = self._get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.execute(
+                    "UPDATE sessions SET status = ? WHERE session_id = ?",
+                    (status, session_id),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        self._execute_with_retry(_update)
+
+    def update_file_status(
+        self, file_id: int, status: str, error_message: Optional[str] = None
+    ) -> None:
+        def _update():
+            conn = self._get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.execute(
+                    "UPDATE source_files SET status = ?, error_message = ? WHERE id = ?",
+                    (status, error_message, file_id),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        self._execute_with_retry(_update)
+
     def save_file_metadata(
         self, session_id: str, files: List[Dict[str, Any]]
     ) -> List[int]:

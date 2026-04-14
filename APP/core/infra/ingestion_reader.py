@@ -142,6 +142,9 @@ class CalamineReader:
             "название клиента",
             "согласно платежному",
             "процентном формате",
+            "итого",
+            "всего",
+            "итог:",
         ]
 
         target_path, temp_file = get_local_copy(f_path_abs, self.drive_letters)
@@ -177,7 +180,9 @@ class CalamineReader:
                         if idx >= MAX_HEADER_SCAN_ROWS - 1:
                             break
                 except BaseException as iter_err:
-                    if isinstance(iter_err, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                    if isinstance(
+                        iter_err, (KeyboardInterrupt, SystemExit, GeneratorExit)
+                    ):
                         raise
                     logger.debug(
                         f"iter_rows failed for sheet {sheet_name} with {type(iter_err).__name__}: {iter_err}. "
@@ -190,7 +195,9 @@ class CalamineReader:
                         logger.debug(f"Could not read sheet {sheet_name}: {e}")
                         continue
                     except BaseException as e:
-                        if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                        if isinstance(
+                            e, (KeyboardInterrupt, SystemExit, GeneratorExit)
+                        ):
                             raise
                         logger.debug(f"PanicException reading sheet {sheet_name}: {e}")
                         continue
@@ -228,16 +235,23 @@ class CalamineReader:
                 active_col_map, current_is_warning = None, False
                 trash_keywords_set = set(trash_keywords)
 
-                row_iterator = enumerate(sheet.to_python() if use_to_python else sheet.iter_rows())
+                row_iterator = enumerate(
+                    sheet.to_python() if use_to_python else sheet.iter_rows()
+                )
                 while True:
                     try:
                         i, row = next(row_iterator)
                     except StopIteration:
                         break
                     except BaseException as second_pass_err:
-                        if isinstance(second_pass_err, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                        if isinstance(
+                            second_pass_err,
+                            (KeyboardInterrupt, SystemExit, GeneratorExit),
+                        ):
                             raise
-                        logger.warning(f"Error during second pass in sheet {sheet_name}: {type(second_pass_err).__name__} - {second_pass_err}")
+                        logger.warning(
+                            f"Error during second pass in sheet {sheet_name}: {type(second_pass_err).__name__} - {second_pass_err}"
+                        )
                         break
                     if not any(v is not None and v != "" for v in row):
                         continue

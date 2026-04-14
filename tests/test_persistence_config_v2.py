@@ -85,6 +85,27 @@ def test_source_file_repo_save_metadata(temp_db, db_config, schema_path):
     assert ids[0] is not None
 
 
+def test_source_file_repo_save_metadata_accepts_fp_id_keys(
+    temp_db, db_config, schema_path
+):
+    mgr = SQLiteConnectionManager(temp_db, db_config)
+    mgr.init_db(schema_path)
+    repo = SourceFileRepository(mgr)
+
+    session_repo = SessionRepository(str(temp_db), str(schema_path), db_config)
+    session_repo.save_session("s1", {})
+
+    ids = repo.save_file_metadata("s1", [{"path": "p1", "fp": "legacy-hash", "id": 42}])
+
+    with mgr.get_connection() as conn:
+        row = conn.execute(
+            "SELECT file_hash, inode FROM source_files WHERE id = ?", (ids[0],)
+        ).fetchone()
+
+    assert row["file_hash"] == "legacy-hash"
+    assert row["inode"] == 42
+
+
 def test_source_file_repo_cache(temp_db, db_config, schema_path):
     mgr = SQLiteConnectionManager(temp_db, db_config)
     mgr.init_db(schema_path)
