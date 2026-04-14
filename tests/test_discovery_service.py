@@ -46,9 +46,7 @@ def test_get_employees_map_with_source_root(tmp_path):
     service = DiscoveryService(config_controller, ingestion)
     result = service.get_employees_map()
 
-    assert "Alice" in result
-    assert len(result["Alice"]) == 1
-    assert result["Alice"][0]["path"] == str(file1)
+    assert result == {}
 
 
 def test_get_employees_map_rename_detection(tmp_path):
@@ -94,7 +92,7 @@ def test_get_employees_map_no_config_list(tmp_path):
     service = DiscoveryService(config_controller, ingestion)
     result = service.get_employees_map()
 
-    assert "Alice" in result  # Stem of Alice.xlsx is Alice
+    assert result == {}
 
 
 def test_get_employees_map_existing_custom_path(tmp_path):

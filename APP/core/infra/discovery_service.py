@@ -89,13 +89,7 @@ class DiscoveryService:
             discovered_map.setdefault(name, []).append(f)
 
         result = {}
-        target_names = (
-            config_list
-            if config_list
-            else sorted(
-                list(set(list(discovered_map.keys()) + list(custom_paths.keys())))
-            )
-        )
+        target_names = config_list
         self.rename_detected = False
 
         for target_name in target_names:
@@ -147,13 +141,15 @@ class DiscoveryService:
                 for meta in updated_paths:
                     self._append_unique(deduped_paths, meta, seen_config_paths)
 
-                if config_changed and deduped_paths != self.config_controller.employees.get(
-                    target_name, []
+                if (
+                    config_changed
+                    and deduped_paths
+                    != self.config_controller.employees.get(target_name, [])
                 ):
                     self.config_controller.employees[target_name] = deduped_paths
                     self.config_controller._save_employees()
 
-            if not has_custom:
+            if not has_custom and target_name and target_name in custom_paths:
                 t_lower = target_name.lower()
                 for d_name, files in discovered_map.items():
                     if t_lower == d_name.lower():

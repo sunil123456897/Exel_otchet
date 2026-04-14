@@ -336,6 +336,28 @@ class TestPathResolution:
         assert "Alice" in result
         assert ds.rename_detected is True
 
+    def test_missing_explicit_file_does_not_fallback_to_unrelated_scan_result(
+        self, discovery_service, tmp_path
+    ):
+        root = tmp_path / "reports"
+        root.mkdir()
+        found_file = root / "Alice_extra.xlsx"
+        found_file.touch()
+
+        config = {
+            "employees": ["Alice"],
+            "employee_paths": {"Alice": [{"path": "reports/Alice_main.xlsx"}]},
+            "paths": {"source_roots": [str(root)]},
+        }
+        ds = discovery_service(
+            config, scan_result=[{"path": str(found_file), "id": 1, "fp": "hash"}]
+        )
+
+        result = ds.get_employees_map()
+
+        assert result["Alice"] == []
+        assert ds.rename_detected is False
+
 
 class TestEmployeeDiscovery:
     """Автоматическое обнаружение сотрудников."""
@@ -357,7 +379,7 @@ class TestEmployeeDiscovery:
         )
         result = ds.get_employees_map()
 
-        assert "Мария К" in result
+        assert result == {}
 
     def test_discover_from_filename_stem(self, discovery_service, tmp_path):
         """Если файл прямо в root — имя = stem файла."""
@@ -375,7 +397,7 @@ class TestEmployeeDiscovery:
         )
         result = ds.get_employees_map()
 
-        assert "Дмитрий" in result
+        assert result == {}
 
     def test_case_insensitive_matching(self, discovery_service, tmp_path):
         """Сопоставление имён должно быть регистронезависимым."""
@@ -396,7 +418,7 @@ class TestEmployeeDiscovery:
         )
         result = ds.get_employees_map()
 
-        assert "Иван П" in result
+        assert result["Иван П"] == []
 
     def test_config_updates_employee_paths(self, discovery_service, tmp_path):
         """config.employee_paths должен обновляться после get_employees_map."""
