@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions
 chcp 65001 >nul
 
 title Master Report Launcher v5.5
@@ -7,12 +7,15 @@ title Master Report Launcher v5.5
 set "APPDIR=%~dp0APP"
 set "MAINFILE=%APPDIR%\main.py"
 set "LOGFILE=%~dp0startup_log.txt"
+set "GUIERRLOG=%~dp0gui_error_log.txt"
 set "TARGET_PY=3.12"
+set "FAIL_MESSAGE="
 
 set "PYTHON_CMD="
 set "PYTHONW_CMD="
 
 break > "%LOGFILE%"
+break > "%GUIERRLOG%"
 
 call :log "========================================================"
 call :log "MASTER REPORT CONSOLIDATOR v5.5"
@@ -23,53 +26,75 @@ echo ========================================================
 echo MASTER REPORT CONSOLIDATOR v5.5
 echo ========================================================
 echo.
-echo Проверка окружения...
+echo Checking environment...
 
-if not exist "%MAINFILE%" (
-    call :fail "Не найден файл main.py в папке APP."
-)
+if not exist "%MAINFILE%" goto missing_main
 
-cd /d "%APPDIR%" || call :fail "Не удалось перейти в папку APP."
+if not exist "%~dp0requirements.txt" goto missing_requirements
 
-call :step "Шаг 1/5. Поиск Python"
+cd /d "%APPDIR%"
+if errorlevel 1 goto appdir_unavailable
+
+call :step "Step 1/5. Finding Python"
 call :refresh_paths
 call :find_python
 
-if not defined PYTHON_CMD (
-    call :log "Python не найден. Установите его с python.org"
-    call :fail "Python не найден. Пожалуйста, установите Python 3.10 или выше."
-)
+if defined PYTHON_CMD goto python_ok
+    call :log "Python not found. Install it from python.org"
+    set "FAIL_MESSAGE=Python not found. Please install Python 3.10 or newer."
+    goto fail
 
-call :step "Шаг 2/5. Проверка pip"
+:python_ok
+
+call :step "Step 2/5. Checking pip"
 "%PYTHON_CMD%" -m pip --version >> "%LOGFILE%" 2>&1
-if errorlevel 1 (
-    call :log "pip не найден. Восстанавливаю..."
-    "%PYTHON_CMD%" -m ensurepip --upgrade >> "%LOGFILE%" 2>&1
-)
+if not errorlevel 1 goto pip_ok
+call :log "pip missing. Repairing..."
+"%PYTHON_CMD%" -m ensurepip --upgrade >> "%LOGFILE%" 2>&1
+if errorlevel 1 goto pip_repair_failed
 
-call :step "Шаг 3/5. Обновление инструментов"
+:pip_ok
+
+call :step "Step 3/5. Updating tools"
 "%PYTHON_CMD%" -m pip install --user --upgrade pip setuptools wheel >> "%LOGFILE%" 2>&1
+if errorlevel 1 goto tool_upgrade_failed
 
-call :step "Шаг 4/5. Проверка библиотек"
+call :step "Step 4/5. Checking libraries"
 "%PYTHON_CMD%" -c "import tkinter, pandas, openpyxl, yaml, ruamel.yaml, tkcalendar, pyxlsb, pydantic, python_calamine" >> "%LOGFILE%" 2>&1
-if errorlevel 1 (
-    call :log "Устанавливаю недостающие библиотеки..."
-    "%PYTHON_CMD%" -m pip install --user -r "%~dp0requirements.txt" >> "%LOGFILE%" 2>&1
-)
+if errorlevel 1 goto install_requirements
+goto after_requirements
 
-call :step "Шаг 5/5. Запуск приложения"
-if defined PYTHONW_CMD (
-    call :log "Запуск через pythonw (без консоли)"
-    start "" "%PYTHONW_CMD%" "%MAINFILE%"
-) else (
-    call :log "Запуск через python (с консолью)"
-    start "" "%PYTHON_CMD%" "%MAINFILE%"
-)
+:install_requirements
+call :log "Installing missing libraries..."
+"%PYTHON_CMD%" -m pip install --user -r "%~dp0requirements.txt" >> "%LOGFILE%" 2>&1
+if errorlevel 1 goto requirements_install_failed
+
+:after_requirements
+
+call :step "Step 4.5/5. GUI import preflight"
+"%PYTHON_CMD%" -c "import main; main.preflight_gui_imports()" >> "%GUIERRLOG%" 2>&1
+if not errorlevel 1 goto gui_ok
+call :log "GUI preflight failed. See gui_error_log.txt"
+goto gui_preflight_failed
+
+:gui_ok
+
+call :step "Step 5/5. Launching application"
+if not defined PYTHONW_CMD goto start_python
+call :log "Launching via pythonw (no console)"
+start "" "%PYTHONW_CMD%" "%MAINFILE%"
+goto launch_done
+
+:start_python
+call :log "Launching via python (with console)"
+start "" "%PYTHON_CMD%" "%MAINFILE%"
+
+:launch_done
 
 echo.
 echo -------------------------------------------------------
-echo ГОТОВО! Программа запускается...
-echo Это окно закроется автоматически через 3 секунды.
+echo DONE. The application is starting...
+echo This window will close automatically in 3 seconds.
 echo -------------------------------------------------------
 timeout /t 3 >nul
 exit /b 0
@@ -86,31 +111,56 @@ exit /b 0
 
 :fail
 echo.
-echo [ОШИБКА] %~1
-call :log "[ОШИБКА] %~1"
+echo [ERROR] %FAIL_MESSAGE%
+call :log "[ERROR] %FAIL_MESSAGE%"
 pause
 exit /b 1
+
+:missing_main
+set "FAIL_MESSAGE=main.py was not found inside APP."
+goto fail
+
+:missing_requirements
+set "FAIL_MESSAGE=requirements.txt was not found next to the launcher. Copy the whole project, not just APP."
+goto fail
+
+:appdir_unavailable
+set "FAIL_MESSAGE=Could not switch into the APP directory."
+goto fail
+
+:pip_repair_failed
+set "FAIL_MESSAGE=Could not repair pip. See startup_log.txt for details."
+goto fail
+
+:tool_upgrade_failed
+set "FAIL_MESSAGE=Could not update pip/setuptools/wheel. See startup_log.txt for details."
+goto fail
+
+:requirements_install_failed
+set "FAIL_MESSAGE=Could not install dependencies from requirements.txt. See startup_log.txt for details."
+goto fail
+
+:gui_preflight_failed
+set "FAIL_MESSAGE=GUI startup failed. See gui_error_log.txt for details."
+goto fail
 
 :refresh_paths
 set "PATH=%PATH%;%USERPROFILE%\AppData\Local\Microsoft\WindowsApps;%LocalAppData%\Programs\Python\Launcher"
 exit /b 0
 
 :find_python
-rem Ищем обычный python
+rem Find regular python
 for /f "delims=" %%I in ('where python 2^>nul') do (
     if not defined PYTHON_CMD set "PYTHON_CMD=%%~fI"
 )
-rem Ищем бесшумный pythonw
+rem Find windowless pythonw
 for /f "delims=" %%I in ('where pythonw 2^>nul') do (
     if not defined PYTHONW_CMD set "PYTHONW_CMD=%%~fI"
 )
-rem Если не нашли через where, пробуем лончер
-if not defined PYTHON_CMD (
-    py --version >nul 2>&1
-    if not errorlevel 1 set "PYTHON_CMD=py"
-)
-if not defined PYTHONW_CMD (
-    pyw --version >nul 2>&1
-    if not errorlevel 1 set "PYTHONW_CMD=pyw"
-)
+rem Fallback to the Python launcher
+if defined PYTHON_CMD goto python_launcher_done
+py --version >nul 2>&1
+if not errorlevel 1 set "PYTHON_CMD=py"
+
+:python_launcher_done
 exit /b 0

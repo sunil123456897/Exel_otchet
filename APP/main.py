@@ -9,7 +9,12 @@ if str(app_root) not in sys.path:
     sys.path.insert(0, str(app_root))
 
 from core.bootstrap import Bootstrap
-from core.ui.gui_master import GuiMaster
+
+
+def preflight_gui_imports():
+    from core.ui.gui_master import GuiMaster
+
+    return GuiMaster
 
 
 def main():
@@ -32,6 +37,7 @@ def main():
     app_ctl = None
     root = None
     try:
+        GuiMaster = preflight_gui_imports()
         cfg_ctl, app_ctl, db = Bootstrap.setup(app_root, str(app_root / "config.yaml"))
         root = tk.Tk()
         app = GuiMaster(root, cfg_ctl, app_ctl)
