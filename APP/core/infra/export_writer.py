@@ -107,12 +107,7 @@ class MasterWriter(IExporter):
                 except PermissionError:
                     if os.path.exists(tmp):
                         os.remove(tmp)
-                    import tkinter.messagebox as mb
-
-                    mb.showerror(
-                        "Файл занят",
-                        f"Закройте '{path or self.master_path}' в Excel!",
-                    )
+                    logger.error(f"Файл занят: Закройте '{path or self.master_path}' в Excel!")
                     return False
             else:
                 os.rename(tmp, path_abs)
@@ -242,12 +237,7 @@ class MasterWriter(IExporter):
         curator_config=None,
     ) -> bool:
         if not is_file_writable(str(path)):
-            import tkinter.messagebox as mb
-
-            mb.showerror(
-                "Файл занят",
-                f"Закройте '{os.path.abspath(str(path))}' в Excel перед началом!",
-            )
+            logger.error(f"Файл занят: {os.path.abspath(str(path))}. Закройте его в Excel перед началом!")
             return False
 
         headers = None

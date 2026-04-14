@@ -64,20 +64,24 @@ class DBWriterThread(threading.Thread):
         sql = "INSERT INTO staging_data (file_id, row_index, raw_content_json, date_val, amount, employee_name, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
         all_data = []
         for file_id, rows in batch:
-            all_data.extend(
-                [
+            for r in rows:
+                amt_raw = r.get("amount", 0)
+                try:
+                    amt_val = decimal.Decimal(str(amt_raw))
+                except (decimal.InvalidOperation, TypeError, ValueError):
+                    amt_val = decimal.Decimal("0.00")
+
+                all_data.append(
                     (
                         file_id,
                         r.get("_row_index"),
                         json.dumps(sanitize_data(r), ensure_ascii=False),
                         r.get("date"),
-                        decimal.Decimal(str(r.get("amount", 0))),
+                        amt_val,
                         r.get("employee_name"),
                         r.get("source_type"),
                     )
-                    for r in rows
-                ]
-            )
+                )
 
         if not all_data:
             return

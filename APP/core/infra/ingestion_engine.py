@@ -57,7 +57,9 @@ class IngestionEngine(IDataSource):
                 d = extract_date_from_sheet(s)
                 if d:
                     dates.add(d)
-        except Exception as e:
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                raise
             logger.error(f"Error getting dates from {file_path}: {e}")
         finally:
             if temp_file and os.path.exists(temp_file):

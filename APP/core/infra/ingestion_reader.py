@@ -152,7 +152,16 @@ class CalamineReader:
                 if sheet_name.startswith("_") or sheet_name in ("АНАЛИТИКА", "СВОД"):
                     continue
 
-                sheet = wb.get_sheet_by_name(sheet_name)
+                try:
+                    sheet = wb.get_sheet_by_name(sheet_name)
+                except Exception as e:
+                    logger.debug(f"Could not load sheet {sheet_name}: {e}")
+                    continue
+                except BaseException as e:
+                    if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                        raise
+                    logger.debug(f"PanicException loading sheet {sheet_name}: {e}")
+                    continue
 
                 sheet_date = extract_date_from_sheet(sheet_name)
                 if not sheet_date:
@@ -160,6 +169,7 @@ class CalamineReader:
                     continue
 
                 # Первый проход: поиск стандартных ключей (не загружаем лист целиком в память)
+                use_to_python = False
                 try:
                     rows_sample = []
                     for idx, row in enumerate(sheet.iter_rows()):
@@ -169,22 +179,21 @@ class CalamineReader:
                 except BaseException as iter_err:
                     if isinstance(iter_err, (KeyboardInterrupt, SystemExit, GeneratorExit)):
                         raise
-                    if iter_err.__class__.__name__ != "PanicException":
-                        raise
-                    # python-calamine can panic on some empty/broken sheets when iterating.
-                    # Fallback to to_python() only for this edge case.
                     logger.debug(
                         f"iter_rows failed for sheet {sheet_name} with {type(iter_err).__name__}: {iter_err}. "
                         f"Falling back to to_python()."
                     )
+                    use_to_python = True
                     try:
                         rows_sample = sheet.to_python()[:MAX_HEADER_SCAN_ROWS]
                     except Exception as e:
                         logger.debug(f"Could not read sheet {sheet_name}: {e}")
                         continue
-                except Exception as e:
-                    logger.debug(f"Could not read sheet {sheet_name}: {e}")
-                    continue
+                    except BaseException as e:
+                        if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                            raise
+                        logger.debug(f"PanicException reading sheet {sheet_name}: {e}")
+                        continue
 
                 if not rows_sample:
                     continue
@@ -219,7 +228,17 @@ class CalamineReader:
                 active_col_map, current_is_warning = None, False
                 trash_keywords_set = set(trash_keywords)
 
-                for i, row in enumerate(sheet.iter_rows()):
+                row_iterator = enumerate(sheet.to_python() if use_to_python else sheet.iter_rows())
+                while True:
+                    try:
+                        i, row = next(row_iterator)
+                    except StopIteration:
+                        break
+                    except BaseException as second_pass_err:
+                        if isinstance(second_pass_err, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                            raise
+                        logger.warning(f"Error during second pass in sheet {sheet_name}: {type(second_pass_err).__name__} - {second_pass_err}")
+                        break
                     if not any(v is not None and v != "" for v in row):
                         continue
 
@@ -321,6 +340,10 @@ class CalamineReader:
 
         except Exception as e:
             logger.error(f"Calamine error {f_path_abs}: {e}")
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                raise
+            logger.error(f"Calamine PanicException {f_path_abs}: {e}")
         finally:
             if temp_file and os.path.exists(temp_file):
                 try:

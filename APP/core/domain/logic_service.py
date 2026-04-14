@@ -238,10 +238,17 @@ class LogicService(ILogicService):
                 inc, exp = amt, Decimal("0.00")
 
             c_raw = to_decimal_percent(r.get("commission", 0))
-            if self.commission_is_percent and c_raw != 0 and abs(c_raw) <= 1:
-                comm = (c_raw * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            else:
-                comm = c_raw.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            try:
+                if self.commission_is_percent and c_raw != 0 and abs(c_raw) <= 1:
+                    comm = (c_raw * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                else:
+                    comm = c_raw.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            except (TypeError, ArithmeticError):
+                # If c_raw is a string or math fails, try to convert to Decimal or use 0
+                try:
+                    comm = to_decimal(c_raw)
+                except (NumericParsingError, ValueError):
+                    comm = Decimal("0.00")
 
             pb_raw = r.get("percent_broker")
             try:
@@ -261,6 +268,16 @@ class LogicService(ILogicService):
             is_warn = r.get("is_template_warning", False)
             if is_warn:
                 logger.warning(f"Template warning: {r.get('_source_info')}")
+            try:
+                b1_val = to_decimal(r.get("broker1"))
+            except (NumericParsingError, ValueError):
+                b1_val = Decimal("0.00")
+
+            try:
+                b2_val = to_decimal(r.get("broker2"))
+            except (NumericParsingError, ValueError):
+                b2_val = Decimal("0.00")
+
             res.append(
                 {
                     "Дата": r.get("date", ""),
@@ -276,8 +293,8 @@ class LogicService(ILogicService):
                     "комиссия": comm,
                     "ИТОГ": tot,
                     "% посредника": pb_val,
-                    "посредник 1(кэш)": to_decimal(r.get("broker1")),
-                    "посредник 2": to_decimal(r.get("broker2")),
+                    "посредник 1(кэш)": b1_val,
+                    "посредник 2": b2_val,
                     "% посредник 2": pb2_val,
                     "Посредник 2 (сумма)": broker2_calc,
                     "фильтры": self._sanitize(r.get("filters", "")),

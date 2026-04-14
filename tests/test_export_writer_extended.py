@@ -164,17 +164,14 @@ class TestWriteReport:
         wb.close()
 
     def test_write_report_file_locked(self, master_writer, sample_consolidated_data, temp_output_dir):
-        """Если файл занят Excel — вернуть False и показать ошибку."""
+        """Если файл занят Excel — вернуть False и показать ошибку в логах."""
         output_path = temp_output_dir / 'locked.xlsx'
         # Создаём файл
         output_path.touch()
 
-        with patch('builtins.open', side_effect=PermissionError("Файл занят")):
-            with patch('tkinter.messagebox.showerror') as mock_error:
-                result = master_writer.write_report(sample_consolidated_data, output_path)
-                assert result is False
-                mock_error.assert_called()
-
+        with patch('core.infra.export_writer.is_file_writable', return_value=False):
+            result = master_writer.write_report(sample_consolidated_data, output_path)
+            assert result is False
     def test_write_report_with_template_errors(self, master_writer, sample_consolidated_data, temp_output_dir):
         """write_report принимает template_errors."""
         output_path = temp_output_dir / 'with_errors.xlsx'

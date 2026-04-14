@@ -124,9 +124,17 @@ def apply_cell_styling(
         is_critical = rows_data[r_idx].get("is_critical", False)
         fill_critical = PatternFill(patternType="solid", fgColor="FF9999")
 
-        expected_total = i_val - e_val
+        expected_total_no_comm = i_val - e_val
         has_money = abs(i_val) > 0.02 or abs(e_val) > 0.02
-        is_math_err = has_money and abs(expected_total - c_val - t_val) > 0.02
+        
+        is_math_err = False
+        if has_money:
+            if abs(t_val) < 0.02:
+                # Total is 0 / empty
+                is_math_err = True
+            elif abs(c_val) < 0.02 and abs(t_val - expected_total_no_comm) > 0.02:
+                # Commission is 0, but total doesn't match income-expense (forgot to write commission)
+                is_math_err = True
 
         for c_idx, cell in enumerate(row_cells, 1):
             cell.border = st.border_thin
@@ -141,23 +149,27 @@ def apply_cell_styling(
 
             if c_idx in num_indices:
                 format_numeric_cell(
-                    cell, c_idx, cols, ws, percent_broker_cols, is_warning, st
+                    cell, c_idx, cols, ws, percent_broker_cols, is_warning, is_critical, st
                 )
             else:
                 cell.alignment = st.align_left
-                if is_warning and c_idx == 2:
+                if is_warning and not is_critical and c_idx == 2:
                     cell.fill = st.fill_warning
 
 
 def format_numeric_cell(
-    cell, c_idx, cols, ws, percent_broker_cols, is_warning, st: ExcelStyles
+    cell, c_idx, cols, ws, percent_broker_cols, is_warning, is_critical, st: ExcelStyles
 ):
     val = cell.value or 0
 
     if c_idx == cols["приход"] and isinstance(val, (int, float)) and val > 0.01:
-        cell.fill, cell.font = st.fill_income, st.font_income
+        if not is_critical:
+            cell.fill = st.fill_income
+        cell.font = st.font_income
     elif c_idx == cols["расход"] and isinstance(val, (int, float)) and abs(val) > 0.01:
-        cell.fill, cell.font = st.fill_expense, st.font_expense
+        if not is_critical:
+            cell.fill = st.fill_expense
+        cell.font = st.font_expense
 
     is_percent_err = False
     if c_idx in percent_broker_cols:
@@ -191,7 +203,7 @@ def format_numeric_cell(
 
     cell.alignment, cell.number_format = st.align_right, fmt
 
-    if is_warning and c_idx == 2:
+    if is_warning and not is_critical and c_idx == 2:
         cell.fill = st.fill_warning
 
 

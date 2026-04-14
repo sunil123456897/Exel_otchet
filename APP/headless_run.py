@@ -2,6 +2,8 @@ import sys
 import logging
 import threading
 import time
+import argparse
+from datetime import datetime
 from pathlib import Path
 
 app_root = Path(__file__).parent.absolute()
@@ -10,6 +12,10 @@ if str(app_root) not in sys.path: sys.path.insert(0, str(app_root))
 from core.bootstrap import Bootstrap
 
 def main():
+    parser = argparse.ArgumentParser(description="Run headless consolidation.")
+    parser.add_argument("--date", type=str, help="Date to consolidate (DD.MM.YYYY)")
+    args = parser.parse_args()
+
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("Headless")
     db = None
@@ -22,8 +28,13 @@ def main():
             else: logger.error(msg)
             done.set()
 
-        logger.info("Triggering run_consolidation_all_dates...")
-        app_ctl.run_consolidation_all_dates(lambda p: None, on_comp)
+        if args.date:
+            target_date = datetime.strptime(args.date, "%d.%m.%Y")
+            logger.info(f"Triggering run_consolidation for {args.date}...")
+            app_ctl.run_consolidation(target_date, lambda p: None, on_comp)
+        else:
+            logger.info("Triggering run_consolidation_all_dates...")
+            app_ctl.run_consolidation_all_dates(lambda p: None, on_comp)
         
         if not done.wait(timeout=600):
             logger.error("Timed out waiting for consolidation to complete")
