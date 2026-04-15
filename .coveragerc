@@ -1,8 +1,6 @@
 [run]
 omit = 
     APP/core/ui/*
-    APP/core/view_models/*
-    APP/core/app_controller.py
 [report]
 fail_under = 90
 exclude_lines =

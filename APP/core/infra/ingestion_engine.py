@@ -241,7 +241,7 @@ class IngestionEngine(IDataSource):
         return res
 
     def read_file(
-        self, file_path: Path, strict_io: bool = True
+        self, file_path: Path, strict_io: bool = False
     ) -> List[Dict[str, Any]]:
         """Read Excel file with retry logic for transient network errors."""
         if not file_path.exists():
@@ -275,9 +275,13 @@ class IngestionEngine(IDataSource):
             except RuntimeError as e:
                 last_err = e
                 logger.error(f"Failed to read {file_path}: {e}")
+                if strict_io:
+                    raise
                 return []
             except Exception:
                 raise
+        if strict_io and last_err is not None:
+            raise last_err
         logger.error(
             f"Failed to read {file_path} after {_FILE_READ_RETRIES} retries: {last_err}"
         )

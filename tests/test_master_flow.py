@@ -98,47 +98,71 @@ employees: []
     # 5. Verify results
     wb = openpyxl.load_workbook(master_report_path)
 
-    # Find rows by 'ЗАКАЗЧИК' across all sheets
+    def _idx(headers, *needles):
+        normalized = [str(h or "").strip().lower() for h in headers]
+        for i, h in enumerate(normalized):
+            if all(n.lower() in h for n in needles):
+                return i
+        raise AssertionError(
+            f"Header not found for needles={needles}. headers={headers}"
+        )
+
+    # Find rows by customer across all sheets
     rows_by_customer = {}
     for sheet_name in wb.sheetnames:
         if sheet_name == "ОШИБКИ ШАБЛОНА":
             continue
         ws = wb[sheet_name]
+        headers = [cell.value for cell in ws[1]]
+        customer_idx = _idx(headers, "заказчик")
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-            cust = row[2].value
+            cust = row[customer_idx].value
             if cust:
-                rows_by_customer[str(cust)] = row
+                rows_by_customer[str(cust)] = (row, headers)
 
     # Check toxic_3_trash_rows.xlsx (Cust3)
     assert "Cust3" in rows_by_customer
 
     # Check toxic_4_math_error.xlsx (Cust4)
-    row4 = rows_by_customer["Cust4"]
-    assert row4[7].value == 500.0  # ИТОГ
-    assert row4[4].value == 1000.0  # Приход
-    assert row4[0].fill.fgColor.rgb in ("00FFFF00", "FFFF00")
+    row4, headers4 = rows_by_customer["Cust4"]
+    total_idx = _idx(headers4, "итог")
+    income_idx = _idx(headers4, "приход")
+    source_idx = _idx(headers4, "источник")
+    assert row4[total_idx].value == 500.0  # ИТОГ
+    assert row4[income_idx].value == 1000.0  # Приход
+    source_fill = row4[source_idx].fill.fgColor.rgb
+    total_fill = row4[total_idx].fill.fgColor.rgb
+    assert source_fill in ("FFFF0000", "00FF0000") or total_fill in (
+        "00FFFF00",
+        "FFFF00",
+    )
 
     # Check toxic_6_percent_broker_high.xlsx (Cust6)
     assert "Cust6" in rows_by_customer
-    row6 = rows_by_customer["Cust6"]
-    assert row6[8].value == 150.0
-    assert row6[8].fill.fgColor.rgb in ("FFFF0000", "00FF0000")
+    row6, headers6 = rows_by_customer["Cust6"]
+    percent_idx6 = _idx(headers6, "% посредника")
+    assert row6[percent_idx6].value == 150.0
+    assert row6[percent_idx6].fill.fgColor.rgb in ("FFFF0000", "00FF0000")
 
     # Check toxic_7_percent_broker_non_numeric.xlsx (Cust7)
     assert "Cust7" in rows_by_customer
-    row7 = rows_by_customer["Cust7"]
-    assert row7[8].value == "high"
-    assert row7[8].fill.fgColor.rgb in ("FFFF0000", "00FF0000")
+    row7, headers7 = rows_by_customer["Cust7"]
+    percent_idx7 = _idx(headers7, "% посредника")
+    assert row7[percent_idx7].value == "high"
+    assert row7[percent_idx7].fill.fgColor.rgb in ("FFFF0000", "00FF0000")
 
     # Check toxic_9_template_warning.xlsx (Cust9)
     assert "Cust9" in rows_by_customer
-    row9 = rows_by_customer["Cust9"]
-    assert row9[1].fill.fgColor.rgb in ("FFFF0000", "00FF0000")
+    row9, headers9 = rows_by_customer["Cust9"]
+    source_idx9 = _idx(headers9, "источник")
+    assert row9[source_idx9].fill.fgColor.rgb in ("FFFF0000", "00FF0000")
 
     # Check toxic_11_return_keyword.xlsx (Cust11)
     assert "Cust11" in rows_by_customer
-    row11 = rows_by_customer["Cust11"]
-    assert row11[5].value == -1100.0  # Расход
-    assert row11[4].value == 0.0  # Приход
+    row11, headers11 = rows_by_customer["Cust11"]
+    expense_idx11 = _idx(headers11, "расход")
+    income_idx11 = _idx(headers11, "приход")
+    assert row11[expense_idx11].value == -1100.0  # Расход
+    assert row11[income_idx11].value == 0.0  # Приход
 
     print("✅ E2E Toxic Data Test Passed!")

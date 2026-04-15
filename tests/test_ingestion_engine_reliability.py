@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -44,3 +45,54 @@ def test_process_file_task_marks_error_when_reader_returns_exception(tmp_path):
         )
 
     persistence.update_file_status.assert_any_call(99, "error", "network lost")
+
+
+def test_read_file_raises_worker_runtime_error_in_strict_mode(tmp_path):
+    engine = IngestionEngine({})
+    test_file = tmp_path / "isolated.xlsx"
+    test_file.touch()
+
+    with (
+        patch(
+            "core.infra.ingestion_engine._should_isolate_calamine", return_value=True
+        ),
+        patch(
+            "core.infra.ingestion_engine._run_calamine_worker",
+            return_value={"ok": False, "error": "worker failed"},
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="worker failed"):
+            engine.read_file(test_file, strict_io=True)
+
+
+def test_read_file_returns_empty_on_worker_runtime_error_in_lenient_mode(tmp_path):
+    engine = IngestionEngine({})
+    test_file = tmp_path / "isolated_lenient.xlsx"
+    test_file.touch()
+
+    with (
+        patch(
+            "core.infra.ingestion_engine._should_isolate_calamine", return_value=True
+        ),
+        patch(
+            "core.infra.ingestion_engine._run_calamine_worker",
+            return_value={"ok": False, "error": "worker failed"},
+        ),
+    ):
+        rows = engine.read_file(test_file, strict_io=False)
+
+    assert rows == []
+
+
+def test_read_file_raises_after_retries_in_strict_mode(tmp_path):
+    engine = IngestionEngine({})
+    test_file = tmp_path / "retry_strict.xlsx"
+    test_file.touch()
+
+    engine.reader.read = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        OSError("network lost")
+    )
+
+    with patch("time.sleep"):
+        with pytest.raises(OSError, match="network lost"):
+            engine.read_file(test_file, strict_io=True)

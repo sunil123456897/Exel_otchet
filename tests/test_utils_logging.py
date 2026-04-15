@@ -4,19 +4,23 @@ import queue
 from unittest.mock import MagicMock, patch
 from core.infra.utils_logging import TextHandler, setup_gui_logging
 
+
 def test_text_handler_emit():
     mock_text_widget = MagicMock()
     handler = TextHandler(mock_text_widget)
-    record = logging.LogRecord('test', logging.INFO, 'pathname', 10, 'test message', None, None)
-    
+    record = logging.LogRecord(
+        "test", logging.INFO, "pathname", 10, "test message", None, None
+    )
+
     # We need to set a formatter or use the default one
-    handler.setFormatter(logging.Formatter('%(message)s'))
-    
+    handler.setFormatter(logging.Formatter("%(message)s"))
+
     handler.emit(record)
-    
+
     assert not handler.msg_queue.empty()
     assert handler._is_scheduled is True
     mock_text_widget.after_idle.assert_called_once_with(handler._process_queue)
+
 
 def test_text_handler_process_queue():
     mock_text_widget = MagicMock()
@@ -24,32 +28,34 @@ def test_text_handler_process_queue():
     handler.msg_queue.put("message 1")
     handler.msg_queue.put("message 2")
     handler._is_scheduled = True
-    
+
     handler._process_queue()
-    
+
     assert handler.msg_queue.empty()
     assert handler._is_scheduled is False
     # Check that configure was called with 'normal' then 'disabled'
-    mock_text_widget.configure.assert_any_call(state='normal')
-    mock_text_widget.configure.assert_any_call(state='disabled')
+    mock_text_widget.configure.assert_any_call(state="normal")
+    mock_text_widget.configure.assert_any_call(state="disabled")
     mock_text_widget.insert.assert_any_call(tk.END, "message 1\n")
     mock_text_widget.insert.assert_any_call(tk.END, "message 2\n")
     mock_text_widget.yview.assert_called_once_with(tk.END)
 
+
 def test_setup_gui_logging():
     mock_text_widget = MagicMock()
-    with patch('logging.getLogger') as mock_get_logger:
+    with patch("logging.getLogger") as mock_get_logger:
         mock_root_logger = MagicMock()
         mock_get_logger.return_value = mock_root_logger
-        
+
         handler = setup_gui_logging(mock_text_widget)
-        
+
         assert isinstance(handler, TextHandler)
         mock_root_logger.addHandler.assert_called_once_with(handler)
         mock_root_logger.setLevel.assert_called_once_with(logging.INFO)
-        
+
         # Cleanup: remove handler to not affect other tests
         mock_root_logger.removeHandler(handler)
+
 
 def test_gui_log_suppression():
     """
@@ -61,24 +67,25 @@ def test_gui_log_suppression():
     root_logger = logging.getLogger()
     for h in root_logger.handlers[:]:
         root_logger.removeHandler(h)
-        
+
     handler = setup_gui_logging(mock_text_widget)
-    handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-    
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+
     # Emit messages
     logging.debug("TEMPORAL WARNING: Invalid date 31.04")
     logging.info("Processing started")
-    
+
     # Check the queue
     messages = []
     while not handler.msg_queue.empty():
         messages.append(handler.msg_queue.get_nowait())
-        
+
     assert "INFO: Processing started" in messages
     assert any("TEMPORAL WARNING" in m for m in messages) is False
-    
+
     # Cleanup
     root_logger.removeHandler(handler)
+
 
 def test_temporal_warning_suppression_real_call():
     """
@@ -86,17 +93,17 @@ def test_temporal_warning_suppression_real_call():
     doesn't produce an INFO log that would reach the GUI.
     """
     from core.infra.ingestion_reader import extract_date_from_sheet
-    
+
     mock_text_widget = MagicMock()
     root_logger = logging.getLogger()
     for h in root_logger.handlers[:]:
         root_logger.removeHandler(h)
-        
+
     handler = setup_gui_logging(mock_text_widget)
-    
+
     # Call the function that used to produce a warning
     extract_date_from_sheet("31.04")
-    
+
     # Check the queue
     messages = []
     while not handler.msg_queue.empty():
@@ -107,3 +114,21 @@ def test_temporal_warning_suppression_real_call():
     assert "INVALID DATE" in messages[0]
     # Cleanup
     root_logger.removeHandler(handler)
+
+
+def test_setup_gui_logging_replaces_existing_text_handler():
+    root_logger = logging.getLogger()
+    for h in root_logger.handlers[:]:
+        root_logger.removeHandler(h)
+
+    first_widget = MagicMock()
+    second_widget = MagicMock()
+
+    first = setup_gui_logging(first_widget)
+    second = setup_gui_logging(second_widget)
+
+    assert first is not second
+    assert first not in root_logger.handlers
+    assert second in root_logger.handlers
+
+    root_logger.removeHandler(second)

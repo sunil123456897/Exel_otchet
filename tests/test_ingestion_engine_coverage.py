@@ -141,7 +141,7 @@ def test_get_available_dates_handles_worker_crash(engine, tmp_path):
     mock_logger.error.assert_called()
 
 
-def test_read_file_handles_worker_crash_without_killing_process(engine, tmp_path):
+def test_read_file_raises_on_worker_crash_in_strict_mode(engine, tmp_path):
     reports_dir = tmp_path / "REPORTS"
     reports_dir.mkdir()
     f = reports_dir / "crash.xlsx"
@@ -154,7 +154,26 @@ def test_read_file_handles_worker_crash_without_killing_process(engine, tmp_path
         ),
         patch("core.infra.ingestion_engine.logger") as mock_logger,
     ):
-        rows = engine.read_file(f, strict_io=True)
+        with pytest.raises(RuntimeError, match="worker exited with code 1"):
+            engine.read_file(f, strict_io=True)
+
+    mock_logger.error.assert_called()
+
+
+def test_read_file_returns_empty_on_worker_crash_in_lenient_mode(engine, tmp_path):
+    reports_dir = tmp_path / "REPORTS"
+    reports_dir.mkdir()
+    f = reports_dir / "crash_lenient.xlsx"
+    f.touch()
+
+    with (
+        patch(
+            "core.infra.ingestion_engine._run_calamine_worker",
+            return_value={"ok": False, "error": "worker exited with code 1"},
+        ),
+        patch("core.infra.ingestion_engine.logger") as mock_logger,
+    ):
+        rows = engine.read_file(f, strict_io=False)
 
     assert rows == []
     mock_logger.error.assert_called()

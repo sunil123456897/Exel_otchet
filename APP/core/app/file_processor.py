@@ -39,7 +39,7 @@ def process_file_task(
     file_ids = persistence.save_file_metadata(session_id, [meta])
     file_id = file_ids[0]
     try:
-        rows = ingestion.read_file(Path(path_str))
+        rows = ingestion.read_file(Path(path_str), strict_io=True)
         valid_rows = []
         for row in rows:
             row_date = row.get("date")

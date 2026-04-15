@@ -13,8 +13,14 @@ class IDataSource(ABC):
         pass
 
     @abstractmethod
-    def read_file(self, file_path: Path) -> List[Dict[str, Any]]:
-        """Reads Excel file and returns a list of raw row dictionaries."""
+    def read_file(
+        self, file_path: Path, strict_io: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Reads Excel file and returns raw rows.
+
+        strict_io=True may raise I/O errors after retry exhaustion;
+        strict_io=False should degrade to [] on transient read failures.
+        """
         pass
 
 

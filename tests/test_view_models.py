@@ -89,6 +89,61 @@ class TestEmployeeListViewModel:
         vm = EmployeeListViewModel()
         assert vm.get_progress_percent() == 0.0
 
+    def test_employee_status_to_tuple(self):
+        status = EmployeeStatus("Alice", "🟢 ГОТОВО", "a.xlsx", "ready")
+        assert status.to_tuple() == ("Alice", "🟢 ГОТОВО", "a.xlsx", "ready")
+
+    def test_refresh_updates_state_and_triggers_side_effects(self):
+        vm = EmployeeListViewModel()
+        updates = []
+
+        vm.set_update_callback(lambda: updates.append(True))
+
+        mock_controller = MagicMock()
+        mock_controller.config_controller = MagicMock()
+
+        def fake_refresh(selected_date, on_progress, on_complete, curator=None):
+            on_complete(
+                [("Alice", "🟢 ГОТОВО", "a.xlsx", "ready")],
+                {"Alice": [{"path": "C:/a.xlsx"}]},
+                True,
+            )
+
+        mock_controller.refresh_status.side_effect = fake_refresh
+
+        vm.refresh(mock_controller, datetime(2026, 4, 1), lambda _p: None)
+
+        assert vm.get_total_count() == 1
+        assert vm.get_ready_count() == 1
+        assert vm.rename_detected is True
+        assert vm.get_selected_employee_path("Alice") == "C:/a.xlsx"
+        mock_controller.config_controller.save_config.assert_called_once()
+        assert updates == [True]
+
+    def test_attach_files_delegates_to_config_controller(self):
+        vm = EmployeeListViewModel()
+        cfg = MagicMock()
+
+        vm.attach_files(cfg, "Alice", ["a.xlsx", "b.xlsx"])
+
+        cfg.attach_files.assert_called_once_with("Alice", ["a.xlsx", "b.xlsx"])
+
+    def test_search_query_getter_returns_lowercase(self):
+        vm = EmployeeListViewModel()
+
+        vm.search_query = "AliCE"
+
+        assert vm.search_query == "alice"
+
+    def test_employees_map_property_returns_copy(self):
+        vm = EmployeeListViewModel()
+        vm._employees_map = {"Alice": [{"path": "C:/a.xlsx"}]}
+
+        snapshot = vm.employees_map
+        snapshot["Bob"] = [{"path": "C:/b.xlsx"}]
+
+        assert "Bob" not in vm._employees_map
+
 
 class TestConsolidationViewModel:
     """Тесты ConsolidationViewModel."""

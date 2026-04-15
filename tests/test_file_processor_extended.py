@@ -38,6 +38,35 @@ def test_process_file_task_marks_file_error_when_wait_for_writes_fails():
     ]
 
 
+def test_process_file_task_reads_with_strict_io_enabled():
+    persistence = MagicMock()
+    persistence.save_file_metadata.return_value = [5]
+
+    ingestion = MagicMock()
+    ingestion.read_file.return_value = [{"date": "01.04.2026", "amount": 100}]
+
+    validator = MagicMock()
+    validator.validate_row.return_value = True
+
+    meta = {"path": "C:/reports/strict.xlsx"}
+
+    with patch("os.path.exists", return_value=True):
+        processed = process_file_task(
+            persistence,
+            ingestion,
+            validator,
+            "Alice",
+            meta,
+            "session-1",
+            "01.04.2026",
+        )
+
+    assert processed == 1
+    ingestion.read_file.assert_called_once_with(
+        Path("C:/reports/strict.xlsx"), strict_io=True
+    )
+
+
 def test_process_file_task_persists_soft_structure_warning_without_warning_status():
     persistence = MagicMock()
     persistence.save_file_metadata.return_value = [21]
