@@ -251,6 +251,8 @@ class TestWriteDailyData:
 
         ws = wb["01.04.2026"]
         headers = [cell.value for cell in ws[1]]
+        assert "Дата" not in headers
+        assert headers[0] == "Источник"
         assert "Приход" in headers
         assert "Расход" in headers
         assert "Комиссия" in headers
@@ -374,9 +376,231 @@ class TestWriteDailyData:
         master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
         ws = wb["01.04.2026"]
 
-        # Источник = колонка 2
-        источник_cell = ws.cell(2, 2)
+        # Источник = колонка 1 в стандартном дневном листе
+        источник_cell = ws.cell(2, 1)
         assert источник_cell.value == "warning_source.xlsx"
+
+    def test_soft_template_warning_does_not_paint_source_red(self, master_writer):
+        rows = [
+            {
+                "Источник": "soft_warning.xlsx",
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 100,
+                "is_template_warning": False,
+                "_template_warning_kind": "soft_structure",
+                "_template_warning_reason": "unsupported header name: % -> % посредника",
+            }
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        ws = wb["01.04.2026"]
+
+        source_cell = ws.cell(2, 1)
+        assert source_cell.value == "soft_warning.xlsx"
+        assert (
+            source_cell.fill.start_color.rgb
+            != master_writer.st.fill_warning.start_color.rgb
+        )
+
+    def test_hard_structure_warning_paints_source_red(self, master_writer):
+        rows = [
+            {
+                "Источник": "hard_warning.xlsx",
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 100,
+                "is_template_warning": True,
+                "_template_warning_kind": "hard_structure",
+                "_template_warning_reason": "unexpected columns: курс",
+            }
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        ws = wb["01.04.2026"]
+
+        source_cell = ws.cell(2, 1)
+        assert source_cell.value == "hard_warning.xlsx"
+        assert (
+            source_cell.fill.start_color.rgb
+            == master_writer.st.fill_warning.start_color.rgb
+        )
+
+    def test_numeric_text_total_warning_paints_total_cell_not_source(
+        self, master_writer
+    ):
+        rows = [
+            {
+                "Источник": "numeric_total.xlsx",
+                "сумма платежа ПРИХОД": 0,
+                "сумма платежа РАСХОД": 100,
+                "комиссия": 0,
+                "ИТОГ": 0,
+                "is_template_warning": True,
+                "_template_warning_kind": "template_warning",
+                "_template_warning_reason": "text in numeric field: total",
+            }
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        ws = wb["01.04.2026"]
+
+        source_cell = ws.cell(2, 1)
+        total_col = next(cell.column for cell in ws[1] if cell.value == "ИТОГ")
+        total_cell = ws.cell(2, total_col)
+
+        assert (
+            source_cell.fill.start_color.rgb
+            != master_writer.st.fill_warning.start_color.rgb
+        )
+        assert (
+            total_cell.fill.start_color.rgb
+            == master_writer.st.fill_warning.start_color.rgb
+        )
+
+    def test_numeric_text_commission_warning_paints_commission_cell_not_source(
+        self, master_writer
+    ):
+        rows = [
+            {
+                "Источник": "numeric_commission.xlsx",
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 100,
+                "is_template_warning": True,
+                "_template_warning_kind": "template_warning",
+                "_template_warning_reason": "text in numeric field: commission",
+            }
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        ws = wb["01.04.2026"]
+
+        source_cell = ws.cell(2, 1)
+        commission_col = next(cell.column for cell in ws[1] if cell.value == "Комиссия")
+        commission_cell = ws.cell(2, commission_col)
+
+        assert (
+            source_cell.fill.start_color.rgb
+            != master_writer.st.fill_warning.start_color.rgb
+        )
+        assert (
+            commission_cell.fill.start_color.rgb
+            == master_writer.st.fill_warning.start_color.rgb
+        )
+
+    def test_numeric_text_total_warning_paints_total_for_boris_layout(
+        self, master_writer
+    ):
+        rows = [
+            {
+                "Источник": "numeric_total_boris.xlsx",
+                "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": "ООО Тест",
+                "ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)": "ООО Исп",
+                "сумма платежа ПРИХОД": 0,
+                "сумма платежа РАСХОД": 100,
+                "комиссия": 0,
+                "ИТОГ": 0,
+                "% посредника": 0,
+                "посредник 1(кэш)": 0,
+                "% посредник 2": 0,
+                "посредник 2": 0,
+                "фильтры": "",
+                "is_template_warning": True,
+                "_template_warning_kind": "template_warning",
+                "_template_warning_reason": "text in numeric field: total",
+            }
+        ]
+        headers = [
+            "Дата",
+            "Источник",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
+            "Комиссия",
+            "ИТОГ",
+            "% посредник 1",
+            "посредник 1(кэш)",
+            "% посредник 2",
+            "посредник 2",
+            "Фильтры",
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(
+            datetime(2026, 4, 1),
+            rows,
+            wb=wb,
+            curator="boris",
+            headers=headers,
+        )
+        ws = wb["01.04.2026"]
+
+        source_cell = ws.cell(2, 2)
+        total_col = next(cell.column for cell in ws[1] if cell.value == "ИТОГ")
+        total_cell = ws.cell(2, total_col)
+
+        assert (
+            source_cell.fill.start_color.rgb
+            != master_writer.st.fill_warning.start_color.rgb
+        )
+        assert (
+            total_cell.fill.start_color.rgb
+            == master_writer.st.fill_warning.start_color.rgb
+        )
+
+    def test_numeric_text_commission_warning_paints_commission_for_ivan_layout(
+        self, master_writer
+    ):
+        rows = [
+            {
+                "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": "ООО Тест",
+                "ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)": "ООО Исп",
+                "сумма платежа ПРИХОД": 100,
+                "комиссия": 0,
+                "ИТОГ": 100,
+                "% посредника": 0,
+                "посредник 1(кэш)": 0,
+                "% посредник 2": 0,
+                "посредник 2": 0,
+                "фильтры": "",
+                "is_template_warning": True,
+                "_template_warning_kind": "template_warning",
+                "_template_warning_reason": "text in numeric field: commission",
+            }
+        ]
+        headers = [
+            "Заказчик (название проекта, наименование ЮЛ)",
+            "Исполнитель (наименование ЮЛ, банк)",
+            "Сумма платежа",
+            "Комиссия",
+            "Итог",
+            "%",
+            "Комиссия посредника 1",
+            "% посредник 2",
+            "Комиссия посредника 2",
+            "Фильтр",
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(
+            datetime(2026, 4, 1),
+            rows,
+            wb=wb,
+            curator="ivan",
+            headers=headers,
+        )
+        ws = wb["01.04.2026"]
+
+        commission_col = next(cell.column for cell in ws[1] if cell.value == "Комиссия")
+        commission_cell = ws.cell(2, commission_col)
+
+        assert (
+            commission_cell.fill.start_color.rgb
+            == master_writer.st.fill_warning.start_color.rgb
+        )
 
 
 class TestAutoAdjust:
@@ -394,6 +618,30 @@ class TestAutoAdjust:
         # Колонка с "Приход" должна быть >= 15
         приход_width = ws.column_dimensions["C"].width
         assert приход_width >= 15
+
+    def test_income_column_width_accounts_for_total_formula(self, master_writer):
+        """Итоговая формула внизу тоже должна влиять на ширину числовой колонки."""
+        rows = [
+            {
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 100,
+            }
+            for _ in range(30)
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        ws = wb["01.04.2026"]
+
+        income_col = None
+        for cell in ws[1]:
+            if cell.value == "Приход":
+                income_col = cell.column_letter
+                break
+
+        assert income_col is not None
+        assert ws.column_dimensions[income_col].width > 15
 
     def test_text_columns_capped(self, master_writer):
         """Текстовые колонки не должны превышать 35 символов."""
@@ -466,6 +714,52 @@ class TestSaveWorkbook:
 
 class TestEdgeCases:
     """Edge cases и corner cases."""
+
+    def test_return_row_not_marked_yellow_math_error(self, master_writer):
+        rows = [
+            {
+                "Источник": "return.xlsx : 5",
+                "сумма платежа ПРИХОД": 0,
+                "сумма платежа РАСХОД": -500,
+                "комиссия": 0,
+                "ИТОГ": -500,
+                "фильтры": "возврат средств",
+            }
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        ws = wb["01.04.2026"]
+
+        source_cell = ws.cell(2, 1)
+        assert source_cell.value == "return.xlsx : 5"
+        assert (
+            source_cell.fill.start_color.rgb
+            == master_writer.st.fill_odd.start_color.rgb
+        )
+
+    def test_custom_return_keyword_not_marked_yellow_math_error(self, temp_output_dir):
+        config = {
+            "paths": {"master_file": str(temp_output_dir / "custom_return.xlsx")},
+            "logic": {"return_keywords": ["рефанд"]},
+        }
+        writer = MasterWriter(config)
+        rows = [
+            {
+                "Источник": "refund.xlsx : 5",
+                "сумма платежа ПРИХОД": 0,
+                "сумма платежа РАСХОД": -500,
+                "комиссия": 0,
+                "ИТОГ": -500,
+                "фильтры": "рефанд клиенту",
+            }
+        ]
+        wb = Workbook()
+        writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        ws = wb["01.04.2026"]
+
+        source_cell = ws.cell(2, 1)
+        assert source_cell.value == "refund.xlsx : 5"
+        assert source_cell.fill.start_color.rgb == writer.st.fill_odd.start_color.rgb
 
     def test_very_small_income_not_highlighted(self, master_writer):
         """Приход < 0.02 не должен подсвечиваться."""

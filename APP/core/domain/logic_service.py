@@ -14,7 +14,7 @@ from core.domain.utils_helpers import (
 logger = logging.getLogger(__name__)
 
 # Default junk/header detection strings (configurable via config.validation)
-_DEFAULT_JUNK_TOTALS = frozenset({"итого", "всего", "итог"})
+_DEFAULT_JUNK_TOTALS = frozenset({"итого", "всего", "итог", "итог дня", "итоги дня"})
 _DEFAULT_JUNK_MARKERS = ("заказчик", "исполнитель", "приход", "расход")
 _DEFAULT_HEADER_WORDS = (
     "% посредника",
@@ -36,12 +36,8 @@ class Validator(IValidator):
     def __init__(self, config: Dict[str, Any]) -> None:
         self.config = config
         v_cfg = config.get("validation", {})
-        self._junk_totals = frozenset(
-            v_cfg.get("junk_totals", _DEFAULT_JUNK_TOTALS)
-        )
-        self._junk_markers = tuple(
-            v_cfg.get("junk_markers", _DEFAULT_JUNK_MARKERS)
-        )
+        self._junk_totals = frozenset(v_cfg.get("junk_totals", _DEFAULT_JUNK_TOTALS))
+        self._junk_markers = tuple(v_cfg.get("junk_markers", _DEFAULT_JUNK_MARKERS))
         self._header_words = v_cfg.get("header_words", _DEFAULT_HEADER_WORDS)
 
     def validate_row(self, row: Dict[str, Any]) -> bool:
@@ -51,11 +47,23 @@ class Validator(IValidator):
             str(row.get("contractor", "")).strip(),
             str(row.get("filters", "")).strip(),
         )
+        amount_val = row.get("amount")
+        total_val = row.get("total")
         if (
             not customer
             and not contractor
             and not filters
-            and (row.get("amount") is None or str(row.get("amount")).strip() == "0")
+            and (amount_val is None or str(amount_val).strip() == "0")
+        ):
+            return False
+        if (
+            not customer
+            and not contractor
+            and not filters
+            and amount_val is not None
+            and str(amount_val).strip() not in {"", "0"}
+            and total_val is not None
+            and str(total_val).strip() not in {"", "0"}
         ):
             return False
         for val in row.values():
@@ -79,6 +87,7 @@ class Validator(IValidator):
 # Curator Strategy Registry (Item 7 — replaces hardcoded if/elif)
 # ──────────────────────────────────────────────────────────────
 
+
 class CuratorStrategy:
     """Base strategy — no extra broker calculations."""
 
@@ -99,9 +108,7 @@ class BorisCuratorStrategy(CuratorStrategy):
     def apply(self, curator_config, pb_val, amt, tot):
         rate2 = Decimal(str(curator_config.get("intermediary2_rate", 0.05)))
         base = tot if tot != 0 else amt
-        broker2_calc = (base * rate2).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
+        broker2_calc = (base * rate2).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return pb_val, rate2, broker2_calc
 
 
@@ -112,9 +119,7 @@ class IvanCuratorStrategy(CuratorStrategy):
         rate1 = Decimal(str(curator_config.get("intermediary1_rate", 0.05)))
         rate2 = Decimal(str(curator_config.get("intermediary2_rate", 0.05)))
         base = tot if tot != 0 else amt
-        broker2_calc = (base * rate2).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
+        broker2_calc = (base * rate2).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return rate1, rate2, broker2_calc
 
 
@@ -151,7 +156,9 @@ class LogicService(ILogicService):
             return "'" + s
         return s
 
-    def _build_error_row(self, r: Dict[str, Any], is_critical: bool = True) -> Dict[str, Any]:
+    def _build_error_row(
+        self, r: Dict[str, Any], is_critical: bool = True
+    ) -> Dict[str, Any]:
         """Build a row dict that marks a critical data integrity error.
 
         The row is included in the output so it appears in the final report
@@ -200,6 +207,7 @@ class LogicService(ILogicService):
                 any(kw in f_val for kw in self.ret_kw),
             )
             is_critical = False
+            is_warn = False
 
             try:
                 amt = to_decimal(r.get("amount"))
@@ -224,7 +232,27 @@ class LogicService(ILogicService):
                 res.append(self._build_error_row(r, is_critical=True))
                 continue
 
-            if amt == 0 and tot == 0 and not is_add and not is_critical:
+            try:
+                raw_b1 = to_decimal(r.get("broker1"))
+            except (NumericParsingError, ValueError):
+                raw_b1 = Decimal("0.00")
+                is_warn = True
+
+            try:
+                raw_b2 = to_decimal(r.get("broker2"))
+            except (NumericParsingError, ValueError):
+                raw_b2 = Decimal("0.00")
+                is_warn = True
+
+            has_broker_values = raw_b1 != 0 or raw_b2 != 0
+
+            if (
+                amt == 0
+                and tot == 0
+                and not has_broker_values
+                and not is_add
+                and not is_critical
+            ):
                 continue
 
             # Financial routing
@@ -240,7 +268,9 @@ class LogicService(ILogicService):
             c_raw = to_decimal_percent(r.get("commission", 0))
             try:
                 if self.commission_is_percent and c_raw != 0 and abs(c_raw) <= 1:
-                    comm = (c_raw * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    comm = (c_raw * 100).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
                 else:
                     comm = c_raw.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             except (TypeError, ArithmeticError):
@@ -249,6 +279,7 @@ class LogicService(ILogicService):
                     comm = to_decimal(c_raw)
                 except (NumericParsingError, ValueError):
                     comm = Decimal("0.00")
+                    is_warn = True
 
             pb_raw = r.get("percent_broker")
             try:
@@ -265,18 +296,11 @@ class LogicService(ILogicService):
                 pb2_val = Decimal("0.00")
                 broker2_calc = Decimal("0.00")
 
-            is_warn = r.get("is_template_warning", False)
+            is_warn = r.get("is_template_warning", False) or is_warn
             if is_warn:
                 logger.warning(f"Template warning: {r.get('_source_info')}")
-            try:
-                b1_val = to_decimal(r.get("broker1"))
-            except (NumericParsingError, ValueError):
-                b1_val = Decimal("0.00")
-
-            try:
-                b2_val = to_decimal(r.get("broker2"))
-            except (NumericParsingError, ValueError):
-                b2_val = Decimal("0.00")
+            b1_val = raw_b1
+            b2_val = raw_b2
 
             res.append(
                 {
@@ -300,6 +324,8 @@ class LogicService(ILogicService):
                     "фильтры": self._sanitize(r.get("filters", "")),
                     "is_critical": is_critical,
                     "is_template_warning": is_warn,
+                    "_template_warning_kind": r.get("_template_warning_kind"),
+                    "_template_warning_reason": r.get("_template_warning_reason"),
                 }
             )
         return res

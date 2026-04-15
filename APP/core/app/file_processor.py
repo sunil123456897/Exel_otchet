@@ -62,10 +62,34 @@ def process_file_task(
                 row["employee_name"] = emp_name
                 valid_rows.append(row)
 
+        has_template_warnings = False
+        for row in valid_rows:
+            warning_kind = row.get("_template_warning_kind")
+            if row.get("is_template_warning") or warning_kind:
+                if row.get("is_template_warning"):
+                    has_template_warnings = True
+                persistence.save_template_error(
+                    session_id,
+                    {
+                        "file_path": path_str,
+                        "sheet_name": row.get("_sheet_name"),
+                        "row_index": row.get("_row_index"),
+                        "error_type": warning_kind or "template_warning",
+                        "details": row.get(
+                            "_template_warning_reason",
+                            row.get("_source_info", "Template warning"),
+                        ),
+                        "raw_data": row,
+                    },
+                )
+
         if valid_rows:
             persistence.save_staging_data(file_id, valid_rows)
             persistence.wait_for_writes()
-        persistence.update_file_status(file_id, "processed")
+        persistence.update_file_status(
+            file_id,
+            "processed_with_warnings" if has_template_warnings else "processed",
+        )
         return len(valid_rows)
     except Exception as e:
         persistence.update_file_status(file_id, "error", str(e))

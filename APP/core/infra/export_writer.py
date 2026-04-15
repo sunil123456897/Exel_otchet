@@ -17,7 +17,6 @@ from core.infra.export_formatting import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_HEADERS = [
-    "Дата",
     "Источник",
     "ЗАКАЗЧИК",
     "ИСПОЛНИТЕЛЬ",
@@ -36,6 +35,10 @@ class MasterWriter(IExporter):
     def __init__(self, config: Dict[str, Any], config_path: str = ""):
         self.config = config
         self.config_dir = Path(config_path).parent if config_path else Path.cwd()
+        logic_cfg = config.get("logic", {}) if isinstance(config, dict) else {}
+        self.return_keywords = [
+            str(v).lower() for v in logic_cfg.get("return_keywords", ["возврат"])
+        ]
         p = (
             config.get("paths", {})
             if isinstance(config, dict)
@@ -135,19 +138,26 @@ class MasterWriter(IExporter):
             ):
                 if row[i - 1]:
                     max_len = max(max_len, len(str(row[i - 1])))
+            if ws.max_row > 20:
+                tail_value = ws.cell(ws.max_row, i).value
+                if tail_value:
+                    max_len = max(max_len, len(str(tail_value)))
             let = get_column_letter(i)
             header = str(ws.cell(1, i).value or "").lower()
             if any(kw in header for kw in numeric_keywords):
-                ws.column_dimensions[let].width = max((max_len * 1.1) + 6, 15)
+                ws.column_dimensions[let].width = max((max_len * 1.1) + 6, 18)
             else:
                 ws.column_dimensions[let].width = min(max_len + 4, 35)
 
     def _append_data_rows(self, ws, date, rows, curator=None):
-        warning_rows = []
+        warning_rows = {}
         date_str = date.strftime("%d.%m.%Y")
         for r in rows:
             if r.get("is_template_warning"):
-                warning_rows.append(ws.max_row + 1)
+                warning_rows[ws.max_row + 1] = {
+                    "kind": r.get("_template_warning_kind"),
+                    "reason": r.get("_template_warning_reason"),
+                }
             if curator == "boris":
                 ws.append(
                     [
@@ -184,7 +194,6 @@ class MasterWriter(IExporter):
             else:
                 ws.append(
                     [
-                        date_str,
                         r.get("Источник", ""),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
@@ -247,7 +256,14 @@ class MasterWriter(IExporter):
         cols, num_indices, percent_broker_cols = detect_header_columns(ws)
 
         apply_cell_styling(
-            ws, rows, warning_rows, cols, num_indices, percent_broker_cols, self.st
+            ws,
+            rows,
+            warning_rows,
+            cols,
+            num_indices,
+            percent_broker_cols,
+            self.st,
+            self.return_keywords,
         )
 
         build_total_row(ws, num_indices, self.st)

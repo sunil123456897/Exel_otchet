@@ -78,6 +78,43 @@ class ExcelStyles:
 logger = logging.getLogger(__name__)
 
 
+WARNING_FIELD_TO_HEADER = {
+    "amount": ["сумма платежа"],
+    "income": ["приход"],
+    "expense": ["расход"],
+    "total": ["итог"],
+    "commission": ["комиссия"],
+    "percent_broker": ["% посредника", "% посредник"],
+    "broker1": ["посредник 1(кэш)", "посредник 1"],
+    "broker2": ["посредник 2"],
+}
+
+
+def _get_warning_target_column(ws, warning_info):
+    if not warning_info:
+        return None
+
+    kind = warning_info.get("kind")
+    reason = str(warning_info.get("reason") or "")
+    if kind in {"hard_structure", "soft_structure"}:
+        return None
+
+    prefix = "text in numeric field: "
+    if not reason.startswith(prefix):
+        return None
+
+    field = reason[len(prefix) :].strip()
+    patterns = WARNING_FIELD_TO_HEADER.get(field)
+    if not patterns:
+        return None
+
+    for i, cell in enumerate(ws[1], 1):
+        header = str(cell.value or "").lower()
+        if any(pattern in header for pattern in patterns):
+            return i
+    return None
+
+
 def detect_header_columns(ws) -> tuple:
     num_kw = ["приход", "расход", "комиссия", "итог", "посредник"]
     cols = {kw: -1 for kw in num_kw}
@@ -100,13 +137,27 @@ def detect_header_columns(ws) -> tuple:
 
 
 def apply_cell_styling(
-    ws, rows_data, warning_rows, cols, num_indices, percent_broker_cols, st: ExcelStyles
+    ws,
+    rows_data,
+    warning_rows,
+    cols,
+    num_indices,
+    percent_broker_cols,
+    st: ExcelStyles,
+    return_keywords=None,
 ):
     fill_yellow = PatternFill(patternType="solid", fgColor="FFFF00")
+    return_keywords = [str(v).lower() for v in (return_keywords or ["возврат"])]
 
     for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row)):
-        is_warning = (r_idx + 2) in warning_rows
+        warning_info = warning_rows.get(r_idx + 2)
+        is_warning = warning_info is not None
         fill_row = st.fill_odd if (r_idx + 1) % 2 == 1 else st.fill_even
+        filters_val = str(rows_data[r_idx].get("фильтры", "")).lower()
+        is_return = any(kw in filters_val for kw in return_keywords)
+        warning_target_col = _get_warning_target_column(ws, warning_info)
+        warning_kind = warning_info.get("kind") if warning_info else None
+        source_col = 1 if ws.cell(1, 1).value == "Источник" else 2
 
         i_val = (
             float(row_cells[cols["приход"] - 1].value or 0) if cols["приход"] > 0 else 0
@@ -126,9 +177,9 @@ def apply_cell_styling(
 
         expected_total_no_comm = i_val - e_val
         has_money = abs(i_val) > 0.02 or abs(e_val) > 0.02
-        
+
         is_math_err = False
-        if has_money:
+        if has_money and not is_return:
             if abs(t_val) < 0.02:
                 # Total is 0 / empty
                 is_math_err = True
@@ -149,16 +200,41 @@ def apply_cell_styling(
 
             if c_idx in num_indices:
                 format_numeric_cell(
-                    cell, c_idx, cols, ws, percent_broker_cols, is_warning, is_critical, st
+                    cell,
+                    c_idx,
+                    cols,
+                    ws,
+                    percent_broker_cols,
+                    is_warning,
+                    is_critical,
+                    st,
+                    warning_target_col,
+                    warning_kind,
                 )
             else:
                 cell.alignment = st.align_left
-                if is_warning and not is_critical and c_idx == 2:
+                if (
+                    is_warning
+                    and not is_critical
+                    and warning_target_col is None
+                    and c_idx == source_col
+                ):
+                    cell.fill = st.fill_warning
+                elif is_warning and not is_critical and c_idx == warning_target_col:
                     cell.fill = st.fill_warning
 
 
 def format_numeric_cell(
-    cell, c_idx, cols, ws, percent_broker_cols, is_warning, is_critical, st: ExcelStyles
+    cell,
+    c_idx,
+    cols,
+    ws,
+    percent_broker_cols,
+    is_warning,
+    is_critical,
+    st: ExcelStyles,
+    warning_target_col=None,
+    warning_kind=None,
 ):
     val = cell.value or 0
 
@@ -203,7 +279,7 @@ def format_numeric_cell(
 
     cell.alignment, cell.number_format = st.align_right, fmt
 
-    if is_warning and not is_critical and c_idx == 2:
+    if is_warning and not is_critical and warning_target_col == c_idx:
         cell.fill = st.fill_warning
 
 

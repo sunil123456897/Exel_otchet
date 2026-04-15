@@ -22,6 +22,48 @@ from core.infra.utils import get_local_copy
 
 logger = logging.getLogger(__name__)
 MAX_HEADER_SCAN_ROWS = 6000
+_PREFERRED_HEADER_ORDER = (
+    "customer",
+    "contractor",
+    "amount",
+    "income",
+    "expense",
+    "commission",
+    "total",
+    "percent_broker",
+    "broker1",
+    "broker2",
+    "filters",
+)
+_STRICT_TEMPLATE_ORDER = (
+    "customer",
+    "contractor",
+    "amount",
+    "commission",
+    "total",
+    "percent_broker",
+    "broker1",
+    "broker2",
+    "filters",
+)
+_STRICT_OPTIONAL_KEYS = frozenset({"filters"})
+_STRICT_HELPER_HEADERS = frozenset(
+    {
+        "итог дня",
+        "итоги дня",
+        "оплата постащику, выплата зарплатного реестра",
+    }
+)
+
+
+def _normalize_header_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).lower()
+    text = text.replace("\xa0", " ").replace("\u200b", "").replace("\ufeff", "")
+    text = "".join(ch for ch in text if ch.isprintable())
+    text = re.sub(r"\s+", " ", text).strip()
+    return text.rstrip(": ")
 
 
 def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
@@ -70,6 +112,130 @@ class CalamineReader:
         self.markers = markers
         self.aliases = aliases
         self.drive_letters = tuple(d.upper() for d in drive_letters)
+        self._canonical_order = [
+            key for key in _PREFERRED_HEADER_ORDER if key in markers
+        ] + [key for key in markers if key not in _PREFERRED_HEADER_ORDER]
+        self._strict_template_enabled = set(_STRICT_TEMPLATE_ORDER).issubset(
+            set(markers)
+        )
+        self._normalized_markers = {
+            key: [
+                _normalize_header_text(v)
+                for v in (val if isinstance(val, list) else [val])
+            ]
+            for key, val in markers.items()
+        }
+        self._normalized_aliases = {
+            key: [_normalize_header_text(v) for v in values]
+            for key, values in aliases.items()
+        }
+
+    def _preferred_header_name(self, key: str) -> str:
+        values = self.markers.get(key, [])
+        if isinstance(values, list):
+            return str(values[0]) if values else key
+        return str(values)
+
+    def _matches_any_header_token(self, header_value: str, tokens: List[str]) -> bool:
+        return any(token and token in header_value for token in tokens)
+
+    def _classify_header_structure(
+        self, header_row: List[Any], col_map: Dict[str, int]
+    ) -> tuple[Optional[str], Optional[str]]:
+        if not self._strict_template_enabled:
+            return None, None
+
+        normalized_headers = [_normalize_header_text(v) for v in header_row]
+        mapped_by_index = {
+            col_idx: key
+            for key, col_idx in col_map.items()
+            if key in _STRICT_TEMPLATE_ORDER and col_idx < len(normalized_headers)
+        }
+        if not mapped_by_index:
+            return None, None
+
+        missing_keys = [
+            key for key in _STRICT_TEMPLATE_ORDER if key not in mapped_by_index.values()
+        ]
+        hard_missing = [key for key in missing_keys if key not in _STRICT_OPTIONAL_KEYS]
+        if hard_missing:
+            return (
+                "hard_structure",
+                "missing columns: "
+                + ", ".join(self._preferred_header_name(key) for key in hard_missing),
+            )
+
+        unexpected_headers = [
+            str(header_row[idx]).strip()
+            for idx, value in enumerate(normalized_headers)
+            if value and idx not in mapped_by_index
+        ]
+        helper_headers = [
+            header
+            for header in unexpected_headers
+            if _normalize_header_text(header) in _STRICT_HELPER_HEADERS
+        ]
+        real_unexpected_headers = [
+            header
+            for header in unexpected_headers
+            if _normalize_header_text(header) not in _STRICT_HELPER_HEADERS
+        ]
+        if real_unexpected_headers:
+            return (
+                "hard_structure",
+                f"unexpected columns: {', '.join(real_unexpected_headers)}",
+            )
+
+        present_keys = [key for _, key in sorted(mapped_by_index.items())]
+        expected_order = [key for key in _STRICT_TEMPLATE_ORDER if key in present_keys]
+        if present_keys != expected_order:
+            return (
+                "hard_structure",
+                "column order mismatch: " + " -> ".join(present_keys),
+            )
+
+        alias_only_headers = []
+        for idx, key in sorted(mapped_by_index.items()):
+            header_value = normalized_headers[idx]
+            if self._matches_any_header_token(
+                header_value, self._normalized_markers.get(key, [])
+            ):
+                continue
+            alias_match = next(
+                (
+                    alias
+                    for alias in self._normalized_aliases.get(key, [])
+                    if alias and alias in header_value
+                ),
+                None,
+            )
+            if alias_match is None and key == "broker1" and header_value == "посредник":
+                alias_match = header_value
+            if alias_match:
+                alias_only_headers.append(
+                    f"{str(header_row[idx]).strip()} -> {self._preferred_header_name(key)}"
+                )
+
+        if alias_only_headers:
+            return (
+                "soft_structure",
+                "unsupported header name: " + "; ".join(alias_only_headers),
+            )
+
+        soft_reasons = []
+        if helper_headers:
+            soft_reasons.append("helper columns: " + ", ".join(helper_headers))
+        soft_missing = [
+            self._preferred_header_name(key)
+            for key in missing_keys
+            if key in _STRICT_OPTIONAL_KEYS
+        ]
+        if soft_missing:
+            soft_reasons.append("missing optional columns: " + ", ".join(soft_missing))
+        if soft_reasons:
+            return ("soft_structure", "; ".join(soft_reasons))
+
+        return None, None
 
     def _map_columns(self, header_row: List[Any]) -> tuple[Dict[str, int], bool]:
         """Сопоставить колонки заголовка с известными маркерами.
@@ -79,14 +245,11 @@ class CalamineReader:
         """
         col_map = {}
         used_aliases = False
-        header_values = [
-            str(val).lower() if val is not None else "" for val in header_row
-        ]
+        header_values = [_normalize_header_text(val) for val in header_row]
 
         for key, marker in self.markers.items():
             found_idx = None
-            marker_list = marker if isinstance(marker, list) else [marker]
-            marker_lowers = [str(m).lower() for m in marker_list]
+            marker_lowers = self._normalized_markers.get(key, [])
 
             for idx, val in enumerate(header_values):
                 if any(m in val for m in marker_lowers):
@@ -96,10 +259,13 @@ class CalamineReader:
                     break
 
             if found_idx is None and key in self.aliases:
-                for alt in self.aliases[key]:
-                    alt_lower = alt.lower()
+                for alt_lower in self._normalized_aliases.get(key, []):
                     for idx, val in enumerate(header_values):
-                        if alt_lower in val:
+                        if alt_lower in val or (
+                            key == "broker1"
+                            and val == "посредник"
+                            and "посредник 2" not in val
+                        ):
                             if key == "commission" and "посредник" in val:
                                 continue
                             found_idx = idx
@@ -127,12 +293,9 @@ class CalamineReader:
         # Прекомпут поисковых терминов
         all_search_terms = []
         for key in self.markers:
-            m_val = self.markers[key]
-            m_list = [
-                str(v).lower() for v in (m_val if isinstance(m_val, list) else [m_val])
-            ]
+            m_list = list(self._normalized_markers.get(key, []))
             if key in self.aliases:
-                m_list.extend([str(v).lower() for v in self.aliases[key]])
+                m_list.extend(self._normalized_aliases.get(key, []))
             all_search_terms.append(list(set(m_list)))
         aliases_lower_list = all_search_terms
 
@@ -145,6 +308,8 @@ class CalamineReader:
             "итого",
             "всего",
             "итог:",
+            "итог дня",
+            "итоги дня",
         ]
 
         try:
@@ -215,10 +380,16 @@ class CalamineReader:
                     continue
 
                 standard_keys, max_score = set(), 0
+                best_header_idx = None
+                best_col_map = None
+                best_structure_kind = None
+                best_structure_reason = None
                 for idx, row in enumerate(rows_sample[:MAX_HEADER_SCAN_ROWS]):
                     if not any(v is not None and v != "" for v in row):
                         continue
-                    row_str = " ".join([str(v).lower() for v in row if v is not None])
+                    row_str = " ".join(
+                        [_normalize_header_text(v) for v in row if v is not None]
+                    )
                     score = sum(
                         1
                         for m in aliases_lower_list
@@ -229,8 +400,15 @@ class CalamineReader:
                         if "amount" in map_res and (
                             "customer" in map_res or "contractor" in map_res
                         ):
+                            structure_kind, structure_reason = (
+                                self._classify_header_structure(row, map_res)
+                            )
                             max_score = score
                             standard_keys = set(map_res.keys())
+                            best_header_idx = idx
+                            best_col_map = map_res
+                            best_structure_kind = structure_kind
+                            best_structure_reason = structure_reason
                             if score >= 5:
                                 break
 
@@ -242,6 +420,7 @@ class CalamineReader:
 
                 # Второй проход: чтение данных через итератор для экономии памяти
                 active_col_map, current_is_warning = None, False
+                current_warning_kind, current_warning_reason = None, None
                 trash_keywords_set = set(trash_keywords)
 
                 row_iterator = enumerate(
@@ -265,7 +444,9 @@ class CalamineReader:
                     if not any(v is not None and v != "" for v in row):
                         continue
 
-                    row_values_lower = [str(v).lower() for v in row if v is not None]
+                    row_values_lower = [
+                        _normalize_header_text(v) for v in row if v is not None
+                    ]
 
                     if not active_col_map:
                         row_combined = " ".join(row_values_lower)
@@ -275,19 +456,23 @@ class CalamineReader:
                             if any(alias in row_combined for alias in m)
                         )
 
-                        if score >= 2:
+                        if best_header_idx is not None and i == best_header_idx:
                             tmp_map, used_aliases = self._map_columns(row)
-                            if "amount" in tmp_map and (
-                                "customer" in tmp_map or "contractor" in tmp_map
-                            ):
-                                active_col_map = tmp_map
-                                logger.debug(
-                                    f"DEBUG: Found header in {sheet_name} row {i + 1}: {active_col_map}"
-                                )
-                                current_is_warning = used_aliases or (
-                                    set(active_col_map.keys()) != standard_keys
-                                )
-                                continue
+                            active_col_map = tmp_map or best_col_map
+                            logger.debug(
+                                f"DEBUG: Found header in {sheet_name} row {i + 1}: {active_col_map}"
+                            )
+                            structure_kind, structure_reason = (
+                                self._classify_header_structure(row, active_col_map)
+                            )
+                            current_warning_kind = structure_kind or best_structure_kind
+                            current_warning_reason = (
+                                structure_reason or best_structure_reason
+                            )
+                            current_is_warning = (
+                                current_warning_kind == "hard_structure"
+                            )
+                            continue
 
                     if active_col_map:
                         is_trash = False
@@ -309,6 +494,8 @@ class CalamineReader:
                         }
 
                         has_data, has_financial = False, False
+                        row_has_numeric_text_warning = False
+                        row_warning_reason = None
                         numeric_fields = {
                             "amount",
                             "income",
@@ -341,13 +528,69 @@ class CalamineReader:
                                                     has_financial = True
                                                 raw_data[key] = d_val
                                             except Exception:
-                                                raw_data[key] = val
+                                                raw_data[key] = None
+                                                if key != "amount":
+                                                    row_has_numeric_text_warning = True
+                                                    if row_warning_reason is None:
+                                                        row_warning_reason = f"text in numeric field: {key}"
+                                                else:
+                                                    raw_data[key] = val
                                     else:
                                         raw_data[key] = val
 
+                        # Some malformed rows shift one cell right after the amount column:
+                        # amount becomes bank text, commission holds the amount, total holds percent,
+                        # and the next physical cell contains the real total.
+                        amount_idx = active_col_map.get("amount")
+                        commission_idx = active_col_map.get("commission")
+                        total_idx = active_col_map.get("total")
+                        amount_val = raw_data.get("amount")
+                        commission_val = raw_data.get("commission")
+                        total_val = raw_data.get("total")
+                        next_total_val = (
+                            row[total_idx + 1]
+                            if total_idx is not None and total_idx + 1 < len(row)
+                            else None
+                        )
+
+                        if (
+                            isinstance(amount_val, str)
+                            and commission_idx is not None
+                            and total_idx is not None
+                            and amount_idx is not None
+                            and commission_idx == amount_idx + 1
+                            and total_idx == commission_idx + 1
+                            and isinstance(commission_val, Decimal)
+                            and isinstance(total_val, Decimal)
+                            and abs(total_val) <= Decimal("1")
+                            and isinstance(next_total_val, (int, float))
+                        ):
+                            raw_data["amount"] = commission_val
+                            raw_data["commission"] = total_val
+                            raw_data["total"] = Decimal(str(next_total_val))
+                            row_has_numeric_text_warning = True
+                            row_warning_reason = "shifted columns after amount"
+
                         if has_data and has_financial:
                             try:
-                                raw_data["is_template_warning"] = current_is_warning
+                                if row_has_numeric_text_warning:
+                                    raw_data["is_template_warning"] = True
+                                    raw_data["_template_warning_kind"] = (
+                                        "template_warning"
+                                    )
+                                    raw_data["_template_warning_reason"] = (
+                                        row_warning_reason
+                                        or "numeric text in numeric field"
+                                    )
+                                else:
+                                    raw_data["is_template_warning"] = current_is_warning
+                                    if current_warning_kind:
+                                        raw_data["_template_warning_kind"] = (
+                                            current_warning_kind
+                                        )
+                                        raw_data["_template_warning_reason"] = (
+                                            current_warning_reason
+                                        )
                                 raw_data["_source_info"] = (
                                     f"{os.path.basename(f_path_abs)} | {sheet_name} | Row {i + 1}"
                                 )

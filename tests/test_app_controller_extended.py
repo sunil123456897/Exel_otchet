@@ -553,6 +553,77 @@ class TestRunConsolidationAllDates:
             and call_args[0][2] == template_errors
         )
 
+    def test_session_with_template_errors_not_marked_plain_completed(
+        self, app_controller, mock_deps
+    ):
+        app_controller.discovery.get_employees_map.return_value = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        mock_deps["persistence"].save_file_metadata.return_value = [1]
+        mock_deps["persistence"].close = MagicMock()
+        mock_deps["ingestion"].read_file.return_value = [
+            {"date": "01.04.2026", "amount": 100}
+        ]
+        mock_deps["validator"].validate_row.return_value = True
+        mock_deps["logic_service"].consolidate.return_value = [{"consolidated": True}]
+        mock_deps["writer"].write_report.return_value = True
+        mock_deps["persistence"].get_template_errors.return_value = [
+            {"file_path": "/a.xlsx", "error_type": "template_warning"}
+        ]
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_consolidation_all_dates(on_progress, on_complete)
+            run_thread_task(mock_thread)
+
+        statuses = [
+            c.args[1]
+            for c in mock_deps["persistence"].update_session_status.call_args_list
+        ]
+        assert "completed" not in statuses
+
+    def test_session_with_only_soft_structure_errors_stays_completed(
+        self, app_controller, mock_deps
+    ):
+        app_controller.discovery.get_employees_map.return_value = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        mock_deps["persistence"].save_file_metadata.return_value = [1]
+        mock_deps["persistence"].close = MagicMock()
+        mock_deps["ingestion"].read_file.return_value = [
+            {"date": "01.04.2026", "amount": 100}
+        ]
+        mock_deps["validator"].validate_row.return_value = True
+        mock_deps["logic_service"].consolidate.return_value = [{"consolidated": True}]
+        mock_deps["writer"].write_report.return_value = True
+        mock_deps["persistence"].get_template_errors.return_value = [
+            {"file_path": "/a.xlsx", "error_type": "soft_structure"}
+        ]
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_consolidation_all_dates(on_progress, on_complete)
+            run_thread_task(mock_thread)
+
+        statuses = [
+            c.args[1]
+            for c in mock_deps["persistence"].update_session_status.call_args_list
+        ]
+        assert "completed" in statuses
+        assert "completed_with_warnings" not in statuses
+
 
 class TestEdgeCases:
     """Крайние случаи."""

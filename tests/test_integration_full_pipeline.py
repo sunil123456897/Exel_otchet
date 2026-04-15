@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS source_files (
     file_path TEXT,
     file_hash TEXT,
     inode INTEGER,
-    status TEXT DEFAULT 'pending'
+    status TEXT DEFAULT 'pending',
+    error_message TEXT
 );
 CREATE TABLE IF NOT EXISTS staging_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -218,24 +219,288 @@ class TestFullPipeline:
 
         time.sleep(0.5)
 
-        # 4. Logic
+    def test_template_warning_persisted_and_exported(self, full_pipeline):
+        p = full_pipeline
+        session_id = "integration_warning_sheet"
+
+        p["persistence"].save_session(session_id, {"type": "integration_warning"})
+        file_id = p["persistence"].save_file_metadata(
+            session_id, [{"path": str(p["test_file"])}]
+        )[0]
+
+        warning_rows = [
+            {
+                "date": "01.04.2026",
+                "amount": "1000",
+                "total": None,
+                "customer": "ООО Ромашка",
+                "contractor": "ИП Иванов",
+                "filters": "",
+                "is_template_warning": True,
+                "_sheet_name": "01.04",
+                "_row_index": 7,
+                "_file_path": str(p["test_file"]),
+                "_source_info": "test_report.xlsx | 01.04 | Row 7",
+                "employee_name": "Emp",
+            }
+        ]
+        p["persistence"].save_staging_data(file_id, warning_rows)
+        p["persistence"].save_template_error(
+            session_id,
+            {
+                "file_path": str(p["test_file"]),
+                "sheet_name": "01.04",
+                "row_index": 7,
+                "error_type": "template_warning",
+                "details": "test_report.xlsx | 01.04 | Row 7",
+                "raw_data": warning_rows[0],
+            },
+        )
+
+        import time
+
+        time.sleep(0.5)
+
         consolidated = p["logic"].consolidate(session_id)
-        assert len(consolidated) == 2
-        # Check for presence of main columns (using partial match for long keys)
-        row_keys = consolidated[0].keys()
-        assert any("ЗАКАЗЧИК" in k for k in row_keys)
-        assert any("ИСПОЛНИТЕЛЬ" in k for k in row_keys)
+        errors = p["persistence"].get_template_errors(session_id)
 
-        # 5. Export
-        output_path = p["temp_dir"] / "master_output.xlsx"
-        success = p["writer"].write_report(consolidated, output_path)
-        assert success is True
-        assert output_path.exists()
+        assert consolidated[0]["is_template_warning"] is True
+        assert len(errors) == 1
+        assert errors[0]["error_type"] == "template_warning"
 
-        # 6. Verify output
+        output_path = p["temp_dir"] / "warning_output.xlsx"
+        assert (
+            p["writer"].write_report(consolidated, output_path, template_errors=errors)
+            is True
+        )
+
         wb = openpyxl.load_workbook(output_path)
-        assert len(wb.sheetnames) > 0
+        assert "ОШИБКИ ШАБЛОНА" in wb.sheetnames
+        ws = wb["ОШИБКИ ШАБЛОНА"]
+        assert ws.cell(2, 1).value == str(p["test_file"])
+        assert ws.cell(2, 4).value == "template_warning"
         wb.close()
+
+    def test_soft_structure_warning_exported_without_red_source(self, full_pipeline):
+        p = full_pipeline
+        session_id = "integration_soft_structure"
+
+        p["persistence"].save_session(
+            session_id, {"type": "integration_soft_structure"}
+        )
+        file_id = p["persistence"].save_file_metadata(
+            session_id, [{"path": str(p["test_file"])}]
+        )[0]
+
+        soft_rows = [
+            {
+                "date": "01.04.2026",
+                "amount": "1000",
+                "total": "1000",
+                "customer": "ООО Ромашка",
+                "contractor": "ИП Иванов",
+                "filters": "",
+                "is_template_warning": False,
+                "_template_warning_kind": "soft_structure",
+                "_template_warning_reason": "unsupported header name: % -> % посредника",
+                "_sheet_name": "01.04",
+                "_row_index": 7,
+                "_file_path": str(p["test_file"]),
+                "_source_info": "test_report.xlsx | 01.04 | Row 7",
+                "employee_name": "Emp",
+            }
+        ]
+        p["persistence"].save_staging_data(file_id, soft_rows)
+        p["persistence"].save_template_error(
+            session_id,
+            {
+                "file_path": str(p["test_file"]),
+                "sheet_name": "01.04",
+                "row_index": 7,
+                "error_type": "soft_structure",
+                "details": "unsupported header name: % -> % посредника",
+                "raw_data": soft_rows[0],
+            },
+        )
+
+        import time
+
+        time.sleep(0.5)
+
+        consolidated = p["logic"].consolidate(session_id)
+        errors = p["persistence"].get_template_errors(session_id)
+
+        assert consolidated[0]["is_template_warning"] is False
+        assert errors[0]["error_type"] == "soft_structure"
+
+        output_path = p["temp_dir"] / "soft_structure_output.xlsx"
+        assert p["writer"].write_report(
+            consolidated, output_path, template_errors=errors
+        )
+
+        wb = openpyxl.load_workbook(output_path)
+        ws = wb["01.04.2026"]
+        assert (
+            ws.cell(2, 1).fill.start_color.rgb
+            != p["writer"].st.fill_warning.start_color.rgb
+        )
+        err_ws = wb["ОШИБКИ ШАБЛОНА"]
+        assert err_ws.cell(2, 4).value == "soft_structure"
+        wb.close()
+
+    def test_hard_structure_warning_exported_with_red_source(self, full_pipeline):
+        p = full_pipeline
+        session_id = "integration_hard_structure"
+
+        p["persistence"].save_session(
+            session_id, {"type": "integration_hard_structure"}
+        )
+        file_id = p["persistence"].save_file_metadata(
+            session_id, [{"path": str(p["test_file"])}]
+        )[0]
+
+        hard_rows = [
+            {
+                "date": "01.04.2026",
+                "amount": "1000",
+                "total": "1000",
+                "customer": "ООО Ромашка",
+                "contractor": "ИП Иванов",
+                "filters": "",
+                "is_template_warning": True,
+                "_template_warning_kind": "hard_structure",
+                "_template_warning_reason": "unexpected columns: курс",
+                "_sheet_name": "01.04",
+                "_row_index": 7,
+                "_file_path": str(p["test_file"]),
+                "_source_info": "test_report.xlsx | 01.04 | Row 7",
+                "employee_name": "Emp",
+            }
+        ]
+        p["persistence"].save_staging_data(file_id, hard_rows)
+        p["persistence"].save_template_error(
+            session_id,
+            {
+                "file_path": str(p["test_file"]),
+                "sheet_name": "01.04",
+                "row_index": 7,
+                "error_type": "hard_structure",
+                "details": "unexpected columns: курс",
+                "raw_data": hard_rows[0],
+            },
+        )
+
+        import time
+
+        time.sleep(0.5)
+
+        consolidated = p["logic"].consolidate(session_id)
+        errors = p["persistence"].get_template_errors(session_id)
+
+        assert consolidated[0]["is_template_warning"] is True
+        assert errors[0]["error_type"] == "hard_structure"
+
+        output_path = p["temp_dir"] / "hard_structure_output.xlsx"
+        assert p["writer"].write_report(
+            consolidated, output_path, template_errors=errors
+        )
+
+        wb = openpyxl.load_workbook(output_path)
+        ws = wb["01.04.2026"]
+        assert (
+            ws.cell(2, 1).fill.start_color.rgb
+            == p["writer"].st.fill_warning.start_color.rgb
+        )
+        err_ws = wb["ОШИБКИ ШАБЛОНА"]
+        assert err_ws.cell(2, 4).value == "hard_structure"
+        wb.close()
+
+    def test_numeric_text_total_warning_paints_total_not_source(self, full_pipeline):
+        p = full_pipeline
+        session_id = "integration_numeric_total_warning"
+
+        p["persistence"].save_session(
+            session_id, {"type": "integration_numeric_total_warning"}
+        )
+        file_id = p["persistence"].save_file_metadata(
+            session_id, [{"path": str(p["test_file"])}]
+        )[0]
+
+        warning_rows = [
+            {
+                "date": "01.04.2026",
+                "amount": "-1000",
+                "total": 0,
+                "customer": "ООО Ромашка",
+                "contractor": "ИП Иванов",
+                "filters": "",
+                "is_template_warning": True,
+                "_template_warning_kind": "template_warning",
+                "_template_warning_reason": "text in numeric field: total",
+                "_sheet_name": "01.04",
+                "_row_index": 7,
+                "_file_path": str(p["test_file"]),
+                "_source_info": "test_report.xlsx | 01.04 | Row 7",
+                "employee_name": "Emp",
+            }
+        ]
+        p["persistence"].save_staging_data(file_id, warning_rows)
+        p["persistence"].save_template_error(
+            session_id,
+            {
+                "file_path": str(p["test_file"]),
+                "sheet_name": "01.04",
+                "row_index": 7,
+                "error_type": "template_warning",
+                "details": "text in numeric field: total",
+                "raw_data": warning_rows[0],
+            },
+        )
+
+        import time
+
+        time.sleep(0.5)
+
+        consolidated = p["logic"].consolidate(session_id)
+        assert consolidated[0]["is_template_warning"] is True
+        assert (
+            consolidated[0]["_template_warning_reason"]
+            == "text in numeric field: total"
+        )
+
+        output_path = p["temp_dir"] / "numeric_total_warning_output.xlsx"
+        assert p["writer"].write_report(consolidated, output_path)
+
+        wb = openpyxl.load_workbook(output_path)
+        ws = wb["01.04.2026"]
+        headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+        source_idx = headers.index("Источник") + 1
+        total_idx = headers.index("ИТОГ") + 1
+
+        assert (
+            ws.cell(2, source_idx).fill.start_color.rgb
+            != p["writer"].st.fill_warning.start_color.rgb
+        )
+        assert (
+            ws.cell(2, total_idx).fill.start_color.rgb
+            == p["writer"].st.fill_warning.start_color.rgb
+        )
+        wb.close()
+
+    def test_file_with_template_warning_not_marked_plain_processed(self, full_pipeline):
+        p = full_pipeline
+        session_id = "integration_warning_status"
+
+        p["persistence"].save_session(
+            session_id, {"type": "integration_warning_status"}
+        )
+        file_id = p["persistence"].save_file_metadata(
+            session_id, [{"path": str(p["test_file"])}]
+        )[0]
+        p["persistence"].update_file_status(file_id, "processed_with_warnings")
+
+        status = p["persistence"].get_session_status(session_id)
+        assert status["file_stats"]["processed_with_warnings"] == 1
 
     def test_validation_filters_junk(self, full_pipeline):
         """Валидатор должен отфильтровать мусорные строки."""

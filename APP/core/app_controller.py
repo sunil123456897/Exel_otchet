@@ -246,6 +246,10 @@ class AppController:
                 write_kwargs: Dict[str, Any] = {}
                 if errors:
                     write_kwargs["template_errors"] = errors
+                has_actionable_warnings = any(
+                    error.get("error_type") not in {"soft_structure"}
+                    for error in errors
+                )
 
                 if not self.writer.write_report(
                     consolidated_data, master_path, **write_kwargs
@@ -256,7 +260,12 @@ class AppController:
 
                 logging.info("[MAIN] Основной отчёт собран: %s", master_path)
                 on_progress(100)
-                self.persistence.update_session_status(session_id, "completed")
+                self.persistence.update_session_status(
+                    session_id,
+                    "completed_with_warnings"
+                    if has_actionable_warnings
+                    else "completed",
+                )
 
                 if start_date_str and end_date_str:
                     msg = f"Готово! ({start_date_str} — {end_date_str})"

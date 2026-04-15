@@ -267,9 +267,8 @@ def test_calamine_reader_multiple_headers_warning(tmp_path, create_temp_xlsx):
     res = reader.read(file_path)
     assert len(res) == 2
     assert res[0]["is_template_warning"] is False
-    # Вторая строка может или не может дать warning — зависит от scoring
-    # Главное что read не падает
-    assert isinstance(res[1]["is_template_warning"], bool)
+    assert res[1]["is_template_warning"] is False
+    assert "_template_warning_kind" not in res[1]
 
 
 def test_calamine_reader_date_extraction(tmp_path, create_temp_xlsx):
@@ -356,3 +355,444 @@ def test_calamine_reader_garbage_keywords(tmp_path, create_temp_xlsx):
 
     assert len(res) == 2
     assert len(trash_rows) == 0
+
+
+def test_calamine_reader_cosmetic_header_variations_do_not_warn(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника"],
+        "broker1": ["посредник 1(кэш)"],
+        "broker2": ["посредник 2"],
+        "filters": ["фильтры"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "  ЗАКАЗЧИК:  ",
+            " ИСПОЛНИТЕЛЬ ",
+            "СУММА   ПЛАТЕЖА",
+            "КОМИССИЯ",
+            "ИТОГ:",
+            "%   ПОСРЕДНИКА",
+            "ПОСРЕДНИК 1(КЭШ)",
+            "ПОСРЕДНИК 2",
+            "ФИЛЬТРЫ ",
+        ],
+        [
+            "ООО Ромашка",
+            "ИП Иванов",
+            1000,
+            0,
+            1000,
+            0,
+            0,
+            0,
+            "",
+        ],
+    ]
+    file_path = tmp_path / "cosmetic_headers.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="01.01.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["customer"] == "ООО Ромашка"
+    assert res[0]["is_template_warning"] is False
+    assert res[0].get("_template_warning_kind") is None
+
+
+def test_calamine_reader_same_structure_alias_name_becomes_soft_warning(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника", "%"],
+        "broker1": ["посредник 1(кэш)", "посредник 1"],
+        "broker2": ["посредник 2"],
+        "filters": ["фильтры", "фильтр"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "Заказчик",
+            "Исполнитель",
+            "Сумма платежа",
+            "Комиссия",
+            "Итог",
+            "%",
+            "посредник 1",
+            "посредник 2",
+            "Фильтр",
+        ],
+        [
+            "ООО Ромашка",
+            "ИП Иванов",
+            1000,
+            0,
+            1000,
+            0,
+            0,
+            0,
+            "",
+        ],
+    ]
+    file_path = tmp_path / "soft_warning_headers.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="01.01.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["customer"] == "ООО Ромашка"
+    assert res[0]["is_template_warning"] is False
+    assert res[0]["_template_warning_kind"] == "soft_structure"
+    assert "unsupported header name" in res[0]["_template_warning_reason"].lower()
+
+
+def test_calamine_reader_extra_column_marks_hard_structure_warning(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника"],
+        "broker1": ["посредник 1(кэш)"],
+        "broker2": ["посредник 2"],
+        "filters": ["фильтры"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "Заказчик",
+            "Исполнитель",
+            "Сумма платежа",
+            "Комиссия",
+            "Итог",
+            "% посредника",
+            "посредник 1(кэш)",
+            "посредник 2",
+            "курс",
+            "Фильтры",
+        ],
+        [
+            "ООО Ромашка",
+            "ИП Иванов",
+            1000,
+            0,
+            1000,
+            0,
+            0,
+            0,
+            90,
+            "",
+        ],
+    ]
+    file_path = tmp_path / "extra_column_headers.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="01.01.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["customer"] == "ООО Ромашка"
+    assert res[0]["is_template_warning"] is True
+    assert res[0]["_template_warning_kind"] == "hard_structure"
+    assert "unexpected columns" in res[0]["_template_warning_reason"].lower()
+
+
+def test_calamine_reader_reordered_columns_mark_hard_structure_warning(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника"],
+        "broker1": ["посредник 1(кэш)"],
+        "broker2": ["посредник 2"],
+        "filters": ["фильтры"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "Заказчик",
+            "Исполнитель",
+            "Сумма платежа",
+            "Итог",
+            "Комиссия",
+            "% посредника",
+            "посредник 1(кэш)",
+            "посредник 2",
+            "Фильтры",
+        ],
+        [
+            "ООО Ромашка",
+            "ИП Иванов",
+            1000,
+            1000,
+            0,
+            0,
+            0,
+            0,
+            "",
+        ],
+    ]
+    file_path = tmp_path / "reordered_headers.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="01.01.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["customer"] == "ООО Ромашка"
+    assert res[0]["is_template_warning"] is True
+    assert res[0]["_template_warning_kind"] == "hard_structure"
+    assert "column order mismatch" in res[0]["_template_warning_reason"].lower()
+
+
+def test_calamine_reader_helper_day_total_column_becomes_soft_warning(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника"],
+        "broker1": ["посредник 1(кэш)"],
+        "broker2": ["посредник 2"],
+        "filters": ["фильтры"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "Заказчик",
+            "Исполнитель",
+            "Сумма платежа",
+            "Комиссия",
+            "Итог",
+            "ИТОГ ДНЯ",
+            "% посредника",
+            "посредник 1(кэш)",
+            "посредник 2",
+            "Фильтры",
+        ],
+        [
+            "ООО Ромашка",
+            "ИП Иванов",
+            1000,
+            0,
+            1000,
+            1000,
+            0,
+            0,
+            0,
+            "",
+        ],
+    ]
+    file_path = tmp_path / "helper_day_total.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="01.01.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["is_template_warning"] is False
+    assert res[0]["_template_warning_kind"] == "soft_structure"
+    assert "helper columns" in res[0]["_template_warning_reason"].lower()
+
+
+def test_calamine_reader_missing_filters_column_becomes_soft_warning(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника"],
+        "broker1": ["посредник 1(кэш)"],
+        "broker2": ["посредник 2"],
+        "filters": ["фильтры"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "Заказчик",
+            "Исполнитель",
+            "Сумма платежа",
+            "Комиссия",
+            "Итог",
+            "% посредника",
+            "посредник 1(кэш)",
+            "посредник 2",
+        ],
+        [
+            "ООО Ромашка",
+            "ИП Иванов",
+            1000,
+            0,
+            1000,
+            0,
+            0,
+            0,
+        ],
+    ]
+    file_path = tmp_path / "missing_filters.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="01.01.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["is_template_warning"] is False
+    assert res[0]["_template_warning_kind"] == "soft_structure"
+    assert "missing optional columns" in res[0]["_template_warning_reason"].lower()
+
+
+def test_calamine_reader_plain_posrednik_maps_to_broker1_softly(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника", "%"],
+        "broker1": ["посредник 1(кэш)", "посредник 1", "комиссия посредника 1"],
+        "broker2": ["посредник 2", "комиссия посредника 2"],
+        "filters": ["фильтры", "фильтр"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "ЗАКАЗЧИК (название проекта, наименование ЮЛ)",
+            "ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)",
+            "сумма платежа",
+            "комиссия",
+            "ИТОГ",
+            "% посредника",
+            "посредник",
+            "посредник 2",
+            "фильтры",
+        ],
+        [
+            "ООО Ромашка",
+            "ИП Иванов",
+            -1000,
+            0.25,
+            -1333.33,
+            -0.07,
+            70,
+            0,
+            "реестр",
+        ],
+    ]
+    file_path = tmp_path / "plain_posrednik.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="06.03.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["broker1"] == Decimal("70")
+    assert res[0]["broker2"] == Decimal("0")
+    assert res[0]["is_template_warning"] is False
+    assert res[0]["_template_warning_kind"] == "soft_structure"
+    assert "unsupported header name" in res[0]["_template_warning_reason"].lower()
