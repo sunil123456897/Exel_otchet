@@ -4,6 +4,9 @@ import logging
 import tempfile
 import shutil
 import time
+import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import List, Dict, Any
 from python_calamine import CalamineWorkbook
@@ -16,6 +19,127 @@ logger = logging.getLogger(__name__)
 
 _FILE_READ_RETRIES = 3
 _FILE_READ_BACKOFF = 1.0
+_APP_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _run_calamine_worker(
+    mode: str, target_path: str, markers, aliases, strict_io: bool = False
+) -> Dict[str, Any]:
+    script = r"""
+import json
+import importlib.util
+import sys
+import types
+from pathlib import Path
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+app_root = Path(sys.argv[6])
+
+
+def _load_module(name, file_path):
+    spec = importlib.util.spec_from_file_location(name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+core_pkg = types.ModuleType("core")
+core_pkg.__path__ = [str(app_root / "core")]
+sys.modules.setdefault("core", core_pkg)
+
+domain_pkg = types.ModuleType("core.domain")
+domain_pkg.__path__ = [str(app_root / "core" / "domain")]
+sys.modules["core.domain"] = domain_pkg
+
+infra_pkg = types.ModuleType("core.infra")
+infra_pkg.__path__ = [str(app_root / "core" / "infra")]
+sys.modules["core.infra"] = infra_pkg
+
+_load_module("core.domain.utils_helpers", app_root / "core" / "domain" / "utils_helpers.py")
+_load_module("core.infra.utils", app_root / "core" / "infra" / "utils.py")
+reader_mod = _load_module("core.infra.ingestion_reader", app_root / "core" / "infra" / "ingestion_reader.py")
+
+from python_calamine import CalamineWorkbook
+
+CalamineReader = reader_mod.CalamineReader
+extract_date_from_sheet = reader_mod.extract_date_from_sheet
+
+
+mode = sys.argv[1]
+target_path = sys.argv[2]
+markers = json.loads(sys.argv[3])
+aliases = json.loads(sys.argv[4])
+strict_io = json.loads(sys.argv[5])
+
+if mode == "dates":
+    dates = set()
+    wb = CalamineWorkbook.from_path(target_path)
+    for sheet_name in wb.sheet_names:
+        if sheet_name.startswith("_") or sheet_name in ("АНАЛИТИКА", "СВОД"):
+            continue
+        sheet_date = extract_date_from_sheet(sheet_name)
+        if sheet_date:
+            dates.add(sheet_date)
+    print(json.dumps({"ok": True, "result": sorted(dates)}, ensure_ascii=False))
+elif mode == "rows":
+    reader = CalamineReader(markers, aliases)
+    rows = reader.read(Path(target_path), strict_io=strict_io)
+    print(json.dumps({"ok": True, "result": rows}, ensure_ascii=False, default=str))
+else:
+    print(json.dumps({"ok": False, "error": f"Unknown mode: {mode}"}, ensure_ascii=False))
+    raise SystemExit(2)
+"""
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            mode,
+            target_path,
+            json.dumps(markers, ensure_ascii=False),
+            json.dumps(aliases, ensure_ascii=False),
+            json.dumps(strict_io),
+            str(_APP_ROOT),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=300,
+        cwd=str(Path(__file__).resolve().parents[3]),
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+    )
+
+    stdout = (proc.stdout or "").strip()
+    stderr = (proc.stderr or "").strip()
+    if proc.returncode != 0:
+        return {
+            "ok": False,
+            "error": stderr or stdout or f"worker exited with code {proc.returncode}",
+        }
+
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError:
+        return {
+            "ok": False,
+            "error": stderr or stdout or "worker returned invalid json",
+        }
+
+    if stderr:
+        payload["stderr"] = stderr
+    return payload
+
+
+def _should_isolate_calamine(file_path: Path | str) -> bool:
+    normalized = str(file_path).replace("\\", "/").lower()
+    return "/reports/" in f"/{normalized.strip('/')}"
 
 
 class IngestionEngine(IDataSource):
@@ -44,18 +168,38 @@ class IngestionEngine(IDataSource):
         }
         self.reader = CalamineReader(self.markers, self.aliases, self.drive_letters)
 
+    def _get_available_dates_direct(self, target_path: str) -> List[str]:
+        dates = set()
+        wb = CalamineWorkbook.from_path(target_path)
+        for sheet_name in wb.sheet_names:
+            if sheet_name.startswith("_") or sheet_name in ("АНАЛИТИКА", "СВОД"):
+                continue
+            sheet_date = extract_date_from_sheet(sheet_name)
+            if sheet_date:
+                dates.add(sheet_date)
+        return sorted(dates)
+
     def get_available_dates(self, file_path: Path) -> List[str]:
         dates = set()
         f_path_abs = os.path.abspath(str(file_path))
         target_path, temp_file = get_local_copy(f_path_abs, self.drive_letters)
 
         try:
-            wb = CalamineWorkbook.from_path(target_path)
-            for s in wb.sheet_names:
-                if s.startswith("_") or s in ("АНАЛИТИКА", "СВОД"):
-                    continue
-                d = extract_date_from_sheet(s)
-                if d:
+            if _should_isolate_calamine(file_path):
+                payload = _run_calamine_worker(
+                    "dates", target_path, self.markers, self.aliases
+                )
+                if not payload.get("ok"):
+                    raise RuntimeError(
+                        payload.get("error", "unknown calamine worker error")
+                    )
+                for d in payload.get("result", []):
+                    if d:
+                        dates.add(d)
+                if payload.get("stderr"):
+                    logger.warning(payload["stderr"])
+            else:
+                for d in self._get_available_dates_direct(target_path):
                     dates.add(d)
         except BaseException as e:
             if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
@@ -96,14 +240,31 @@ class IngestionEngine(IDataSource):
                     logger.error(f"Error scanning file {p}: {e}")
         return res
 
-    def read_file(self, file_path: Path) -> List[Dict[str, Any]]:
+    def read_file(
+        self, file_path: Path, strict_io: bool = True
+    ) -> List[Dict[str, Any]]:
         """Read Excel file with retry logic for transient network errors."""
         if not file_path.exists():
             return []
         last_err = None
         for attempt in range(_FILE_READ_RETRIES):
             try:
-                return self.reader.read(file_path, strict_io=True)
+                if _should_isolate_calamine(file_path):
+                    payload = _run_calamine_worker(
+                        "rows",
+                        str(file_path),
+                        self.markers,
+                        self.aliases,
+                        strict_io=strict_io,
+                    )
+                    if not payload.get("ok"):
+                        raise RuntimeError(
+                            payload.get("error", "unknown calamine worker error")
+                        )
+                    if payload.get("stderr"):
+                        logger.warning(payload["stderr"])
+                    return payload.get("result", [])
+                return self.reader.read(file_path, strict_io=strict_io)
             except (OSError, IOError, PermissionError) as e:
                 last_err = e
                 logger.warning(
@@ -111,6 +272,10 @@ class IngestionEngine(IDataSource):
                     f"{file_path}: {e}"
                 )
                 time.sleep(min(60, _FILE_READ_BACKOFF * (2**attempt)))
+            except RuntimeError as e:
+                last_err = e
+                logger.error(f"Failed to read {file_path}: {e}")
+                return []
             except Exception:
                 raise
         logger.error(

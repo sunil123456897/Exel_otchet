@@ -108,13 +108,16 @@ logic:
 
     # Scenario 4: Precision (rounding 0.333333 to 0.33)
     ws = wb["01.04.2026"]
+    headers = [cell.value for cell in ws[1]]
+    customer_idx = headers.index("ЗАКАЗЧИК")
+    income_idx = headers.index("Приход")
     prec_row = None
     for row in ws.iter_rows(min_row=2, values_only=True):
-        if row[2] == "Cust4":  # Заказчик
+        if row[customer_idx] == "Cust4":
             prec_row = row
             break
     assert prec_row is not None
-    assert prec_row[4] == 0.33  # ПРИХОД (rounded by to_decimal)
+    assert prec_row[income_idx] == 0.33  # ПРИХОД (rounded by to_decimal)
 
     # Scenario 5: Time Loop (Far Future/Past)
     assert "01.01.2099" in wb.sheetnames
