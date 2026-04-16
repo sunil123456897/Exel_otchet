@@ -123,7 +123,7 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
         template_path=template,
     )
 
-    assert written == 4
+    assert written == 3
 
     wb = load_workbook(output, data_only=False)
     ws = wb["13.04"]
@@ -151,18 +151,21 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     assert ws.cell(3, 5).value == 0
     assert ws.cell(3, 6).value == 200
 
-    # split both-leg row into two records and preserve negative signs
+    # both-leg row stays as one operation and keeps both signs
     assert ws.cell(4, 2).value == "Контрагент Приход 3"
+    assert ws.cell(4, 3).value == "Проект Приход 3"
     assert ws.cell(4, 5).value == -30
-    assert ws.cell(4, 6).value == 0
+    assert ws.cell(4, 6).value == -40
 
-    assert ws.cell(5, 2).value == "Контрагент Расход 3"
-    assert ws.cell(5, 5).value == 0
-    assert ws.cell(5, 6).value == -40
+    assert ws.cell(5, 1).value == "ИТОГО:"
+    assert ws.cell(5, 5).value == "=SUM(E2:E4)"
+    assert ws.cell(5, 6).value == "=SUM(F2:F4)"
 
-    assert ws.cell(6, 1).value == "ИТОГО:"
-    assert ws.cell(6, 5).value == "=SUM(E2:E5)"
-    assert ws.cell(6, 6).value == "=SUM(F2:F5)"
+    # highlight colors for non-zero amounts
+    assert ws.cell(2, 5).fill.fgColor.rgb == "FFC6EFCE"
+    assert ws.cell(3, 6).fill.fgColor.rgb == "FFFFC7CE"
+    assert ws.cell(4, 5).fill.fgColor.rgb == "FFC6EFCE"
+    assert ws.cell(4, 6).fill.fgColor.rgb == "FFFFC7CE"
 
 
 def test_build_rsch_report_real_fixture_for_13_04(tmp_path: Path) -> None:
@@ -180,4 +183,4 @@ def test_build_rsch_report_real_fixture_for_13_04(tmp_path: Path) -> None:
         template_path=template,
     )
 
-    assert written == 89
+    assert written == 86

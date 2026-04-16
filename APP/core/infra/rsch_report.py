@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import openpyxl
 from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -26,6 +27,15 @@ RSCH_HEADERS = [
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RSCH_TEMPLATE_PATH = _REPO_ROOT / "РСЧ" / "шаблон отчета.xlsx"
+
+_INCOME_FILL = PatternFill(
+    start_color="FFC6EFCE", end_color="FFC6EFCE", fill_type="solid"
+)
+_EXPENSE_FILL = PatternFill(
+    start_color="FFFFC7CE", end_color="FFFFC7CE", fill_type="solid"
+)
+_INCOME_FONT = Font(color="FF006100", bold=True)
+_EXPENSE_FONT = Font(color="FF9C0006", bold=True)
 
 
 def _normalize_text(value: Any) -> str:
@@ -152,6 +162,32 @@ def _cell_text(ws: Worksheet, row_idx: int, col_idx: Optional[int]) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _pick_text(primary: str, secondary: str) -> str:
+    return primary if primary else secondary
+
+
+def _build_row(
+    row_date: date,
+    executor: str,
+    account: str,
+    customer_primary: str,
+    customer_secondary: str,
+    contractor_primary: str,
+    contractor_secondary: str,
+    income: Decimal,
+    expense: Decimal,
+) -> Dict[str, Any]:
+    return {
+        "date": row_date,
+        "contractor": _pick_text(contractor_primary, contractor_secondary),
+        "customer": _pick_text(customer_primary, customer_secondary),
+        "executor": executor,
+        "income": income,
+        "expense": expense,
+        "account": account,
+    }
+
+
 def _collect_rows_from_sheet(
     ws: Worksheet,
     target_date: Optional[date],
@@ -177,30 +213,52 @@ def _collect_rows_from_sheet(
 
         account = _cell_text(ws, row_idx, col_map["account"])
 
-        if income != 0:
-            rows.append(
-                {
-                    "date": row_date,
-                    "contractor": _cell_text(ws, row_idx, col_map["contractor_left"]),
-                    "customer": _cell_text(ws, row_idx, col_map["project_left"]),
-                    "executor": executor,
-                    "income": income,
-                    "expense": Decimal("0"),
-                    "account": account,
-                }
-            )
+        customer_left = _cell_text(ws, row_idx, col_map["project_left"])
+        customer_right = _cell_text(ws, row_idx, col_map["project_right"])
+        contractor_left = _cell_text(ws, row_idx, col_map["contractor_left"])
+        contractor_right = _cell_text(ws, row_idx, col_map["contractor_right"])
 
-        if expense != 0:
+        if income != 0 and expense != 0:
             rows.append(
-                {
-                    "date": row_date,
-                    "contractor": _cell_text(ws, row_idx, col_map["contractor_right"]),
-                    "customer": _cell_text(ws, row_idx, col_map["project_right"]),
-                    "executor": executor,
-                    "income": Decimal("0"),
-                    "expense": expense,
-                    "account": account,
-                }
+                _build_row(
+                    row_date,
+                    executor,
+                    account,
+                    customer_left,
+                    customer_right,
+                    contractor_left,
+                    contractor_right,
+                    income,
+                    expense,
+                )
+            )
+        elif income != 0:
+            rows.append(
+                _build_row(
+                    row_date,
+                    executor,
+                    account,
+                    customer_left,
+                    customer_right,
+                    contractor_left,
+                    contractor_right,
+                    income,
+                    Decimal("0"),
+                )
+            )
+        elif expense != 0:
+            rows.append(
+                _build_row(
+                    row_date,
+                    executor,
+                    account,
+                    customer_right,
+                    customer_left,
+                    contractor_right,
+                    contractor_left,
+                    Decimal("0"),
+                    expense,
+                )
             )
 
     return rows
@@ -235,6 +293,40 @@ def _prepare_output_sheet(
 
     ws.freeze_panes = template_ws.freeze_panes
     return wb, ws
+
+
+def _amount_str_len(value: Decimal) -> int:
+    return len(f"{value:,.2f}")
+
+
+def _adjust_numeric_widths(ws_out: Worksheet, rows: List[Dict[str, Any]]) -> None:
+    default_width = 14
+    max_income = default_width
+    max_expense = default_width
+    for row in rows:
+        max_income = max(max_income, _amount_str_len(row["income"]) + 2)
+        max_expense = max(max_expense, _amount_str_len(row["expense"]) + 2)
+
+    ws_out.column_dimensions["E"].width = min(36, max_income)
+    ws_out.column_dimensions["F"].width = min(36, max_expense)
+
+
+def _apply_amount_highlighting(
+    ws_out: Worksheet,
+    row_idx: int,
+    income: Decimal,
+    expense: Decimal,
+) -> None:
+    income_cell = ws_out.cell(row_idx, 5)
+    expense_cell = ws_out.cell(row_idx, 6)
+
+    if income != 0:
+        income_cell.fill = _INCOME_FILL
+        income_cell.font = copy(_INCOME_FONT)
+
+    if expense != 0:
+        expense_cell.fill = _EXPENSE_FILL
+        expense_cell.font = copy(_EXPENSE_FONT)
 
 
 def build_rsch_report(
@@ -287,6 +379,9 @@ def build_rsch_report(
                 template_ws.cell(template_data_row_idx, col_idx),
                 ws_out.cell(curr_idx, col_idx),
             )
+        _apply_amount_highlighting(ws_out, curr_idx, row["income"], row["expense"])
+
+    _adjust_numeric_widths(ws_out, rows)
 
     total_row_idx = ws_out.max_row + 1
     ws_out.cell(total_row_idx, 1, "ИТОГО:")
