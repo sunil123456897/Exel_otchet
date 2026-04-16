@@ -139,6 +139,13 @@ class Sidebar(ttk.Frame):
         )
         self.consolidate_month_btn.pack(fill=tk.X)
 
+        self.rsch_btn = ttk.Button(
+            action_frame,
+            text="🧾 СОБРАТЬ РСЧ",
+            command=self.controller.run_rsch_report,
+        )
+        self.rsch_btn.pack(fill=tk.X, pady=(0, 5))
+
     def _set_current_month(self):
         today = datetime.now()
         self.month_start_entry.set_date(today.replace(day=1))
@@ -183,3 +190,6 @@ class Sidebar(ttk.Frame):
 
     def set_consolidate_month_state(self, state):
         self.consolidate_month_btn.config(state=state)
+
+    def set_rsch_state(self, state):
+        self.rsch_btn.config(state=state)

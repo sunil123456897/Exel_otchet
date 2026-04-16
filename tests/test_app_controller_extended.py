@@ -949,3 +949,50 @@ class TestRunConsolidationMonth:
         call_args = mock_deps["persistence"].save_staging_data.call_args
         saved_rows = call_args[0][1]
         assert len(saved_rows) == 2
+
+
+class TestRunRschReport:
+    def test_success(self, app_controller):
+        on_complete = MagicMock()
+        source = Path("/tmp/source.xlsx")
+        output = Path("/tmp/out.xlsx")
+
+        with (
+            patch("core.app_controller.build_rsch_report", return_value=12),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_rsch_report(
+                source,
+                output,
+                datetime(2026, 4, 13),
+                on_complete,
+            )
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called_once_with(
+            True,
+            "РСЧ отчет собран: 12 строк",
+            output,
+        )
+
+    def test_failure(self, app_controller):
+        on_complete = MagicMock()
+        source = Path("/tmp/source.xlsx")
+        output = Path("/tmp/out.xlsx")
+
+        with (
+            patch(
+                "core.app_controller.build_rsch_report",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_rsch_report(
+                source,
+                output,
+                datetime(2026, 4, 13),
+                on_complete,
+            )
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called_once_with(False, "boom", None)

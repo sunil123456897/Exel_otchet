@@ -86,6 +86,7 @@ class GuiMaster:
             self.sidebar.set_consolidate_state(state)
             self.sidebar.set_consolidate_all_state(state)
             self.sidebar.set_consolidate_month_state(state)
+            self.sidebar.set_rsch_state(state)
             self.stats_panel.set_progress(100 if ok else self.consolidation_vm.progress)
 
             if ok:
@@ -111,6 +112,9 @@ class GuiMaster:
 
     def run_consolidation_month(self):
         self.commands.run_consolidation_month()
+
+    def run_rsch_report(self):
+        self.commands.run_rsch_report()
 
     def add_employee_dialog(self):
         self.commands.add_employee_dialog()

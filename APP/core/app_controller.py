@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional, Callable
 
 from core.infra import DiscoveryService
 from core.app.file_processor import check_master_lock, run_engine, get_master_path
+from core.infra.rsch_report import build_rsch_report
 
 _ADAPTIVE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
 
@@ -323,6 +324,37 @@ class AppController:
             end_date_str=end_date.strftime("%d.%m.%Y"),
             session_type="monthly",
         )
+
+    def run_rsch_report(
+        self,
+        source_path: Path,
+        output_path: Path,
+        selected_date,
+        on_complete: Callable[[bool, str, Optional[Path]], None],
+    ) -> None:
+        """Build an RSC control report from a selected workbook."""
+
+        def task() -> None:
+            try:
+                target_date = selected_date
+                if hasattr(selected_date, "date"):
+                    target_date = selected_date.date()
+
+                written_rows = build_rsch_report(
+                    source_path,
+                    output_path,
+                    target_date=target_date,
+                )
+                on_complete(
+                    True,
+                    f"РСЧ отчет собран: {written_rows} строк",
+                    output_path,
+                )
+            except Exception as e:
+                logging.error("RSC build error: %s", e)
+                on_complete(False, str(e), None)
+
+        self._start_thread(task)
 
     def shutdown(self):
         """Gracefully shut down: wait for threads and close DB."""

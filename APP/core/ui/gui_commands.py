@@ -1,6 +1,6 @@
 import logging
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 from pathlib import Path
 from typing import Optional
 
@@ -58,7 +58,9 @@ class GuiCommands:
         )
 
     def run_consolidation_all_dates(self):
-        if not messagebox.askyesno("Подтверждение сборки", "Собрать основной отчет (все даты)?"):
+        if not messagebox.askyesno(
+            "Подтверждение сборки", "Собрать основной отчет (все даты)?"
+        ):
             return
 
         self.sidebar.set_consolidate_all_state("disabled")
@@ -79,7 +81,39 @@ class GuiCommands:
 
         self.sidebar.set_consolidate_month_state("disabled")
         self.consolidation_vm.run_consolidation_month(
-            self.app_controller, start_date, end_date,
+            self.app_controller,
+            start_date,
+            end_date,
+        )
+
+    def run_rsch_report(self):
+        source = filedialog.askopenfilename(
+            title="Выберите ШР файл РСЧ",
+            filetypes=[("Excel files", "*.xlsx *.xlsm *.xlsb"), ("All files", "*.*")],
+        )
+        if not source:
+            return
+
+        selected_date = self.sidebar.get_date()
+        date_suffix = selected_date.strftime("%d.%m.%Y")
+        default_name = f"РСЧ_отчет_{date_suffix}.xlsx"
+
+        output = filedialog.asksaveasfilename(
+            title="Сохранить ШО отчет",
+            defaultextension=".xlsx",
+            initialfile=default_name,
+            initialdir=str(Path(source).parent),
+            filetypes=[("Excel files", "*.xlsx")],
+        )
+        if not output:
+            return
+
+        self.sidebar.set_rsch_state("disabled")
+        self.app_controller.run_rsch_report(
+            Path(source),
+            Path(output),
+            selected_date,
+            self._on_rsch_complete,
         )
 
     def add_employee_dialog(self):
@@ -151,3 +185,18 @@ class GuiCommands:
         )
         self.stats_panel.set_progress(self.employee_vm.get_progress_percent())
         self.sidebar.set_refresh_state("normal")
+
+    def _on_rsch_complete(self, ok: bool, msg: str, path: Optional[Path]):
+        def fin():
+            self.sidebar.set_rsch_state("normal")
+            if ok:
+                logging.info(f"Успешно: {msg}")
+                if path and messagebox.askyesno(
+                    "Успех", "РСЧ отчет собран. Открыть файл?"
+                ):
+                    open_path(str(path))
+            else:
+                logging.error(f"Ошибка: {msg}")
+                messagebox.showerror("Ошибка", msg)
+
+        self.root.after(0, fin)
