@@ -10,6 +10,12 @@ from core.infra.path_resolver import resolve_employee_path
 
 
 class DiscoveryService:
+    _DEFAULT_CURATOR_ROOTS = (
+        "Отчет кураторов 1",
+        "Отчет кураторов 2",
+        "Отчет кураторов 3",
+    )
+
     def __init__(
         self, config_controller: ConfigController, ingestion: IngestionEngine
     ) -> None:
@@ -28,6 +34,33 @@ class DiscoveryService:
             entries.append(entry)
             seen.add(path_value)
 
+    def _detect_default_roots(self, config: Dict[str, Any]) -> List[Path]:
+        network_cfg = config.get("network", {}) if isinstance(config, dict) else {}
+        drive_letters = network_cfg.get("drive_letters", ["Q"])
+        if not isinstance(drive_letters, list) or not drive_letters:
+            drive_letters = ["Q"]
+
+        roots: List[Path] = []
+        for drive_letter in drive_letters:
+            drive = str(drive_letter).strip().upper().rstrip(":\\/")
+            if not drive:
+                continue
+            for folder_name in self._DEFAULT_CURATOR_ROOTS:
+                candidate = Path(f"{drive}:/") / folder_name
+                if candidate.exists():
+                    roots.append(candidate)
+
+        # dedupe while preserving order
+        deduped: List[Path] = []
+        seen = set()
+        for root in roots:
+            key = str(root)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(root)
+        return deduped
+
     def get_employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
         config = self.config_controller.config
         custom_paths = self.config_controller.employees
@@ -42,6 +75,28 @@ class DiscoveryService:
             if sr_val
             else []
         )
+
+        if not roots_to_scan:
+            auto_roots = self._detect_default_roots(config)
+            if auto_roots:
+                roots_to_scan = auto_roots
+                logging.info(
+                    "[NET] source_roots не заданы, использую автодетект: %s",
+                    ", ".join(str(r) for r in roots_to_scan),
+                )
+        elif isinstance(sr_val, str) and sr_val.strip().upper().endswith("REPORTS"):
+            # Legacy local default REPORTS can appear when app is started from arbitrary folder.
+            # If it does not exist, prefer network curator roots on Q:/... when available.
+            unresolved_root = roots_to_scan[0]
+            if not unresolved_root.exists():
+                auto_roots = self._detect_default_roots(config)
+                if auto_roots:
+                    roots_to_scan = auto_roots
+                    logging.info(
+                        "[NET] Локальный source_root недоступен, переключаюсь на: %s",
+                        ", ".join(str(r) for r in roots_to_scan),
+                    )
+
         root_strings = [str(r) for r in roots_to_scan]
 
         all_have_custom = False

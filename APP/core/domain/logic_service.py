@@ -145,6 +145,12 @@ class LogicService(ILogicService):
 
     _SANITIZE_CHARS = frozenset(("=", "+", "-", "@", "\t", "\r", "\n"))
 
+    @staticmethod
+    def _abs_decimal(value: Any) -> Any:
+        if isinstance(value, Decimal):
+            return abs(value)
+        return value
+
     def _sanitize(self, val: Any) -> str:
         """Sanitize cell value to prevent Excel formula injection."""
         s = str(val) if val is not None else ""
@@ -268,24 +274,22 @@ class LogicService(ILogicService):
             c_raw = to_decimal_percent(r.get("commission", 0))
             try:
                 if self.commission_is_percent and c_raw != 0 and abs(c_raw) <= 1:
-                    comm = (c_raw * 100).quantize(
+                    comm = abs(c_raw * 100).quantize(
                         Decimal("0.01"), rounding=ROUND_HALF_UP
                     )
                 else:
-                    comm = c_raw.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    comm = abs(c_raw).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             except (TypeError, ArithmeticError):
                 # If c_raw is a string or math fails, try to convert to Decimal or use 0
                 try:
-                    comm = to_decimal(c_raw)
+                    comm = abs(to_decimal(c_raw))
                 except (NumericParsingError, ValueError):
                     comm = Decimal("0.00")
                     is_warn = True
 
             pb_raw = r.get("percent_broker")
-            try:
-                pb_val = to_decimal(pb_raw)
-            except ValueError:
-                pb_val = pb_raw
+            pb_val = to_decimal_percent(pb_raw)
+            pb_val = self._abs_decimal(pb_val)
 
             # Apply curator-specific broker logic via strategy
             if curator_config:
@@ -296,11 +300,14 @@ class LogicService(ILogicService):
                 pb2_val = Decimal("0.00")
                 broker2_calc = Decimal("0.00")
 
+            pb2_val = self._abs_decimal(pb2_val)
+            broker2_calc = self._abs_decimal(broker2_calc)
+
             is_warn = r.get("is_template_warning", False) or is_warn
             if is_warn:
                 logger.warning(f"Template warning: {r.get('_source_info')}")
-            b1_val = raw_b1
-            b2_val = raw_b2
+            b1_val = abs(raw_b1)
+            b2_val = abs(raw_b2)
 
             res.append(
                 {

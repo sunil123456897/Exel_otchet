@@ -48,7 +48,7 @@ class TestGetAvailableDates:
             "Отчет 01.04": [["Заказчик", "Сумма"], ["А", "100"]],
         })
         dates = engine.get_available_dates(f)
-        assert dates == ["01.04.2026"]
+        assert dates == ["01.04"]
 
     def test_multiple_dates(self, engine, temp_xlsx):
         f = temp_xlsx("multi.xlsx", {
@@ -58,9 +58,9 @@ class TestGetAvailableDates:
         })
         dates = engine.get_available_dates(f)
         assert len(dates) == 3
-        assert "01.04.2026" in dates
-        assert "02.04.2026" in dates
-        assert "05.04.2026" in dates
+        assert "01.04" in dates
+        assert "02.04" in dates
+        assert "05.04" in dates
 
     def test_skips_hidden_sheets(self, engine, temp_xlsx):
         f = temp_xlsx("hidden.xlsx", {
@@ -77,7 +77,28 @@ class TestGetAvailableDates:
             "Отчет 01.04": [["А", "100"]],
         })
         dates = engine.get_available_dates(f)
-        assert dates == ["01.04.2026"]
+        assert dates == ["01.04"]
+
+    def test_dd_mm_yy_sheet_year_parsed(self, engine, temp_xlsx):
+        f = temp_xlsx("two_digit_year.xlsx", {
+            "Отчет 15.04.26": [["А", "100"]],
+            "Отчет 15.04.2025": [["Б", "200"]],
+        })
+        dates = engine.get_available_dates(f)
+        assert "15.04.2026" in dates
+        assert "15.04.2025" in dates
+
+    def test_invalid_sheet_date_is_not_returned(self, engine, temp_xlsx):
+        f = temp_xlsx(
+            "invalid_date_sheet.xlsx",
+            {
+                "31.04.2026": [["А", "100"]],
+                "01.04.2026": [["Б", "200"]],
+            },
+        )
+        dates = engine.get_available_dates(f)
+        assert "31.04.2026" not in dates
+        assert "01.04.2026" in dates
 
     def test_no_dates_returns_empty(self, engine, temp_xlsx):
         f = temp_xlsx("nodates.xlsx", {

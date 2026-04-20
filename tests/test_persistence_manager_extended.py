@@ -91,6 +91,7 @@ class TestFileCache:
         assert result is not None
         assert result["mtime"] == 1000.0
         assert result["size"] == 5000
+        assert result["cache_version"] == 2
         assert "01.04.2026" in result["dates"]
         assert "02.04.2026" in result["dates"]
 
@@ -106,6 +107,7 @@ class TestFileCache:
         result = db_setup.get_file_cache("/path/f.xlsx")
         assert result["mtime"] == 2000.0
         assert result["size"] == 200
+        assert result["cache_version"] == 2
         assert result["dates"] == ["02.04.2026"]
 
 

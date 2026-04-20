@@ -120,7 +120,8 @@ logic:
     assert prec_row[income_idx] == 0.33  # ПРИХОД (rounded by to_decimal)
 
     # Scenario 5: Time Loop (Far Future/Past)
-    assert "01.01.2099" in wb.sheetnames
+    # Future dates are excluded by policy; past valid dates are still exported.
+    assert "01.01.2099" not in wb.sheetnames
     assert "01.01.1800" in wb.sheetnames
 
     print("✅ Black Swan Scenarios Passed!")

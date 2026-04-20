@@ -72,7 +72,7 @@ def test_get_available_dates_worker_result_and_stderr(tmp_path):
             "core.infra.ingestion_engine._run_calamine_worker",
             return_value={
                 "ok": True,
-                "result": ["02.04.2026", "", "01.04.2026"],
+                "result": ["02.04", "", "01.04"],
                 "stderr": "minor worker warning",
             },
         ),
@@ -80,7 +80,7 @@ def test_get_available_dates_worker_result_and_stderr(tmp_path):
     ):
         dates = engine.get_available_dates(file_path)
 
-    assert dates == ["01.04.2026", "02.04.2026"]
+    assert dates == ["01.04", "02.04"]
     mock_warn.assert_called_once_with("minor worker warning")
 
 

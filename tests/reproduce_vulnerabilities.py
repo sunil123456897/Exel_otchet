@@ -1,7 +1,7 @@
 import pytest
 from decimal import Decimal
 from datetime import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from core.domain.utils_helpers import to_decimal, NumericParsingError
 from core.domain.logic_service import LogicService
 from core.infra.export_writer import MasterWriter
@@ -60,32 +60,30 @@ def test_math_error_highlighting_logic():
     assert is_math_err is True # 100 - 0 != 90
 
 def test_extract_date_invalid():
-    # Feb 29 2023 is invalid. Fix: Return 01.01.1900 instead of None.
-    assert extract_date_from_sheet("29.02.2023") == "01.01.1900"
+    # Feb 29 2023 is invalid. Fix: return None and skip later in pipeline.
+    assert extract_date_from_sheet("29.02.2023") is None
 
 def test_unknown_date_sheet_logic():
-    # Verify that write_report groups rows with invalid dates into UNKNOWN_DATE sheet
+    # Verify that write_report drops invalid/future rows and writes only valid date sheets.
     writer = MasterWriter({'paths': {'master_file': 'dummy.xlsx'}})
     data = [
-        {'Дата': '01.01.1900', 'Источник': 'test.xlsx', 'customer': 'A'},
-        {'Дата': '01.04.2026', 'Источник': 'test.xlsx', 'customer': 'B'}
+        {'Дата': 'bad-date', 'Источник': 'bad.xlsx', 'customer': 'A'},
+        {'Дата': '24.04.2999', 'Источник': 'future.xlsx', 'customer': 'B'},
+        {'Дата': '01.04.2026', 'Источник': 'ok.xlsx', 'customer': 'C'},
     ]
-    
-    # Mock write_daily_data to see what sh_name_override it receives
+
     writer.write_daily_data = MagicMock()
-    writer._save_workbook = MagicMock()
+    writer._save_workbook = MagicMock(return_value=True)
     writer._get_workbook = MagicMock()
-    
-    writer.write_report(data, "output.xlsx")
-    
-    # Check calls to write_daily_data
-    calls = writer.write_daily_data.call_args_list
-    # One call for 01.01.1900, one for 01.04.2026
-    found_unknown = False
-    for call in calls:
-        if call.kwargs.get('sh_name_override') == 'UNKNOWN_DATE':
-            found_unknown = True
-    assert found_unknown is True
+
+    with patch("core.infra.export_writer.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 4, 17)
+        mock_datetime.strptime = datetime.strptime
+        result = writer.write_report(data, "output.xlsx")
+
+    assert result is True
+    assert writer.write_daily_data.call_count == 1
+    assert writer.write_daily_data.call_args.args[0] == datetime(2026, 4, 1)
 
 def test_calamine_reader_memory():
     # Check that CalamineReader uses iter_rows which is memory efficient
@@ -98,14 +96,9 @@ def test_calamine_reader_memory():
 
 def test_critical_row_highlighting_color():
     # Verify that the color used for critical rows is "FF9999" (Light red)
-    from core.infra.export_writer import MasterWriter
-    from openpyxl.styles import PatternFill
+    from core.infra import export_formatting
     
-    writer = MasterWriter({})
-    # We can't easily run _apply_cell_styling without a lot of setup,
-    # so we'll just check the constant or the logic if we can.
-    # Actually, we can just check if the code contains the color.
     import inspect
-    source = inspect.getsource(MasterWriter._apply_cell_styling)
+    source = inspect.getsource(export_formatting.apply_cell_styling)
     assert 'FF9999' in source
     assert 'fill_critical' in source

@@ -102,7 +102,13 @@ class TestEmployeeListViewModel:
         mock_controller = MagicMock()
         mock_controller.config_controller = MagicMock()
 
-        def fake_refresh(selected_date, on_progress, on_complete, curator=None):
+        def fake_refresh(
+            selected_date,
+            on_progress,
+            on_complete,
+            curator=None,
+            on_error=None,
+        ):
             on_complete(
                 [("Alice", "🟢 ГОТОВО", "a.xlsx", "ready")],
                 {"Alice": [{"path": "C:/a.xlsx"}]},
@@ -126,7 +132,38 @@ class TestEmployeeListViewModel:
 
         vm.attach_files(cfg, "Alice", ["a.xlsx", "b.xlsx"])
 
-        cfg.attach_files.assert_called_once_with("Alice", ["a.xlsx", "b.xlsx"])
+        cfg.attach_files.assert_called_once_with(
+            "Alice", ["a.xlsx", "b.xlsx"], append=True
+        )
+
+    def test_attach_files_respects_append_flag(self):
+        vm = EmployeeListViewModel()
+        cfg = MagicMock()
+
+        vm.attach_files(cfg, "Alice", ["fresh.xlsx"], append=False)
+
+        cfg.attach_files.assert_called_once_with("Alice", ["fresh.xlsx"], append=False)
+
+    def test_refresh_propagates_error_callback(self):
+        vm = EmployeeListViewModel()
+        captured = []
+        mock_controller = MagicMock()
+
+        def fake_refresh(selected_date, on_progress, on_complete, curator=None, on_error=None):
+            if on_error:
+                on_error("lock error")
+
+        mock_controller.refresh_status.side_effect = fake_refresh
+
+        vm.refresh(
+            mock_controller,
+            datetime(2026, 4, 1),
+            lambda _p: None,
+            on_error=lambda msg: captured.append(msg),
+        )
+
+        assert captured == ["lock error"]
+        assert vm.last_error == "lock error"
 
     def test_search_query_getter_returns_lowercase(self):
         vm = EmployeeListViewModel()

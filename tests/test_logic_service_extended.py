@@ -156,6 +156,48 @@ def test_percent_broker_parsing_error(logic_service):
     assert res[0]["% посредника"] == "NotANumber"
 
 
+def test_percent_broker_small_fraction_normalized_to_positive(logic_service):
+    raw_rows = [{"amount": "100", "percent_broker": Decimal("-0.002")}]
+    res = logic_service.apply_financial_rules(raw_rows)
+    assert res[0]["% посредника"] == Decimal("0.002")
+
+
+def test_percent_broker_negative_is_normalized_to_positive(logic_service):
+    raw_rows = [{"amount": "100", "percent_broker": "-1.5"}]
+    res = logic_service.apply_financial_rules(raw_rows)
+    assert res[0]["% посредника"] == Decimal("1.5")
+
+
+def test_commission_negative_percent_is_normalized_to_positive(logic_service):
+    raw_rows = [{"amount": "1000", "total": "1000", "commission": "-0.05"}]
+    res = logic_service.apply_financial_rules(raw_rows)
+    assert res[0]["комиссия"] == Decimal("5")
+
+
+def test_commission_negative_fixed_value_is_normalized_to_positive(logic_service):
+    raw_rows = [{"amount": "1000", "total": "1000", "commission": "-50"}]
+    res = logic_service.apply_financial_rules(raw_rows)
+    assert res[0]["комиссия"] == Decimal("50")
+
+
+def test_commission_small_fraction_is_scaled_by_100(logic_service):
+    raw_rows = [{"amount": "1000", "total": "1000", "commission": "0.24"}]
+    res = logic_service.apply_financial_rules(raw_rows)
+    assert res[0]["комиссия"] == Decimal("24")
+
+
+def test_percent_broker_small_fraction_is_not_scaled(logic_service):
+    raw_rows = [{"amount": "1000", "total": "1000", "percent_broker": "0.24"}]
+    res = logic_service.apply_financial_rules(raw_rows)
+    assert res[0]["% посредника"] == Decimal("0.24")
+
+
+def test_broker_cash_negative_is_normalized_to_positive(logic_service):
+    raw_rows = [{"amount": "100", "total": "100", "broker1": "-10609.09"}]
+    res = logic_service.apply_financial_rules(raw_rows)
+    assert res[0]["посредник 1(кэш)"] == Decimal("10609.09")
+
+
 def test_template_warning_logging(logic_service):
     raw_rows = [
         {"amount": "100", "is_template_warning": True, "_source_info": "Warning source"}
@@ -219,7 +261,7 @@ def test_broker_only_row_is_not_dropped(logic_service):
     assert len(res) == 1
     assert res[0]["сумма платежа ПРИХОД"] == Decimal("0.00")
     assert res[0]["сумма платежа РАСХОД"] == Decimal("0.00")
-    assert res[0]["посредник 1(кэш)"] == Decimal("-10609.09")
+    assert res[0]["посредник 1(кэш)"] == Decimal("10609.09")
     assert res[0]["ИТОГ"] == Decimal("0.00")
 
 

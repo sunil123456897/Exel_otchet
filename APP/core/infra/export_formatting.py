@@ -177,14 +177,22 @@ def apply_cell_styling(
 
         expected_total_no_comm = i_val - e_val
         has_money = abs(i_val) > 0.02 or abs(e_val) > 0.02
+        has_total_only = not has_money and abs(t_val) > 0.02
 
         is_math_err = False
-        if has_money and not is_return:
-            if abs(t_val) < 0.02:
+        if not is_return:
+            if has_money and abs(t_val) < 0.02:
                 # Total is 0 / empty
                 is_math_err = True
-            elif abs(c_val) < 0.02 and abs(t_val - expected_total_no_comm) > 0.02:
+            elif (
+                has_money
+                and abs(c_val) < 0.02
+                and abs(t_val - expected_total_no_comm) > 0.02
+            ):
                 # Commission is 0, but total doesn't match income-expense (forgot to write commission)
+                is_math_err = True
+            elif has_total_only:
+                # Income and expense are empty/zero, but total has value
                 is_math_err = True
 
         for c_idx, cell in enumerate(row_cells, 1):
@@ -273,7 +281,7 @@ def format_numeric_cell(
         if not is_percent_err:
             fmt = "0.00%"
     elif "комиссия" in h:
-        fmt = '0.00"%"'
+        fmt = '0.##"%"'
     else:
         fmt = "#,##0.00"
 

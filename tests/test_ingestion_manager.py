@@ -12,18 +12,12 @@ from core.infra.ingestion_engine import IngestionEngine
 def test_extract_date_from_sheet():
     assert extract_date_from_sheet("01.01.2026") == "01.01.2026"
     assert extract_date_from_sheet("01,01,2026") == "01.01.2026"
-    assert extract_date_from_sheet("Sheet 01.01") is not None
+    assert extract_date_from_sheet("Sheet 01.01") == "01.01"
+    assert extract_date_from_sheet("15.04.26") == "15.04.2026"
     assert extract_date_from_sheet("No date here") is None
-    assert extract_date_from_sheet("32.01.2026") == "01.01.1900"  # Invalid date
-
-    # Test year rollover logic
-    with patch("core.infra.ingestion_reader.datetime") as mock_datetime:
-        mock_datetime.now.return_value = datetime(2026, 1, 1)
-        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
-
-        # Year should always default to current year
-        assert extract_date_from_sheet("31.12") == "31.12.2026"
-        assert extract_date_from_sheet("05.01") == "05.01.2026"
+    assert extract_date_from_sheet("32.01.2026") is None  # Invalid date
+    assert extract_date_from_sheet("31.12") == "31.12"
+    assert extract_date_from_sheet("05.01") == "05.01"
 
 
 def test_ingestion_engine_scan_directory(tmp_path):

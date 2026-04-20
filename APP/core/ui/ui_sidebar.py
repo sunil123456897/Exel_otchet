@@ -146,6 +146,16 @@ class Sidebar(ttk.Frame):
         )
         self.rsch_btn.pack(fill=tk.X, pady=(0, 5))
 
+        ttk.Label(action_frame, text="Режим РСЧ:").pack(anchor=tk.W, pady=(2, 0))
+        self.rsch_mode_var = tk.StringVar(value="Общий файл")
+        self.rsch_mode_combo = ttk.Combobox(
+            action_frame,
+            textvariable=self.rsch_mode_var,
+            state="readonly",
+            values=["Общий файл", "Отдельные файлы"],
+        )
+        self.rsch_mode_combo.pack(fill=tk.X, pady=(0, 5))
+
     def _set_current_month(self):
         today = datetime.now()
         self.month_start_entry.set_date(today.replace(day=1))
@@ -177,7 +187,12 @@ class Sidebar(ttk.Frame):
 
     def get_month_range(self):
         """Возвращает (start_date, end_date) для месячного отчёта."""
-        return self.month_start_entry.get_date(), self.month_end_entry.get_date()
+        start_date = self.month_start_entry.get_date()
+        end_date = self.month_end_entry.get_date()
+        today = datetime.now().date()
+        if end_date > today:
+            end_date = today
+        return start_date, end_date
 
     def set_refresh_state(self, state):
         self.refresh_btn.config(state=state)
@@ -193,3 +208,15 @@ class Sidebar(ttk.Frame):
 
     def set_rsch_state(self, state):
         self.rsch_btn.config(state=state)
+
+    def get_rsch_mode(self) -> str:
+        value = self.rsch_mode_var.get()
+        if value == "Отдельные файлы":
+            return "per_file"
+        return "combined"
+
+    def set_rsch_mode(self, mode: str) -> None:
+        if mode == "per_file":
+            self.rsch_mode_var.set("Отдельные файлы")
+        else:
+            self.rsch_mode_var.set("Общий файл")

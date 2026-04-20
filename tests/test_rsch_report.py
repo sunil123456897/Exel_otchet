@@ -184,3 +184,29 @@ def test_build_rsch_report_real_fixture_for_13_04(tmp_path: Path) -> None:
     )
 
     assert written == 86
+
+
+def test_build_rsch_report_combines_multiple_sources(tmp_path: Path) -> None:
+    source1 = tmp_path / "source1.xlsx"
+    source2 = tmp_path / "source2.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "report_multi.xlsx"
+
+    _create_source_book(source1)
+    _create_source_book(source2)
+    _create_template_book(template)
+
+    written = build_rsch_report(
+        [source1, source2],
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+    )
+
+    assert written == 6
+
+    wb = load_workbook(output, data_only=False)
+    ws = wb["13.04"]
+    assert ws.cell(8, 1).value == "ИТОГО:"
+    assert ws.cell(8, 5).value == "=SUM(E2:E7)"
+    assert ws.cell(8, 6).value == "=SUM(F2:F7)"

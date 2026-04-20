@@ -213,26 +213,9 @@ class MasterWriter(IExporter):
         sheet_name = "ОШИБКИ ШАБЛОНА"
         if sheet_name in wb.sheetnames:
             del wb[sheet_name]
-        if not template_errors:
-            return
-
-        ws = wb.create_sheet(sheet_name)
-        ws.append(["Файл", "Лист", "Строка", "Тип ошибки", "Детали"])
-        self._apply_header_style(ws)
-        ws.freeze_panes = "A2"
-
-        for error in template_errors:
-            ws.append(
-                [
-                    error.get("file_path", ""),
-                    error.get("sheet_name", ""),
-                    error.get("row_index", ""),
-                    error.get("error_type", ""),
-                    error.get("details", ""),
-                ]
-            )
-
-        self._auto_adjust(ws)
+        # Template errors are stored in DB/session metadata only.
+        # Do not render a separate workbook sheet.
+        return
 
     def write_daily_data(
         self, date, rows, wb=None, sh_name_override=None, curator=None, headers=None
@@ -292,27 +275,51 @@ class MasterWriter(IExporter):
             headers = curator_config["headers"]
 
         try:
+            today = datetime.now().date()
             dbd = {}
             for r in data:
                 d = r.get("Дата")
                 if not d:
-                    d = "01.01.1900"
                     logger.warning(
-                        f"TEMPORAL FALLBACK: Row from {r.get('Источник')} has no valid date. Using 01.01.1900."
+                        "TEMPORAL FILTER: Row from %s has no date and will be skipped.",
+                        r.get("Источник"),
                     )
-                dbd.setdefault(d, []).append(r)
+                    continue
+
+                try:
+                    dt = datetime.strptime(str(d), "%d.%m.%Y")
+                except ValueError:
+                    logger.warning(
+                        "TEMPORAL FILTER: Row from %s has invalid date '%s' and will be skipped.",
+                        r.get("Источник"),
+                        d,
+                    )
+                    continue
+
+                if dt.date() > today:
+                    logger.warning(
+                        "TEMPORAL FILTER: Future date %s from %s will be skipped.",
+                        d,
+                        r.get("Источник"),
+                    )
+                    continue
+
+                dbd.setdefault(dt.strftime("%d.%m.%Y"), []).append(r)
+
+            if not dbd:
+                logger.error("Write error: no valid dated rows after temporal filtering")
+                return False
+
             wb = self._get_workbook(path=str(path))
             if wb is None:
                 return False
             for d_str, rows in sorted(dbd.items()):
                 try:
                     dt = datetime.strptime(d_str, "%d.%m.%Y")
-                    sh_override = "UNKNOWN_DATE" if d_str == "01.01.1900" else None
                     self.write_daily_data(
                         dt,
                         rows,
                         wb=wb,
-                        sh_name_override=sh_override,
                         curator=curator,
                         headers=headers,
                     )

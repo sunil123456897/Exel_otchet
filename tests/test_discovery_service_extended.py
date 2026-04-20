@@ -260,6 +260,30 @@ class TestMultipleSourceRoots:
         assert isinstance(result, dict)
 
 
+class TestAutoDetectQRoots:
+    def test_autodetect_q_roots_when_not_configured(self, discovery_service):
+        config = {
+            "employees": [],
+            "paths": {},
+            "network": {"drive_letters": ["Q"]},
+        }
+        ds = discovery_service(config, scan_result=[])
+
+        exists_map = {
+            str(Path("Q:/") / "Отчет кураторов 1"): True,
+            str(Path("Q:/") / "Отчет кураторов 2"): True,
+            str(Path("Q:/") / "Отчет кураторов 3"): True,
+        }
+
+        def fake_exists(self):
+            return exists_map.get(str(self), False)
+
+        with patch.object(Path, "exists", fake_exists):
+            ds.get_employees_map()
+
+        assert ds.ingestion.scan_directory.call_count == 3
+
+
 class TestPathResolution:
     """Разрешение относительных и сетевых путей."""
 

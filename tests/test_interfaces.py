@@ -55,6 +55,7 @@ class TestInterfaceMethods:
     def test_idata_source_has_methods(self):
         assert hasattr(IDataSource, 'scan_directory')
         assert hasattr(IDataSource, 'read_file')
+        assert hasattr(IDataSource, 'get_available_dates')
 
     def test_ipersistence_has_methods(self):
         methods = [
@@ -84,6 +85,7 @@ class TestConcreteImplementations:
         from core.infra.ingestion_engine import IngestionEngine
         assert hasattr(IngestionEngine, 'scan_directory')
         assert hasattr(IngestionEngine, 'read_file')
+        assert hasattr(IngestionEngine, 'get_available_dates')
 
     def test_sqlite_manager_implements_ipersistence(self):
         from core.infra.session_repo import SQLiteManager

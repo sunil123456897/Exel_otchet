@@ -96,6 +96,20 @@ def test_refresh_status_error(app_controller, mock_deps, mocker, caplog):
     assert "Refresh error: Discovery error" in caplog.text
 
 
+def test_refresh_status_calls_on_error_when_master_locked(app_controller, mocker):
+    mocker.patch("core.app_controller.check_master_lock", return_value=False)
+    on_progress = MagicMock()
+    on_complete = MagicMock()
+    on_error = MagicMock()
+
+    app_controller.refresh_status(
+        datetime.now(), on_progress, on_complete, on_error=on_error
+    )
+
+    on_complete.assert_called_once_with([], {}, False)
+    on_error.assert_called_once()
+
+
 def test_run_consolidation(app_controller, mock_deps, mocker):
     app_controller._cached_employees = {"Alice": [{"path": "alice.xlsx"}]}
     mocker.patch("os.path.exists", return_value=True)

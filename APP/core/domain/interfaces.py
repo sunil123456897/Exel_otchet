@@ -23,6 +23,20 @@ class IDataSource(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_available_dates(
+        self,
+        file_path: Path,
+        remote_mtime: float | None = None,
+        remote_size: int | None = None,
+    ) -> List[str]:
+        """Returns detected sheet dates from a source workbook.
+
+        Optional remote_mtime/remote_size allow callers to avoid duplicate
+        network stat calls when metadata is already known.
+        """
+        pass
+
 
 class IPersistence(ABC):
     """Interface for database operations (SQLite)."""

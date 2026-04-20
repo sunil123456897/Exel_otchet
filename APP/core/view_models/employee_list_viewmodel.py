@@ -39,6 +39,7 @@ class EmployeeListViewModel:
         self._employees_map: Dict[str, List[Dict[str, Any]]] = {}
         self._search_query: str = ""
         self._rename_detected: bool = False
+        self._last_error: Optional[str] = None
         self._on_update: Optional[Callable] = None
 
     def set_update_callback(self, callback: Callable) -> None:
@@ -53,6 +54,7 @@ class EmployeeListViewModel:
         selected_date: datetime,
         on_progress: Callable[[float], None],
         curator=None,
+        on_error: Optional[Callable[[str], None]] = None,
     ) -> None:
         """Запустить обновление статуса сотрудников."""
 
@@ -66,6 +68,7 @@ class EmployeeListViewModel:
                 ]
                 self._employees_map = employees_map
                 self._rename_detected = rename_detected
+                self._last_error = None
 
             if rename_detected:
                 app_controller.config_controller.save_config()
@@ -73,8 +76,18 @@ class EmployeeListViewModel:
             if self._on_update:
                 self._on_update()
 
+        def handle_error(message: str) -> None:
+            with self._lock:
+                self._last_error = message
+            if callable(on_error):
+                on_error(message)
+
         app_controller.refresh_status(
-            selected_date, on_progress, on_complete, curator=curator
+            selected_date,
+            on_progress,
+            on_complete,
+            curator=curator,
+            on_error=handle_error,
         )
 
     def add_employee(self, config_controller, name: str) -> None:
@@ -85,9 +98,15 @@ class EmployeeListViewModel:
         """Удалить сотрудника."""
         config_controller.delete_employee(name)
 
-    def attach_files(self, config_controller, name: str, paths: List[str]) -> None:
+    def attach_files(
+        self,
+        config_controller,
+        name: str,
+        paths: List[str],
+        append: bool = True,
+    ) -> None:
         """Прикрепить файлы к сотруднику."""
-        config_controller.attach_files(name, paths)
+        config_controller.attach_files(name, paths, append=append)
 
     def get_master_path(self, config_controller) -> Optional[Path]:
         """Получить путь к мастер-файлу."""
@@ -164,3 +183,8 @@ class EmployeeListViewModel:
         if not self._all_employees:
             return 0.0
         return (self.get_ready_count() / self.get_total_count()) * 100
+
+    @property
+    def last_error(self) -> Optional[str]:
+        with self._lock:
+            return self._last_error

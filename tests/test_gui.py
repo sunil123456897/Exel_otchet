@@ -77,8 +77,15 @@ def test_add_employee_dialog(gui_app, mocker):
 
 
 def test_attach_file_dialog(gui_app, mocker):
-    mocker.patch("core.ui.ui_dialogs.show_attach_file_dialog")
+    mock_dialog = mocker.patch("core.ui.ui_dialogs.show_attach_file_dialog")
     gui_app.attach_file_dialog()
+
+    callback = mock_dialog.call_args[0][2]
+    callback("Alice", ["C:/a.xlsx"], False)
+
+    gui_app.config_controller.attach_files.assert_called_with(
+        "Alice", ["C:/a.xlsx"], append=False
+    )
 
 
 def test_open_master_folder(gui_app, mocker):
@@ -129,3 +136,9 @@ def test_open_employee_file(gui_app, mocker):
     gui_app.employee_table.get_selected_employee.return_value = "Alice"
     mocker.patch("core.ui.gui_commands.open_path")
     gui_app.open_employee_file()
+
+
+def test_run_rsch_report(gui_app):
+    gui_app.commands.run_rsch_report = MagicMock()
+    gui_app.run_rsch_report()
+    gui_app.commands.run_rsch_report.assert_called_once()

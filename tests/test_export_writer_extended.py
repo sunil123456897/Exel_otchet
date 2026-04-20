@@ -95,8 +95,7 @@ class TestWriteReport:
     def test_write_report_empty_data(self, master_writer, temp_output_dir):
         output_path = temp_output_dir / "report_empty.xlsx"
         result = master_writer.write_report([], output_path)
-        # Empty data creates workbook with no date sheets but still saves
-        assert output_path.exists() or result is True  # may or may not create file
+        assert result is False
 
     def test_write_report_multiple_dates(self, master_writer, temp_output_dir):
         data = [
@@ -141,8 +140,8 @@ class TestWriteReport:
         assert "02.04.2026" in wb.sheetnames
         wb.close()
 
-    def test_write_report_missing_date_fallback(self, master_writer, temp_output_dir):
-        """Строка без даты должна получить fallback 01.01.1900."""
+    def test_write_report_missing_date_is_skipped(self, master_writer, temp_output_dir):
+        """Строка без даты должна быть пропущена, а не попадать в UNKNOWN_DATE."""
         data = [
             {
                 "Дата": None,
@@ -159,16 +158,69 @@ class TestWriteReport:
                 "фильтры": "",
                 "is_template_warning": False,
             },
+            {
+                "Дата": "01.04.2026",
+                "Источник": "ok.xlsx : 1",
+                "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": "Z",
+                "ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)": "Y",
+                "сумма платежа ПРИХОД": 50,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 50,
+                "% посредника": 0,
+                "посредник 1(кэш)": 0,
+                "посредник 2": 0,
+                "фильтры": "",
+                "is_template_warning": False,
+            },
         ]
         from openpyxl import load_workbook
 
-        output_path = temp_output_dir / "fallback_date.xlsx"
+        output_path = temp_output_dir / "skip_missing_date.xlsx"
         with patch("core.infra.export_writer.logger") as mock_logger:
-            master_writer.write_report(data, output_path)
+            result = master_writer.write_report(data, output_path)
             mock_logger.warning.assert_called()
 
+        assert result is True
+
         wb = load_workbook(output_path)
-        assert "UNKNOWN_DATE" in wb.sheetnames
+        assert "UNKNOWN_DATE" not in wb.sheetnames
+        assert "01.04.2026" in wb.sheetnames
+        wb.close()
+
+    def test_write_report_future_date_is_skipped(self, master_writer, temp_output_dir):
+        output_path = temp_output_dir / "future_skip.xlsx"
+        data = [
+            {
+                "Дата": "24.04.2999",
+                "Источник": "future.xlsx : 1",
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 100,
+            },
+            {
+                "Дата": "01.04.2026",
+                "Источник": "ok.xlsx : 1",
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 100,
+            },
+        ]
+
+        with patch("core.infra.export_writer.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(2026, 4, 17)
+            mock_datetime.strptime = datetime.strptime
+            result = master_writer.write_report(data, output_path)
+
+        assert result is True
+
+        from openpyxl import load_workbook
+
+        wb = load_workbook(output_path)
+        assert "01.04.2026" in wb.sheetnames
+        assert "24.04.2999" not in wb.sheetnames
         wb.close()
 
     def test_write_report_file_locked(
@@ -186,7 +238,7 @@ class TestWriteReport:
     def test_write_report_with_template_errors(
         self, master_writer, sample_consolidated_data, temp_output_dir
     ):
-        """write_report принимает template_errors."""
+        """write_report принимает template_errors, но не создаёт отдельный лист."""
         output_path = temp_output_dir / "with_errors.xlsx"
         template_errors = [
             {
@@ -205,18 +257,8 @@ class TestWriteReport:
         from openpyxl import load_workbook
 
         wb = load_workbook(output_path)
-        assert "ОШИБКИ ШАБЛОНА" in wb.sheetnames
-        ws = wb["ОШИБКИ ШАБЛОНА"]
-        headers = [cell.value for cell in ws[1]]
-        assert headers == [
-            "Файл",
-            "Лист",
-            "Строка",
-            "Тип ошибки",
-            "Детали",
-        ]
-        assert ws.cell(2, 1).value == "bad.xlsx"
-        assert ws.cell(2, 4).value == "missing_column"
+        assert "ОШИБКИ ШАБЛОНА" not in wb.sheetnames
+        assert "01.04.2026" in wb.sheetnames
         wb.close()
 
     def test_write_report_does_not_overwrite_invalid_existing_workbook(
@@ -239,6 +281,30 @@ class TestWriteReport:
 
         assert result is False
         assert output_path.read_bytes() == invalid_bytes
+
+    def test_write_report_uses_current_working_directory_when_no_path_passed(self, temp_output_dir):
+        config = {
+            "paths": {"master_file": "ignored.xlsx"},
+            "logic": {},
+        }
+        writer = MasterWriter(config)
+
+        output_path = temp_output_dir / "cwd_master.xlsx"
+        data = [
+            {
+                "Дата": "01.04.2026",
+                "Источник": "a.xlsx : 1",
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 100,
+            }
+        ]
+
+        with patch("pathlib.Path.cwd", return_value=temp_output_dir):
+            assert writer.write_report(data, output_path) is True
+
+        assert output_path.exists()
 
 
 class TestWriteDailyData:
@@ -714,6 +780,27 @@ class TestSaveWorkbook:
 
 class TestEdgeCases:
     """Edge cases и corner cases."""
+
+    def test_total_without_income_and_expense_marked_yellow_math_error(
+        self, master_writer
+    ):
+        rows = [
+            {
+                "Источник": "total_only.xlsx : 7",
+                "сумма платежа ПРИХОД": 0,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 267_610,
+                "фильтры": "",
+            }
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        ws = wb["01.04.2026"]
+
+        source_cell = ws.cell(2, 1)
+        assert source_cell.value == "total_only.xlsx : 7"
+        assert "FFFF00" in str(source_cell.fill.start_color.rgb or "")
 
     def test_return_row_not_marked_yellow_math_error(self, master_writer):
         rows = [

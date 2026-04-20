@@ -33,6 +33,34 @@ def test_get_local_copy_returns_original_when_remote_stat_fails():
         assert get_local_copy(network_path) == (network_path, None)
 
 
+def test_get_local_copy_uses_provided_remote_metadata_without_stat(tmp_path):
+    network_path = r"\\server\share\report.xlsx"
+    cache_file = tmp_path / "cached.xlsx"
+    original_stat = os.stat
+
+    def stat_side_effect(path, *args, **kwargs):
+        if str(path) == network_path:
+            raise AssertionError("remote stat must not be called")
+        return original_stat(path, *args, **kwargs)
+
+    with (
+        patch("core.infra.utils._CACHE_DIR", tmp_path),
+        patch("core.infra.utils.hashlib.md5") as mock_md5,
+        patch("core.infra.utils.shutil.copy2") as mock_copy,
+        patch("core.infra.utils.os.stat", side_effect=stat_side_effect),
+    ):
+        mock_md5.return_value.hexdigest.return_value = "cached"
+        local_path, temp_file = get_local_copy(
+            network_path,
+            remote_mtime=1000.0,
+            remote_size=10,
+        )
+
+    assert local_path == str(cache_file)
+    assert temp_file is None
+    mock_copy.assert_called_once_with(network_path, str(cache_file))
+
+
 def test_get_local_copy_reuses_cache_when_fresh(tmp_path):
     network_path = r"\\server\share\report.xlsx"
     cache_file = tmp_path / "cached.xlsx"

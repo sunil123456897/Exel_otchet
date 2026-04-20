@@ -22,6 +22,30 @@ from core.infra.utils import get_local_copy
 
 logger = logging.getLogger(__name__)
 MAX_HEADER_SCAN_ROWS = 6000
+_TRASH_KEYWORDS = (
+    "c16",
+    "d16",
+    "название клиента",
+    "согласно платежному",
+    "процентном формате",
+    "итого",
+    "всего",
+    "итог:",
+    "итог дня",
+    "итоги дня",
+)
+_NUMERIC_FIELDS = frozenset(
+    {
+        "amount",
+        "income",
+        "expense",
+        "total",
+        "commission",
+        "percent_broker",
+        "broker1",
+        "broker2",
+    }
+)
 _PREFERRED_HEADER_ORDER = (
     "customer",
     "contractor",
@@ -69,8 +93,8 @@ def _normalize_header_text(value: Any) -> str:
 def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
     """Извлечь дату из имени листа.
 
-    Поддерживаемые форматы: DD.MM, DD.MM.YYYY, DD,MM.YYYY и т.д.
-    Если год не указан — используется текущий.
+    Поддерживаемые форматы: DD.MM, DD.MM.YYYY, DD.MM.YY, DD,MM,YY и т.д.
+    Если год не указан — возвращается только DD.MM (без навязывания года).
     """
     if not sheet_name:
         return None
@@ -78,19 +102,37 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
     clean_name = "".join(c for c in str(sheet_name) if c.isprintable()).strip()
     clean_name = clean_name.replace("\u200b", "").replace("\ufeff", "")
 
-    pat = re.compile(r"(^|[^0-9])(\d{1,2})[.,](\d{1,2})([.,](\d{4}))?([^0-9]|$)")
+    pat = re.compile(r"(^|[^0-9])(\d{1,2})[.,](\d{1,2})(?:[.,](\d{2}|\d{4}))?([^0-9]|$)")
     m = pat.search(clean_name)
     if m:
         try:
-            curr = datetime.now()
             d, month = int(m.group(2)), int(m.group(3))
-            y = int(m.group(5)) if m.group(5) else curr.year
-            return datetime(y, month, d).strftime("%d.%m.%Y")
+            year_token = m.group(4)
+            if year_token is None:
+                datetime(2000, month, d)
+                if kwargs.get("with_year_hint"):
+                    return {
+                        "date": f"{d:02d}.{month:02d}",
+                        "year_hint": None,
+                    }
+                return f"{d:02d}.{month:02d}"
+
+            y = int(year_token)
+            if len(year_token) == 2:
+                y += 2000
+            normalized = datetime(y, month, d).strftime("%d.%m.%Y")
+            if kwargs.get("with_year_hint"):
+                return {
+                    "date": normalized,
+                    "year_hint": y,
+                }
+            return normalized
         except Exception:
             logger.warning(
-                f"INVALID DATE in sheet '{sheet_name}'. Using 01.01.1900 as placeholder."
+                "INVALID DATE in sheet '%s'. Date will be skipped.",
+                sheet_name,
             )
-            return "01.01.1900"
+            return None
     return None
 
 
@@ -129,6 +171,18 @@ class CalamineReader:
             key: [_normalize_header_text(v) for v in values]
             for key, values in aliases.items()
         }
+        self._header_search_terms = []
+        for key in self.markers:
+            terms = []
+            terms.extend(self._normalized_markers.get(key, []))
+            terms.extend(self._normalized_aliases.get(key, []))
+            seen = set()
+            uniq = []
+            for term in terms:
+                if term and term not in seen:
+                    seen.add(term)
+                    uniq.append(term)
+            self._header_search_terms.append(tuple(uniq))
 
     def _preferred_header_name(self, key: str) -> str:
         values = self.markers.get(key, [])
@@ -289,28 +343,9 @@ class CalamineReader:
         """
         all_rows = []
         f_path_abs = os.path.abspath(str(file_path))
+        file_basename = os.path.basename(f_path_abs)
 
-        # Прекомпут поисковых терминов
-        all_search_terms = []
-        for key in self.markers:
-            m_list = list(self._normalized_markers.get(key, []))
-            if key in self.aliases:
-                m_list.extend(self._normalized_aliases.get(key, []))
-            all_search_terms.append(list(set(m_list)))
-        aliases_lower_list = all_search_terms
-
-        trash_keywords = [
-            "c16",
-            "d16",
-            "название клиента",
-            "согласно платежному",
-            "процентном формате",
-            "итого",
-            "всего",
-            "итог:",
-            "итог дня",
-            "итоги дня",
-        ]
+        header_search_terms = self._header_search_terms
 
         try:
             target_path, temp_file = get_local_copy(f_path_abs, self.drive_letters)
@@ -340,7 +375,18 @@ class CalamineReader:
                     logger.debug(f"PanicException loading sheet {sheet_name}: {e}")
                     continue
 
-                sheet_date = extract_date_from_sheet(sheet_name)
+                sheet_date_meta = extract_date_from_sheet(sheet_name, with_year_hint=True)
+                if not sheet_date_meta:
+                    logger.debug(f"Skipping sheet {sheet_name}: no date found")
+                    continue
+
+                if isinstance(sheet_date_meta, dict):
+                    sheet_date = sheet_date_meta.get("date")
+                    sheet_year_hint = sheet_date_meta.get("year_hint")
+                else:
+                    sheet_date = sheet_date_meta
+                    sheet_year_hint = None
+
                 if not sheet_date:
                     logger.debug(f"Skipping sheet {sheet_name}: no date found")
                     continue
@@ -392,7 +438,7 @@ class CalamineReader:
                     )
                     score = sum(
                         1
-                        for m in aliases_lower_list
+                        for m in header_search_terms
                         if any(alias in row_str for alias in m)
                     )
                     if score >= 2 and score > max_score:
@@ -409,7 +455,8 @@ class CalamineReader:
                             best_col_map = map_res
                             best_structure_kind = structure_kind
                             best_structure_reason = structure_reason
-                            if score >= 5:
+                            # Strong header match found early; no need to scan more rows.
+                            if score >= 5 or len(standard_keys) >= 5:
                                 break
 
                 if not standard_keys:
@@ -421,7 +468,10 @@ class CalamineReader:
                 # Второй проход: чтение данных через итератор для экономии памяти
                 active_col_map, current_is_warning = None, False
                 current_warning_kind, current_warning_reason = None, None
-                trash_keywords_set = set(trash_keywords)
+                active_col_items = ()
+                amount_idx = None
+                commission_idx = None
+                total_idx = None
 
                 row_iterator = enumerate(
                     sheet.to_python() if use_to_python else sheet.iter_rows()
@@ -444,21 +494,14 @@ class CalamineReader:
                     if not any(v is not None and v != "" for v in row):
                         continue
 
-                    row_values_lower = [
-                        _normalize_header_text(v) for v in row if v is not None
-                    ]
-
                     if not active_col_map:
-                        row_combined = " ".join(row_values_lower)
-                        score = sum(
-                            1
-                            for m in aliases_lower_list
-                            if any(alias in row_combined for alias in m)
-                        )
-
                         if best_header_idx is not None and i == best_header_idx:
-                            tmp_map, used_aliases = self._map_columns(row)
+                            tmp_map, _used_aliases = self._map_columns(row)
                             active_col_map = tmp_map or best_col_map
+                            active_col_items = tuple(active_col_map.items())
+                            amount_idx = active_col_map.get("amount")
+                            commission_idx = active_col_map.get("commission")
+                            total_idx = active_col_map.get("total")
                             logger.debug(
                                 f"DEBUG: Found header in {sheet_name} row {i + 1}: {active_col_map}"
                             )
@@ -472,137 +515,129 @@ class CalamineReader:
                             current_is_warning = (
                                 current_warning_kind == "hard_structure"
                             )
-                            continue
+                        continue
 
-                    if active_col_map:
-                        is_trash = False
-                        for val_lower in row_values_lower:
-                            for tk in trash_keywords:
-                                if tk in val_lower:
-                                    is_trash = True
-                                    break
-                            if is_trash:
+                    row_values_lower = [
+                        _normalize_header_text(v) for v in row if v is not None
+                    ]
+
+                    is_trash = False
+                    for val_lower in row_values_lower:
+                        for tk in _TRASH_KEYWORDS:
+                            if tk in val_lower:
+                                is_trash = True
                                 break
                         if is_trash:
-                            continue
+                            break
+                    if is_trash:
+                        continue
 
-                        raw_data = {
-                            "_sheet_name": sheet_name,
-                            "_row_index": i + 1,
-                            "_file_path": f_path_abs,
-                            "date": sheet_date,
-                        }
+                    raw_data = {
+                        "_sheet_name": sheet_name,
+                        "_row_index": i + 1,
+                        "_file_path": f_path_abs,
+                        "date": sheet_date,
+                        "_sheet_year_hint": sheet_year_hint,
+                    }
 
-                        has_data, has_financial = False, False
-                        row_has_numeric_text_warning = False
-                        row_warning_reason = None
-                        numeric_fields = {
-                            "amount",
-                            "income",
-                            "expense",
-                            "total",
-                            "commission",
-                            "percent_broker",
-                            "broker1",
-                            "broker2",
-                        }
-                        for key, col_idx in active_col_map.items():
-                            if col_idx < len(row):
-                                val = row[col_idx]
-                                if val is not None and val != "":
-                                    has_data = True
-                                    if key in numeric_fields:
-                                        if isinstance(val, (int, float)):
-                                            d_val = Decimal(str(val))
+                    has_data, has_financial = False, False
+                    row_has_numeric_text_warning = False
+                    row_warning_reason = None
+                    row_len = len(row)
+                    for key, col_idx in active_col_items:
+                        if col_idx < row_len:
+                            val = row[col_idx]
+                            if val is not None and val != "":
+                                has_data = True
+                                if key in _NUMERIC_FIELDS:
+                                    if isinstance(val, (int, float)):
+                                        d_val = Decimal(str(val))
+                                        if d_val != 0:
+                                            has_financial = True
+                                        raw_data[key] = d_val
+                                    else:
+                                        try:
+                                            d_val = (
+                                                to_decimal(val)
+                                                if key != "percent_broker"
+                                                else to_decimal_percent(val)
+                                            )
                                             if d_val != 0:
                                                 has_financial = True
                                             raw_data[key] = d_val
-                                        else:
-                                            try:
-                                                d_val = (
-                                                    to_decimal(val)
-                                                    if key != "percent_broker"
-                                                    else to_decimal_percent(val)
-                                                )
-                                                if d_val != 0:
-                                                    has_financial = True
-                                                raw_data[key] = d_val
-                                            except Exception:
-                                                raw_data[key] = None
-                                                if key != "amount":
-                                                    row_has_numeric_text_warning = True
-                                                    if row_warning_reason is None:
-                                                        row_warning_reason = f"text in numeric field: {key}"
-                                                else:
-                                                    raw_data[key] = val
-                                    else:
-                                        raw_data[key] = val
+                                        except Exception:
+                                            raw_data[key] = None
+                                            if key != "amount":
+                                                row_has_numeric_text_warning = True
+                                                if row_warning_reason is None:
+                                                    row_warning_reason = (
+                                                        f"text in numeric field: {key}"
+                                                    )
+                                            else:
+                                                raw_data[key] = val
+                                else:
+                                    raw_data[key] = val
 
                         # Some malformed rows shift one cell right after the amount column:
                         # amount becomes bank text, commission holds the amount, total holds percent,
                         # and the next physical cell contains the real total.
-                        amount_idx = active_col_map.get("amount")
-                        commission_idx = active_col_map.get("commission")
-                        total_idx = active_col_map.get("total")
-                        amount_val = raw_data.get("amount")
-                        commission_val = raw_data.get("commission")
-                        total_val = raw_data.get("total")
-                        next_total_val = (
-                            row[total_idx + 1]
-                            if total_idx is not None and total_idx + 1 < len(row)
-                            else None
-                        )
+                    amount_val = raw_data.get("amount")
+                    commission_val = raw_data.get("commission")
+                    total_val = raw_data.get("total")
+                    next_total_val = (
+                        row[total_idx + 1]
+                        if total_idx is not None and total_idx + 1 < row_len
+                        else None
+                    )
 
-                        if (
-                            isinstance(amount_val, str)
-                            and commission_idx is not None
-                            and total_idx is not None
-                            and amount_idx is not None
-                            and commission_idx == amount_idx + 1
-                            and total_idx == commission_idx + 1
-                            and isinstance(commission_val, Decimal)
-                            and isinstance(total_val, Decimal)
-                            and abs(total_val) <= Decimal("1")
-                            and isinstance(next_total_val, (int, float))
-                        ):
-                            raw_data["amount"] = commission_val
-                            raw_data["commission"] = total_val
-                            raw_data["total"] = Decimal(str(next_total_val))
-                            row_has_numeric_text_warning = True
-                            row_warning_reason = "shifted columns after amount"
+                    if (
+                        isinstance(amount_val, str)
+                        and commission_idx is not None
+                        and total_idx is not None
+                        and amount_idx is not None
+                        and commission_idx == amount_idx + 1
+                        and total_idx == commission_idx + 1
+                        and isinstance(commission_val, Decimal)
+                        and isinstance(total_val, Decimal)
+                        and abs(total_val) <= Decimal("1")
+                        and isinstance(next_total_val, (int, float))
+                    ):
+                        raw_data["amount"] = commission_val
+                        raw_data["commission"] = total_val
+                        raw_data["total"] = Decimal(str(next_total_val))
+                        row_has_numeric_text_warning = True
+                        row_warning_reason = "shifted columns after amount"
 
-                        if has_data and has_financial:
-                            try:
-                                if row_has_numeric_text_warning:
-                                    raw_data["is_template_warning"] = True
+                    if has_data and has_financial:
+                        try:
+                            if row_has_numeric_text_warning:
+                                raw_data["is_template_warning"] = True
+                                raw_data["_template_warning_kind"] = "template_warning"
+                                raw_data["_template_warning_reason"] = (
+                                    row_warning_reason
+                                    or "numeric text in numeric field"
+                                )
+                            else:
+                                raw_data["is_template_warning"] = current_is_warning
+                                if current_warning_kind:
                                     raw_data["_template_warning_kind"] = (
-                                        "template_warning"
+                                        current_warning_kind
                                     )
                                     raw_data["_template_warning_reason"] = (
-                                        row_warning_reason
-                                        or "numeric text in numeric field"
+                                        current_warning_reason
                                     )
-                                else:
-                                    raw_data["is_template_warning"] = current_is_warning
-                                    if current_warning_kind:
-                                        raw_data["_template_warning_kind"] = (
-                                            current_warning_kind
-                                        )
-                                        raw_data["_template_warning_reason"] = (
-                                            current_warning_reason
-                                        )
-                                raw_data["_source_info"] = (
-                                    f"{os.path.basename(f_path_abs)} | {sheet_name} | Row {i + 1}"
-                                )
-                                all_rows.append(raw_data)
-                            except Exception as ve:
-                                logger.debug(
-                                    f"Row {i + 1} in {sheet_name} failed: {ve}"
-                                )
-                        elif has_data:
-                            logger.debug(
-                                f"Row {i + 1} in {sheet_name} has data but no financial values"
+                            raw_data["_source_info"] = (
+                                f"{file_basename} | {sheet_name} | Row {i + 1}"
                             )
+                            all_rows.append(raw_data)
+                        except Exception as ve:
+                            logger.debug(
+                                f"Row {i + 1} in {sheet_name} failed: {ve}"
+                            )
+                    elif has_data:
+                        logger.debug(
+                            f"Row {i + 1} in {sheet_name} has data but no financial values"
+                        )
 
         except (OSError, IOError, PermissionError) as e:
             if strict_io:

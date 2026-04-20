@@ -61,7 +61,6 @@ class TestPathResolution:
         ):
             mock_cfg.return_value.config = {
                 "paths": {
-                    "master_file": "output/Master.xlsx",
                     "source_root": "REPORTS",
                     "source_roots": ["REPORTS/g1"],
                 },
@@ -74,10 +73,46 @@ class TestPathResolution:
 
             cfg = mock_cfg.return_value.config
             assert Path(cfg["paths"]["master_file"]).is_absolute()
-            assert "output" in cfg["paths"]["master_file"]
+            assert cfg["paths"]["master_file"].endswith("Master_Report.xlsx")
 
-    def test_absolute_paths_preserved(self, app_root, valid_config_content):
-        """Абсолютные пути не должны меняться."""
+    def test_master_file_forced_to_project_root_when_running_from_app(
+        self, app_root, valid_config_content
+    ):
+        config_file = app_root / "config.yaml"
+        config_file.write_text(valid_config_content, encoding="utf-8")
+
+        (app_root / "main.py").write_text("# test main", encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {
+                    "master_file": "Q:/custom/Other.xlsx",
+                    "source_root": "REPORTS",
+                    "source_roots": ["REPORTS/g1"],
+                },
+                "sh1": {"markers": {}},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
+
+            cfg = mock_cfg.return_value.config
+            assert cfg["paths"]["master_file"] == str(
+                app_root.parent / "Master_Report.xlsx"
+            )
+
+    def test_master_file_keeps_tmp_root_default_without_main_py(
+        self, app_root, valid_config_content
+    ):
         config_file = app_root / "config.yaml"
         config_file.write_text(valid_config_content, encoding="utf-8")
 
@@ -90,10 +125,40 @@ class TestPathResolution:
             patch("core.bootstrap.MasterWriter"),
             patch("core.bootstrap.AppController"),
         ):
-            abs_path = str(app_root.parent / "external" / "master.xlsx")
             mock_cfg.return_value.config = {
                 "paths": {
-                    "master_file": abs_path,
+                    "master_file": "Q:/custom/Other.xlsx",
+                    "source_root": "REPORTS",
+                    "source_roots": ["REPORTS/g1"],
+                },
+                "sh1": {"markers": {}},
+                "database": {"path": "cache.db", "schema_path": "schema.sql"},
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
+
+            cfg = mock_cfg.return_value.config
+            assert cfg["paths"]["master_file"] == str(app_root / "Master_Report.xlsx")
+
+    def test_absolute_paths_preserved_for_non_master_paths(
+        self, app_root, valid_config_content
+    ):
+        """source_root должен сохранять абсолютный путь, master_file — принудительно дефолт."""
+        config_file = app_root / "config.yaml"
+        config_file.write_text(valid_config_content, encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {
                     "source_root": "REPORTS",
                 },
                 "sh1": {"markers": {}},
@@ -104,7 +169,7 @@ class TestPathResolution:
             Bootstrap.setup(app_root, str(config_file))
 
             cfg = mock_cfg.return_value.config
-            assert cfg["paths"]["master_file"] == abs_path
+            assert cfg["paths"]["master_file"] == str(app_root / "Master_Report.xlsx")
 
     def test_empty_path_gets_default(self, app_root, valid_config_content):
         """Пустые пути должны получать дефолтные значения."""
@@ -160,6 +225,107 @@ class TestPathResolution:
             cfg = mock_cfg.return_value.config
             assert cfg["database"]["path"] == str(app_root / "cache.db")
 
+    def test_unwritable_db_path_falls_back_to_local(
+        self, app_root, valid_config_content
+    ):
+        config_file = app_root / "config.yaml"
+        config_file.write_text(valid_config_content, encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap._can_open_sqlite_path", return_value=(False, "boom")),
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {"master_file": "M.xlsx", "source_root": "REPORTS"},
+                "sh1": {"markers": {}},
+                "database": {
+                    "path": "Q:/broken/cache.db",
+                    "schema_path": "db_schema.sql",
+                    "timeout": 30.0,
+                },
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
+
+            cfg = mock_cfg.return_value.config
+            assert cfg["database"]["path"] == str(app_root / "cache.db")
+            mock_cfg.return_value.save_config.assert_called_once()
+
+    def test_missing_schema_path_falls_back_and_persists(self, app_root):
+        config_file = app_root / "config.yaml"
+        config_file.write_text("paths: {}\nsh1: {}\n", encoding="utf-8")
+        (app_root / "db_schema.sql").write_text("-- schema", encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap._can_open_sqlite_path", return_value=(True, None)),
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {
+                    "master_file": "Master_Report.xlsx",
+                    "source_root": "REPORTS",
+                },
+                "database": {
+                    "path": "cache.db",
+                    "schema_path": "Q:/missing/db_schema.sql",
+                    "timeout": 30.0,
+                },
+                "sh1": {"markers": {}},
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
+
+            cfg = mock_cfg.return_value.config
+            assert cfg["database"]["schema_path"] == str(app_root / "db_schema.sql")
+            mock_cfg.return_value.save_config.assert_called_once()
+
+    def test_no_db_schema_fallback_does_not_persist(self, app_root):
+        config_file = app_root / "config.yaml"
+        config_file.write_text("paths: {}\nsh1: {}\n", encoding="utf-8")
+        (app_root / "db_schema.sql").write_text("-- schema", encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap._can_open_sqlite_path", return_value=(True, None)),
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {
+                    "master_file": "Master_Report.xlsx",
+                    "source_root": "REPORTS",
+                },
+                "database": {
+                    "path": "cache.db",
+                    "schema_path": "db_schema.sql",
+                    "timeout": 30.0,
+                },
+                "sh1": {"markers": {}},
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
+
+            mock_cfg.return_value.save_config.assert_not_called()
+
     def test_windows_like_source_root_not_prefixed(
         self, app_root, valid_config_content
     ):
@@ -205,7 +371,6 @@ class TestPathResolution:
             patch("core.bootstrap.LogicService"),
             patch("core.bootstrap.MasterWriter"),
             patch("core.bootstrap.AppController"),
-            pytest.raises(ValueError, match="Path traversal detected"),
         ):
             mock_cfg.return_value.config = {
                 "paths": {
@@ -218,6 +383,43 @@ class TestPathResolution:
             }
 
             Bootstrap.setup(app_root, str(config_file))
+
+            cfg = mock_cfg.return_value.config
+            assert cfg["paths"]["master_file"] == str(app_root / "Master_Report.xlsx")
+
+    def test_reports_fallback_to_q_roots_when_local_reports_missing(self, app_root):
+        config_file = app_root / "config.yaml"
+        config_file.write_text("paths: {}\nsh1: {}\n", encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+            patch("core.bootstrap.Path.exists", return_value=False),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {
+                    "source_root": "REPORTS",
+                    "master_file": "Master_Report.xlsx",
+                },
+                "database": {"path": "cache.db", "schema_path": "db_schema.sql"},
+                "sh1": {"markers": {}},
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
+
+            paths = mock_cfg.return_value.config["paths"]
+            assert paths["source_root"] == "Q:/Отчет кураторов 1"
+            assert paths["source_roots"] == [
+                "Q:/Отчет кураторов 1",
+                "Q:/Отчет кураторов 2",
+                "Q:/Отчет кураторов 3",
+            ]
 
 
 class TestConfigValidation:
@@ -313,9 +515,7 @@ class TestConfigValidation:
             Bootstrap.setup(app_root, str(config_file))
 
             cfg = mock_cfg.return_value.config
-            assert cfg["paths"]["master_file"].endswith(
-                str(Path("output") / "Master.xlsx")
-            )
+            assert cfg["paths"]["master_file"] == str(app_root / "Master_Report.xlsx")
             assert cfg["paths"]["source_root"].endswith(str(Path("REPORTS") / "custom"))
 
 

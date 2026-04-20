@@ -117,8 +117,28 @@ def test_source_file_repo_cache(temp_db, db_config, schema_path):
     assert cache["mtime"] == 123.45
     assert cache["size"] == 1000
     assert cache["dates"] == ["2023-01-01"]
+    assert cache["cache_version"] == 2
 
     assert repo.get_file_cache("nonexistent") is None
+    repo.close()
+
+
+def test_source_file_repo_cache_legacy_payload_backward_compatible(
+    temp_db, db_config, schema_path
+):
+    mgr = SQLiteConnectionManager(temp_db, db_config)
+    mgr.init_db(schema_path)
+    repo = SourceFileRepository(mgr)
+
+    with mgr.get_connection() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO file_cache (file_path, mtime, size, dates_json, last_updated) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            ("legacy_path", 11.0, 22, json.dumps(["18.04.2026"])),
+        )
+
+    cache = repo.get_file_cache("legacy_path")
+    assert cache["dates"] == ["18.04.2026"]
+    assert cache["cache_version"] == 1
     repo.close()
 
 

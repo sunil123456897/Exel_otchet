@@ -4,6 +4,7 @@ import platform
 import hashlib
 import shutil
 import tempfile
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -31,7 +32,12 @@ def is_file_writable(path: str) -> bool:
 _CACHE_DIR = Path(tempfile.gettempdir()) / "master_report_cache"
 
 
-def get_local_copy(network_path: str, drive_letters: tuple = ("Q", "Z")) -> tuple:
+def get_local_copy(
+    network_path: str,
+    drive_letters: tuple = ("Q", "Z"),
+    remote_mtime: float | None = None,
+    remote_size: int | None = None,
+) -> tuple:
     """Get a local cached copy of a network file.
 
     Cache is invalidated when mtime or size changes on the remote file.
@@ -45,10 +51,21 @@ def get_local_copy(network_path: str, drive_letters: tuple = ("Q", "Z")) -> tupl
     if not is_network:
         return network_path, None
 
-    try:
-        stat = os.stat(network_path)
-    except OSError:
-        return network_path, None
+    if remote_mtime is not None and remote_size is not None:
+        try:
+            stat = SimpleNamespace(st_mtime=float(remote_mtime), st_size=int(remote_size))
+            if stat.st_size < 0:
+                raise ValueError("remote_size must be non-negative")
+        except (TypeError, ValueError):
+            try:
+                stat = os.stat(network_path)
+            except OSError:
+                return network_path, None
+    else:
+        try:
+            stat = os.stat(network_path)
+        except OSError:
+            return network_path, None
 
     key = hashlib.md5(
         f"{network_path}_{stat.st_mtime}_{stat.st_size}".encode()

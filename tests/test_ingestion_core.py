@@ -62,13 +62,13 @@ class TestExtractDateFromSheet:
     """Тесты extract_date_from_sheet."""
 
     def test_dd_mm_format(self):
-        assert extract_date_from_sheet("Отчет 01.04") == "01.04.2026"
+        assert extract_date_from_sheet("Отчет 01.04") == "01.04"
 
     def test_dd_mm_yyyy_format(self):
         assert extract_date_from_sheet("01.04.2025") == "01.04.2025"
 
     def test_comma_separator(self):
-        assert extract_date_from_sheet("01,04") == "01.04.2026"
+        assert extract_date_from_sheet("01,04") == "01.04"
 
     def test_no_date_returns_none(self):
         assert extract_date_from_sheet("АНАЛИТИКА") is None
@@ -80,26 +80,47 @@ class TestExtractDateFromSheet:
         assert extract_date_from_sheet(None) is None
 
     def test_leading_zeros(self):
-        assert extract_date_from_sheet("05.01") == "05.01.2026"
+        assert extract_date_from_sheet("05.01") == "05.01"
 
     def test_single_digit_day(self):
-        assert extract_date_from_sheet("5.04") == "05.04.2026"
+        assert extract_date_from_sheet("5.04") == "05.04"
+
+    def test_dd_mm_yy_format(self):
+        assert extract_date_from_sheet("15.04.26") == "15.04.2026"
+
+    def test_dd_mm_yy_comma_format(self):
+        assert extract_date_from_sheet("15,04,26") == "15.04.2026"
+
+    def test_with_year_hint_metadata_when_year_present(self):
+        meta = extract_date_from_sheet("Отчет 18.04.2025", with_year_hint=True)
+        assert isinstance(meta, dict)
+        assert meta["date"] == "18.04.2025"
+        assert meta["year_hint"] == 2025
+
+    def test_with_year_hint_metadata_when_year_absent(self):
+        meta = extract_date_from_sheet("Отчет 18.04", with_year_hint=True)
+        assert isinstance(meta, dict)
+        assert meta["date"] == "18.04"
+        assert meta["year_hint"] is None
+
+    def test_plain_dd_mm_without_year_returns_short_date(self):
+        assert extract_date_from_sheet("Отчет 18.04") == "18.04"
 
     def test_invalid_date_feb29(self):
-        """29 февраля в невисокосном году — 01.01.1900."""
+        """29 февраля в невисокосном году — дата отбрасывается."""
         result = extract_date_from_sheet("29.02.2025")
-        assert result == "01.01.1900"
+        assert result is None
 
     def test_unicode_cleaning(self):
-        assert extract_date_from_sheet("01.\u200b04") == "01.04.2026"
+        assert extract_date_from_sheet("01.\u200b04") == "01.04"
 
     def test_bom_cleaning(self):
-        assert extract_date_from_sheet("\ufeff01.04") == "01.04.2026"
+        assert extract_date_from_sheet("\ufeff01.04") == "01.04"
 
     def test_multiple_dates_uses_first(self):
         """Несколько дат — берёт первую."""
         result = extract_date_from_sheet("01.04 и 02.05")
-        assert result == "01.04.2026"
+        assert result == "01.04"
 
 
 class TestCalamineReaderMapColumns:

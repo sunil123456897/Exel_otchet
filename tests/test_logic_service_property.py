@@ -72,3 +72,9 @@ def test_apply_financial_rules_properties(amount, total, filters, commission):
     # comm = (c_raw * 100 if c_raw != 0 and abs(c_raw) <= 1 else c_raw).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     # We can't easily re-calculate exactly without duplicating logic, but we can check it's a Decimal
     assert isinstance(row['комиссия'], Decimal)
+    assert row['комиссия'] >= 0
+    c_abs = abs(commission)
+    expected_comm = c_abs * Decimal('100') if c_abs != 0 and c_abs <= 1 else c_abs
+    assert row['комиссия'] == expected_comm.quantize(Decimal('0.01'))
+    if isinstance(row['% посредника'], Decimal):
+        assert row['% посредника'] >= 0

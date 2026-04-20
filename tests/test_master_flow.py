@@ -110,8 +110,6 @@ employees: []
     # Find rows by customer across all sheets
     rows_by_customer = {}
     for sheet_name in wb.sheetnames:
-        if sheet_name == "ОШИБКИ ШАБЛОНА":
-            continue
         ws = wb[sheet_name]
         headers = [cell.value for cell in ws[1]]
         customer_idx = _idx(headers, "заказчик")

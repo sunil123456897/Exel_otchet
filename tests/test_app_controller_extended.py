@@ -65,6 +65,7 @@ class TestRefreshStatus:
         mock_deps["persistence"].get_file_cache.return_value = {
             "mtime": 1000.0,
             "size": 5000,
+            "cache_version": 2,
             "dates": ["01.04.2026"],
         }
 
@@ -84,6 +85,118 @@ class TestRefreshStatus:
 
         # get_available_dates НЕ должен вызываться — данные в кеше
         mock_deps["ingestion"].get_available_dates.assert_not_called()
+
+    def test_cached_dates_with_short_format_do_not_match_target(self, app_controller, mock_deps):
+        app_controller.discovery.get_employees_map.return_value = {
+            "Alice": [{"path": "/path/alice.xlsx"}],
+        }
+
+        mock_deps["persistence"].get_file_cache.return_value = {
+            "mtime": 1000.0,
+            "size": 5000,
+            "dates": ["01.04"],
+        }
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            mock_deps["ingestion"].get_available_dates.return_value = ["01.04"]
+            app_controller.refresh_status(
+                datetime(2026, 4, 1), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        args = on_complete.call_args[0]
+        assert "🟠 НЕТ ДАТЫ" in args[0][0][1]
+        mock_deps["ingestion"].get_available_dates.assert_called_once()
+
+    def test_cached_dates_legacy_full_date_forces_reparse(self, app_controller, mock_deps):
+        app_controller.discovery.get_employees_map.return_value = {
+            "Alice": [{"path": "/path/alice.xlsx"}],
+        }
+
+        # Legacy cache can contain DD.MM.YYYY synthesized from DD.MM sheet names.
+        # No cache_version means the entry must be revalidated.
+        mock_deps["persistence"].get_file_cache.return_value = {
+            "mtime": 1000.0,
+            "size": 5000,
+            "dates": ["18.04.2026"],
+        }
+        mock_deps["ingestion"].get_available_dates.return_value = ["18.04"]
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.refresh_status(
+                datetime(2026, 4, 18), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        args = on_complete.call_args[0]
+        assert "🟠 НЕТ ДАТЫ" in args[0][0][1]
+        mock_deps["ingestion"].get_available_dates.assert_called_once()
+
+    def test_refresh_status_uses_on_error_on_locked_master(self, app_controller, mock_deps):
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+        on_error = MagicMock()
+
+        with patch("core.app_controller.check_master_lock", return_value=False):
+            app_controller.refresh_status(
+                datetime(2026, 4, 1),
+                on_progress,
+                on_complete,
+                on_error=on_error,
+            )
+
+        on_complete.assert_called_once_with([], {}, False)
+        on_error.assert_called_once()
+
+    def test_refresh_status_future_selected_date_is_not_ready(
+        self, app_controller, mock_deps
+    ):
+        app_controller.discovery.get_employees_map.return_value = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        mock_deps["persistence"].get_file_cache.return_value = None
+        future_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        future_date = future_date.replace(day=1)
+        if future_date.month == 12:
+            future_date = future_date.replace(year=future_date.year + 1, month=1)
+        else:
+            future_date = future_date.replace(month=future_date.month + 1)
+        mock_deps["ingestion"].get_available_dates.return_value = [
+            future_date.strftime("%d.%m.%Y")
+        ]
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.stat", return_value=MagicMock(st_mtime=1000, st_size=1000)),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.refresh_status(
+                future_date, on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        args = on_complete.call_args[0]
+        assert "🟠 НЕТ ДАТЫ" in args[0][0][1]
 
     def test_cache_miss_triggers_parse(self, app_controller, mock_deps):
         """Отсутствие кеша — вызов get_available_dates."""
@@ -109,6 +222,34 @@ class TestRefreshStatus:
 
         mock_deps["ingestion"].get_available_dates.assert_called()
         mock_deps["persistence"].save_file_cache.assert_called()
+
+    def test_cache_miss_passes_stat_hints_to_get_available_dates(
+        self, app_controller, mock_deps
+    ):
+        app_controller.discovery.get_employees_map.return_value = {
+            "Alice": [{"path": "/path/alice.xlsx"}],
+        }
+        mock_deps["persistence"].get_file_cache.return_value = None
+        mock_deps["ingestion"].get_available_dates.return_value = ["01.04.2026"]
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        fake_stat = MagicMock(st_mtime=1234.5, st_size=678)
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.stat", return_value=fake_stat),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.refresh_status(
+                datetime(2026, 4, 1), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        mock_deps["ingestion"].get_available_dates.assert_called_once_with(
+            Path("/path/alice.xlsx"), remote_mtime=1234.5, remote_size=678
+        )
 
     def test_progress_reported(self, app_controller, mock_deps):
         """on_progress должен вызываться для каждого сотрудника."""
@@ -284,6 +425,203 @@ class TestRunConsolidation:
         saved_rows = call_args[0][1]
         assert len(saved_rows) == 1
         assert saved_rows[0]["amount"] == 100
+
+    def test_invalid_sheet_date_is_skipped_and_recorded(self, app_controller, mock_deps):
+        app_controller._cached_employees = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        mock_deps["persistence"].save_file_metadata.return_value = [1]
+        mock_deps["ingestion"].read_file.return_value = [
+            {"date": "bad-date", "amount": 100, "_sheet_name": "S1", "_row_index": 5},
+            {"date": "01.04.2026", "amount": 200},
+        ]
+        mock_deps["validator"].validate_row.return_value = True
+        mock_deps["logic_service"].consolidate.return_value = [{"consolidated": True}]
+        mock_deps["writer"].write_report.return_value = True
+        mock_deps["persistence"].get_template_errors.return_value = []
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("core.app_controller.datetime") as mock_datetime,
+            patch("threading.Thread") as mock_thread,
+        ):
+            mock_datetime.now.return_value = datetime(2026, 4, 17)
+            mock_datetime.strptime = datetime.strptime
+            mock_datetime.combine.side_effect = datetime.combine
+            mock_datetime.min = datetime.min
+            app_controller.run_consolidation(
+                datetime(2026, 4, 1), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        mock_deps["persistence"].save_template_error.assert_called()
+        saved_rows = mock_deps["persistence"].save_staging_data.call_args[0][1]
+        assert len(saved_rows) == 1
+        assert saved_rows[0]["amount"] == 200
+
+    def test_future_row_date_is_skipped_and_recorded(self, app_controller, mock_deps):
+        app_controller._cached_employees = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        app_controller.discovery.get_employees_map.return_value = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        mock_deps["persistence"].save_file_metadata.return_value = [1]
+        mock_deps["ingestion"].read_file.return_value = [
+            {
+                "date": "24.04.2999",
+                "amount": 100,
+                "_sheet_name": "S1",
+                "_row_index": 6,
+            },
+        ]
+        mock_deps["validator"].validate_row.return_value = True
+        mock_deps["logic_service"].consolidate.return_value = []
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("core.app.file_processor.datetime") as fp_datetime,
+            patch("threading.Thread") as mock_thread,
+        ):
+            real_datetime = datetime
+            fp_datetime.now.return_value = real_datetime(2026, 4, 17)
+            fp_datetime.strptime = real_datetime.strptime
+            fp_datetime.combine.side_effect = real_datetime.combine
+            fp_datetime.min = real_datetime.min
+            app_controller.run_consolidation_all_dates(on_progress, on_complete)
+            run_thread_task(mock_thread)
+
+        mock_deps["persistence"].save_template_error.assert_called()
+        on_complete.assert_called()
+
+    def test_file_errors_are_reported_in_success_message(self, app_controller, mock_deps):
+        app_controller._cached_employees = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        mock_deps["logic_service"].consolidate.return_value = [{"consolidated": True}]
+        mock_deps["writer"].write_report.return_value = True
+        mock_deps["persistence"].get_template_errors.return_value = []
+
+        def fake_run_engine(
+            persistence,
+            ingestion,
+            validator,
+            employees_map,
+            session_id,
+            target_date_str,
+            on_progress,
+            start_date_str=None,
+            end_date_str=None,
+            on_file_error=None,
+        ):
+            if on_file_error:
+                on_file_error(
+                    [
+                        {"path": "/a.xlsx", "error": "io"},
+                        {"path": "/b.xlsx", "error": "locked"},
+                    ]
+                )
+            return True
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("core.app_controller.run_engine", side_effect=fake_run_engine),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_consolidation(
+                datetime(2026, 4, 1), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        assert on_complete.call_args[0][0] is True
+        assert "Не удалось обработать 2 файл(ов)" in on_complete.call_args[0][1]
+
+    def test_daily_consolidation_rejects_future_target_date(
+        self, app_controller, mock_deps
+    ):
+        app_controller._cached_employees = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+        future_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        future_date = future_date.replace(day=1)
+        if future_date.month == 12:
+            future_date = future_date.replace(year=future_date.year + 1, month=1)
+        else:
+            future_date = future_date.replace(month=future_date.month + 1)
+
+        with (
+            patch("threading.Thread") as mock_thread,
+            patch("core.app_controller.check_master_lock", return_value=True),
+        ):
+            app_controller.run_consolidation(future_date, on_progress, on_complete)
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called_once()
+        assert on_complete.call_args[0][0] is False
+        assert "в будущем" in on_complete.call_args[0][1]
+
+    def test_monthly_consolidation_clamps_future_end_date(self, app_controller, mock_deps):
+        app_controller._cached_employees = {
+            "Alice": [{"path": "/a.xlsx"}],
+        }
+        mock_deps["logic_service"].consolidate.return_value = [{"consolidated": True}]
+        mock_deps["writer"].write_report.return_value = True
+        mock_deps["persistence"].get_template_errors.return_value = []
+
+        captured = {}
+
+        def fake_run_engine(
+            persistence,
+            ingestion,
+            validator,
+            employees_map,
+            session_id,
+            target_date_str,
+            on_progress,
+            start_date_str=None,
+            end_date_str=None,
+            on_file_error=None,
+        ):
+            captured["start"] = start_date_str
+            captured["end"] = end_date_str
+            return True
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start = today.replace(day=1)
+        if today.month == 12:
+            end = today.replace(year=today.year + 1, month=1)
+        else:
+            end = today.replace(month=today.month + 1)
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("core.app_controller.run_engine", side_effect=fake_run_engine),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_consolidation_month(start, end, on_progress, on_complete)
+            run_thread_task(mock_thread)
+
+        assert captured["start"] == start.strftime("%d.%m.%Y")
+        assert captured["end"] == today.strftime("%d.%m.%Y")
+        assert "исключены" in on_complete.call_args[0][1]
 
     def test_consolidation_error_propagates(self, app_controller, mock_deps):
         """Ошибка в logic_service.consolidate должна propagate."""
@@ -962,7 +1300,7 @@ class TestRunRschReport:
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_rsch_report(
-                source,
+                [source],
                 output,
                 datetime(2026, 4, 13),
                 on_complete,
@@ -971,9 +1309,40 @@ class TestRunRschReport:
 
         on_complete.assert_called_once_with(
             True,
-            "РСЧ отчет собран: 12 строк",
+            "РСЧ отчет собран: 12 строк из 1 файлов",
             output,
         )
+
+    def test_success_with_sheet_issues_mentions_warning(self, app_controller):
+        on_complete = MagicMock()
+        source = Path("/tmp/source.xlsx")
+        output = Path("/tmp/out.xlsx")
+
+        def fake_build(*_args, **kwargs):
+            sink = kwargs.get("issues_sink")
+            if sink is not None:
+                sink.append("Лист 'Лист1' в файле 'source.xlsx' пропущен: нет колонки р/с")
+            return 7
+
+        with (
+            patch("core.app_controller.build_rsch_report", side_effect=fake_build),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_rsch_report(
+                [source],
+                output,
+                datetime(2026, 4, 13),
+                on_complete,
+            )
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called_once()
+        ok, msg, path = on_complete.call_args[0]
+        assert ok is True
+        assert path == output
+        assert "РСЧ отчет собран: 7 строк из 1 файлов" in msg
+        assert "Есть проблемы с листами:" in msg
+        assert "Лист 'Лист1'" in msg
 
     def test_failure(self, app_controller):
         on_complete = MagicMock()
@@ -988,11 +1357,141 @@ class TestRunRschReport:
             patch("threading.Thread") as mock_thread,
         ):
             app_controller.run_rsch_report(
-                source,
+                [source],
                 output,
                 datetime(2026, 4, 13),
                 on_complete,
             )
             run_thread_task(mock_thread)
 
-        on_complete.assert_called_once_with(False, "boom", None)
+        on_complete.assert_called_once_with(False, "Ошибка сборки РСЧ: boom", None)
+
+
+class TestRunRschReportBatch:
+    def test_success(self, app_controller):
+        on_complete = MagicMock()
+        sources = [Path("/tmp/source1.xlsx"), Path("/tmp/source2.xlsx")]
+        outputs = [Path("/tmp/out1.xlsx"), Path("/tmp/out2.xlsx")]
+
+        with (
+            patch("core.app_controller.build_rsch_report", side_effect=[5, 7]),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_rsch_report_batch(
+                sources,
+                outputs,
+                datetime(2026, 4, 13),
+                on_complete,
+            )
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called_once_with(
+            True,
+            "РСЧ отчеты собраны: 2 файлов, 12 строк",
+            Path("/tmp"),
+        )
+
+    def test_success_with_sheet_issues_mentions_warning(self, app_controller):
+        on_complete = MagicMock()
+        sources = [Path("/tmp/source1.xlsx"), Path("/tmp/source2.xlsx")]
+        outputs = [Path("/tmp/out1.xlsx"), Path("/tmp/out2.xlsx")]
+
+        def fake_build(src, *_args, **kwargs):
+            sink = kwargs.get("issues_sink")
+            if sink is not None and "source2" in str(src):
+                sink.append("Лист 'Ошибочный' в файле 'source2.xlsx' пропущен: нет заголовка")
+            return 5
+
+        with (
+            patch("core.app_controller.build_rsch_report", side_effect=fake_build),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_rsch_report_batch(
+                sources,
+                outputs,
+                datetime(2026, 4, 13),
+                on_complete,
+            )
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called_once()
+        ok, msg, path = on_complete.call_args[0]
+        assert ok is True
+        assert path == Path("/tmp")
+        assert "РСЧ отчеты собраны: 2 файлов, 10 строк" in msg
+        assert "Есть проблемы с листами:" in msg
+        assert "Лист 'Ошибочный'" in msg
+
+    def test_mismatch_raises_failure(self, app_controller):
+        on_complete = MagicMock()
+        sources = [Path("/tmp/source1.xlsx")]
+        outputs = [Path("/tmp/out1.xlsx"), Path("/tmp/out2.xlsx")]
+
+        with patch("threading.Thread") as mock_thread:
+            app_controller.run_rsch_report_batch(
+                sources,
+                outputs,
+                datetime(2026, 4, 13),
+                on_complete,
+            )
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called_once()
+        args = on_complete.call_args[0]
+        assert args[0] is False
+        assert "Ошибка пакетной сборки РСЧ:" in args[1]
+        assert "mismatch" in args[1]
+
+
+class TestMasterPathFallback:
+    def test_resolve_master_path_prefers_configured_master_path(self, app_controller):
+        app_controller.config_controller.config_path = "/tmp/config.yaml"
+        app_controller.config_controller.config = {
+            "paths": {"master_file": "E:/custom/Out.xlsx"}
+        }
+        app_controller.config_controller.resolve_path.return_value = Path(
+            "E:/custom/Out.xlsx"
+        )
+        app_controller.config_controller.save_config = MagicMock()
+
+        with patch.object(Path, "mkdir", return_value=None):
+            resolved = app_controller._resolve_master_path()
+
+        expected = Path("E:/custom/Out.xlsx")
+        assert resolved == expected
+        assert (
+            Path(app_controller.config_controller.config["paths"]["master_file"])
+            == expected
+        )
+        app_controller.config_controller.save_config.assert_not_called()
+
+    def test_resolve_master_path_falls_back_when_parent_unavailable(
+        self, app_controller
+    ):
+        app_controller.config_controller.config_path = "/tmp/config.yaml"
+        app_controller.config_controller.config = {
+            "paths": {"master_file": "E:/broken/Master_Report.xlsx"}
+        }
+        app_controller.config_controller.resolve_path.return_value = Path(
+            "E:/broken/Master_Report.xlsx"
+        )
+        app_controller.config_controller.save_config = MagicMock()
+
+        mkdir_calls = {"count": 0}
+
+        def mkdir_side_effect(*args, **kwargs):
+            mkdir_calls["count"] += 1
+            if mkdir_calls["count"] == 1:
+                raise OSError("no drive")
+            return None
+
+        with patch.object(Path, "mkdir", side_effect=mkdir_side_effect):
+            resolved = app_controller._resolve_master_path()
+
+        expected = Path("/tmp/Master_Report.xlsx")
+        assert resolved == expected
+        assert (
+            Path(app_controller.config_controller.config["paths"]["master_file"])
+            == expected
+        )
+        app_controller.config_controller.save_config.assert_called_once()

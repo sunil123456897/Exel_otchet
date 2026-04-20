@@ -5,7 +5,7 @@ from copy import copy
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import openpyxl
 from openpyxl import Workbook
@@ -295,20 +295,34 @@ def _prepare_output_sheet(
     return wb, ws
 
 
-def _amount_str_len(value: Decimal) -> int:
-    return len(f"{value:,.2f}")
+def _display_len(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, datetime):
+        return 10
+    if isinstance(value, Decimal):
+        return len(f"{value:,.2f}")
+    if isinstance(value, (int, float)):
+        return len(f"{value:,.2f}")
+    return len(str(value))
 
 
-def _adjust_numeric_widths(ws_out: Worksheet, rows: List[Dict[str, Any]]) -> None:
-    default_width = 14
-    max_income = default_width
-    max_expense = default_width
-    for row in rows:
-        max_income = max(max_income, _amount_str_len(row["income"]) + 2)
-        max_expense = max(max_expense, _amount_str_len(row["expense"]) + 2)
+def _autosize_all_columns(
+    ws_out: Worksheet, min_width: int = 10, max_width: int = 60
+) -> None:
+    for col_idx in range(1, ws_out.max_column + 1):
+        col_letter = get_column_letter(col_idx)
+        max_len = 0
+        for row_idx in range(1, ws_out.max_row + 1):
+            max_len = max(max_len, _display_len(ws_out.cell(row_idx, col_idx).value))
 
-    ws_out.column_dimensions["E"].width = min(36, max_income)
-    ws_out.column_dimensions["F"].width = min(36, max_expense)
+        if col_idx in (5, 6):
+            max_len = max(max_len, 14)
+
+        ws_out.column_dimensions[col_letter].width = max(
+            min_width,
+            min(max_width, max_len + 2),
+        )
 
 
 def _apply_amount_highlighting(
@@ -329,33 +343,118 @@ def _apply_amount_highlighting(
         expense_cell.font = copy(_EXPENSE_FONT)
 
 
-def build_rsch_report(
+def _normalize_source_paths(source_paths: Any) -> List[Path]:
+    if isinstance(source_paths, (str, Path)):
+        raw_paths = [source_paths]
+    else:
+        raw_paths = list(source_paths or [])
+
+    normalized: List[Path] = []
+    seen: set[str] = set()
+    for raw_path in raw_paths:
+        if raw_path is None:
+            continue
+        path = Path(raw_path)
+        key = str(path)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(path)
+    return normalized
+
+
+def _collect_rows_from_workbook(
     source_path: Path,
+    target_date: Optional[date],
+    issues_sink: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    wb_source = openpyxl.load_workbook(source_path, data_only=True)
+    try:
+        rows: List[Dict[str, Any]] = []
+        for ws in wb_source.worksheets:
+            if ws.title.startswith("_"):
+                continue
+            try:
+                rows.extend(_collect_rows_from_sheet(ws, target_date))
+            except Exception as e:
+                issue = (
+                    f"Лист '{ws.title}' в файле '{source_path.name}' пропущен: {e}"
+                )
+                logger.warning(issue)
+                if issues_sink is not None:
+                    issues_sink.append(issue)
+        return rows
+    finally:
+        wb_source.close()
+
+
+def _create_builtin_template_workbook() -> Workbook:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "РСЧ"
+    ws.append(RSCH_HEADERS)
+    ws.append([datetime.now(), "", "", "", 0, 0, ""])
+    ws.append(["ИТОГО:", None, None, None, "=SUM(E2:E2)", "=SUM(F2:F2)", None])
+    ws["A1"].font = Font(bold=True)
+    ws["B1"].font = Font(bold=True)
+    ws["C1"].font = Font(bold=True)
+    ws["D1"].font = Font(bold=True)
+    ws["E1"].font = Font(bold=True)
+    ws["F1"].font = Font(bold=True)
+    ws["G1"].font = Font(bold=True)
+    ws["E2"].number_format = "#,##0.00"
+    ws["F2"].number_format = "#,##0.00"
+    return wb
+
+
+def build_rsch_report(
+    source_path: Path | str | Sequence[Path | str],
     output_path: Path,
     *,
     target_date: Optional[date] = None,
     template_path: Optional[Path] = None,
+    issues_sink: Optional[List[str]] = None,
 ) -> int:
-    source_path = Path(source_path)
+    source_paths = _normalize_source_paths(source_path)
     output_path = Path(output_path)
     template_to_use = (
         Path(template_path) if template_path else DEFAULT_RSCH_TEMPLATE_PATH
     )
 
-    if not source_path.exists():
-        raise FileNotFoundError(f"RSC source file not found: {source_path}")
-    if not template_to_use.exists():
-        raise FileNotFoundError(f"RSC template file not found: {template_to_use}")
+    if not source_paths:
+        raise ValueError("Не выбраны файлы РСЧ")
+    for src_path in source_paths:
+        if not src_path.exists():
+            raise FileNotFoundError(f"Не найден файл РСЧ: {src_path}")
+    if template_to_use.exists():
+        wb_template = openpyxl.load_workbook(template_to_use)
+    elif template_path is not None:
+        raise FileNotFoundError(f"Не найден шаблон РСЧ: {template_to_use}")
+    else:
+        warning = (
+            f"Шаблон РСЧ не найден: {template_to_use}. "
+            "Используется встроенный шаблон."
+        )
+        logger.warning(warning)
+        if issues_sink is not None:
+            issues_sink.append(warning)
+        wb_template = _create_builtin_template_workbook()
 
-    wb_source = openpyxl.load_workbook(source_path, data_only=True)
-    wb_template = openpyxl.load_workbook(template_to_use)
     template_ws = wb_template[wb_template.sheetnames[0]]
 
     rows: List[Dict[str, Any]] = []
-    for ws in wb_source.worksheets:
-        if ws.title.startswith("_"):
-            continue
-        rows.extend(_collect_rows_from_sheet(ws, target_date))
+    issues: List[str] = []
+    for src_path in source_paths:
+        rows.extend(_collect_rows_from_workbook(src_path, target_date, issues))
+
+    if issues_sink is not None:
+        issues_sink.extend(issues)
+
+    if issues:
+        logger.warning(
+            "РСЧ: обнаружены проблемы в листах (%s). Сборка продолжена по валидным листам.",
+            len(issues),
+        )
 
     sheet_name = target_date.strftime("%d.%m") if target_date else template_ws.title
     wb_out, ws_out = _prepare_output_sheet(template_ws, sheet_name)
@@ -381,7 +480,7 @@ def build_rsch_report(
             )
         _apply_amount_highlighting(ws_out, curr_idx, row["income"], row["expense"])
 
-    _adjust_numeric_widths(ws_out, rows)
+    _autosize_all_columns(ws_out)
 
     total_row_idx = ws_out.max_row + 1
     ws_out.cell(total_row_idx, 1, "ИТОГО:")
@@ -402,5 +501,11 @@ def build_rsch_report(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb_out.save(output_path)
-    logger.info("RSC report generated: %s (rows=%s)", output_path, len(rows))
+    wb_template.close()
+    logger.info(
+        "RSC report generated: %s (rows=%s, sources=%s)",
+        output_path,
+        len(rows),
+        len(source_paths),
+    )
     return len(rows)

@@ -48,7 +48,7 @@ def test_bootstrap_setup_success(tmp_path):
         assert Path(cfg["database"]["path"]).is_absolute()
         assert Path(cfg["database"]["schema_path"]).is_absolute()
 
-        assert str(app_root) in cfg["paths"]["master_file"]
+        assert cfg["paths"]["master_file"] == str(app_root / "Master_Report.xlsx")
         assert str(app_root) in cfg["database"]["path"]
 
 

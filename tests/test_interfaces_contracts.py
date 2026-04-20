@@ -25,6 +25,15 @@ def test_idata_source_read_file_type_hints_are_stable():
     assert hints["strict_io"] is bool
 
 
+def test_idata_source_get_available_dates_signature_supports_remote_metadata_hints():
+    sig = inspect.signature(IDataSource.get_available_dates)
+    assert "file_path" in sig.parameters
+    assert "remote_mtime" in sig.parameters
+    assert sig.parameters["remote_mtime"].default is None
+    assert "remote_size" in sig.parameters
+    assert sig.parameters["remote_size"].default is None
+
+
 def test_ipersistence_has_expected_core_methods():
     methods = {
         "init_db",

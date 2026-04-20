@@ -173,6 +173,34 @@ def test_apply_financial_rules_commission_calculation(logic_service):
     res = logic_service.apply_financial_rules(raw_rows)
     assert res[0]['комиссия'] == Decimal('50.00')
 
+
+def test_apply_financial_rules_negative_commission_and_percent_become_positive(logic_service):
+    raw_rows = [{
+        'date': '01.01.2026',
+        'amount': '1000.00',
+        'commission': '-0.05',
+        'percent_broker': '-1.5',
+        'total': '950.00',
+        'filters': ''
+    }]
+    res = logic_service.apply_financial_rules(raw_rows)
+    assert res[0]['комиссия'] == Decimal('5')
+    assert res[0]['% посредника'] == Decimal('1.5')
+
+
+def test_apply_financial_rules_commission_fraction_scaled_but_percent_broker_not_scaled(logic_service):
+    raw_rows = [{
+        'date': '01.01.2026',
+        'amount': '1000.00',
+        'commission': '0.24',
+        'percent_broker': '0.24',
+        'total': '950.00',
+        'filters': ''
+    }]
+    res = logic_service.apply_financial_rules(raw_rows)
+    assert res[0]['комиссия'] == Decimal('24')
+    assert res[0]['% посредника'] == Decimal('0.24')
+
 def test_validator_junk_rows():
     v = Validator({})
     # Junk total row

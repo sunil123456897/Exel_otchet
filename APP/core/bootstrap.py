@@ -4,6 +4,7 @@ import logging
 import logging.handlers
 import importlib.util
 import re
+import sqlite3
 from pathlib import Path
 from typing import Tuple, Optional, Dict, Any, List
 
@@ -96,6 +97,23 @@ def _is_effectively_absolute(path_str: str) -> bool:
     return bool(re.match(r"^[A-Za-z]:[\\/]", path_str))
 
 
+def _can_open_sqlite_path(db_path: Path, timeout: float) -> tuple[bool, str | None]:
+    try:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return False, f"parent dir error: {e}"
+
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path, timeout=timeout)
+        return True, None
+    except sqlite3.OperationalError as e:
+        return False, str(e)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 class Bootstrap:
     """Статический класс для инициализации всех зависимостей приложения."""
 
@@ -178,6 +196,7 @@ class Bootstrap:
             cfg["validation"] = {}
 
         cfg_ctl.config = cfg
+        persist_recovered_paths = False
 
         cfg.setdefault("paths", {})
         cfg.setdefault("sh1", {})
@@ -207,17 +226,75 @@ class Bootstrap:
         schema_path = db_cfg["schema_path"] = resolve_rel(
             db_cfg.get("schema_path", "db_schema.sql"), "db_schema.sql"
         )
+        db_timeout = float(db_cfg.get("timeout", 30.0))
+
+        db_ok, db_error = _can_open_sqlite_path(Path(db_path), db_timeout)
+        if not db_ok:
+            logging.warning(
+                "Configured DB path is not writable (%s). Falling back to local app DB.",
+                db_error,
+            )
+            fallback_db = str(app_root / "cache.db")
+            if db_path != fallback_db:
+                persist_recovered_paths = True
+            db_path = db_cfg["path"] = fallback_db
+
+        schema_candidate = Path(schema_path)
+        if not schema_candidate.exists():
+            fallback_schema = app_root / "db_schema.sql"
+            if fallback_schema.exists():
+                logging.warning(
+                    "Configured schema path missing: %s. Using fallback: %s",
+                    schema_candidate,
+                    fallback_schema,
+                )
+                fallback_schema_str = str(fallback_schema)
+                if schema_path != fallback_schema_str:
+                    persist_recovered_paths = True
+                schema_path = db_cfg["schema_path"] = fallback_schema_str
+
+        if persist_recovered_paths:
+            save_config = getattr(cfg_ctl, "save_config", None)
+            if callable(save_config):
+                save_config()
 
         # Resolve config paths
         p_cfg = cfg.get("paths", {})
-        p_cfg["master_file"] = resolve_rel(
-            p_cfg.get("master_file", "Master_Report.xlsx"), "Master_Report.xlsx"
-        )
+        raw_paths = raw_cfg.get("paths", {}) if isinstance(raw_cfg, dict) else {}
+        if not isinstance(raw_paths, dict):
+            raw_paths = {}
+
+        # Save master report next to launcher (project root),
+        # while preserving testability in synthetic tmp roots.
+        master_base = app_root.parent if (app_root / "main.py").exists() else app_root
+        p_cfg["master_file"] = str(master_base / "Master_Report.xlsx")
         p_cfg["source_root"] = resolve_rel(
             p_cfg.get("source_root", "REPORTS"), "REPORTS"
         )
         if "source_roots" in p_cfg and isinstance(p_cfg["source_roots"], list):
             p_cfg["source_roots"] = [resolve_rel(r) for r in p_cfg["source_roots"]]
+
+        # If app is launched from arbitrary folder and source_root is the default
+        # relative REPORTS, prefer network defaults under Q:/ when local REPORTS
+        # does not exist.
+        sr = p_cfg.get("source_root")
+        raw_sr = (
+            str(raw_paths.get("source_root", "")).replace("\\", "/").lower().strip()
+        )
+        source_root_is_default = "source_root" not in raw_paths or raw_sr in {
+            "",
+            "reports",
+            "./reports",
+        }
+
+        if source_root_is_default and sr and not Path(sr).exists():
+            p_cfg["source_root"] = "Q:/Отчет кураторов 1"
+            if not p_cfg.get("source_roots"):
+                p_cfg["source_roots"] = [
+                    "Q:/Отчет кураторов 1",
+                    "Q:/Отчет кураторов 2",
+                    "Q:/Отчет кураторов 3",
+                ]
 
         drive_letters = tuple(cfg.get("network", {}).get("drive_letters", ["Q", "Z"]))
         ingestion = IngestionEngine(

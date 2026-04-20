@@ -179,10 +179,20 @@ class IngestionEngine(IDataSource):
                 dates.add(sheet_date)
         return sorted(dates)
 
-    def get_available_dates(self, file_path: Path) -> List[str]:
+    def get_available_dates(
+        self,
+        file_path: Path,
+        remote_mtime: float | None = None,
+        remote_size: int | None = None,
+    ) -> List[str]:
         dates = set()
         f_path_abs = os.path.abspath(str(file_path))
-        target_path, temp_file = get_local_copy(f_path_abs, self.drive_letters)
+        target_path, temp_file = get_local_copy(
+            f_path_abs,
+            self.drive_letters,
+            remote_mtime=remote_mtime,
+            remote_size=remote_size,
+        )
 
         try:
             if _should_isolate_calamine(file_path):

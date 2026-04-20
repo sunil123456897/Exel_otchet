@@ -77,10 +77,20 @@ class SourceFileRepository:
                 (file_path,),
             ).fetchone()
             if row:
+                raw_payload = json.loads(row["dates_json"])
+                if isinstance(raw_payload, dict):
+                    dates = raw_payload.get("dates", [])
+                    cache_version = int(raw_payload.get("cache_version", 1) or 1)
+                else:
+                    dates = raw_payload
+                    cache_version = 1
+                if not isinstance(dates, list):
+                    dates = []
                 return {
                     "mtime": row["mtime"],
                     "size": row["size"],
-                    "dates": json.loads(row["dates_json"]),
+                    "dates": dates,
+                    "cache_version": cache_version,
                 }
             return None
 
@@ -93,7 +103,18 @@ class SourceFileRepository:
                 conn.execute("BEGIN TRANSACTION")
                 conn.execute(
                     "INSERT OR REPLACE INTO file_cache (file_path, mtime, size, dates_json, last_updated) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
-                    (file_path, mtime, size, json.dumps(dates)),
+                    (
+                        file_path,
+                        mtime,
+                        size,
+                        json.dumps(
+                            {
+                                "cache_version": 2,
+                                "dates": dates,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    ),
                 )
                 conn.commit()
             except Exception:

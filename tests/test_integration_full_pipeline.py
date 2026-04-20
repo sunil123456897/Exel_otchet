@@ -275,10 +275,8 @@ class TestFullPipeline:
         )
 
         wb = openpyxl.load_workbook(output_path)
-        assert "ОШИБКИ ШАБЛОНА" in wb.sheetnames
-        ws = wb["ОШИБКИ ШАБЛОНА"]
-        assert ws.cell(2, 1).value == str(p["test_file"])
-        assert ws.cell(2, 4).value == "template_warning"
+        assert "ОШИБКИ ШАБЛОНА" not in wb.sheetnames
+        assert "01.04.2026" in wb.sheetnames
         wb.close()
 
     def test_soft_structure_warning_exported_without_red_source(self, full_pipeline):
@@ -344,8 +342,7 @@ class TestFullPipeline:
             ws.cell(2, 1).fill.start_color.rgb
             != p["writer"].st.fill_warning.start_color.rgb
         )
-        err_ws = wb["ОШИБКИ ШАБЛОНА"]
-        assert err_ws.cell(2, 4).value == "soft_structure"
+        assert "ОШИБКИ ШАБЛОНА" not in wb.sheetnames
         wb.close()
 
     def test_hard_structure_warning_exported_with_red_source(self, full_pipeline):
@@ -411,8 +408,7 @@ class TestFullPipeline:
             ws.cell(2, 1).fill.start_color.rgb
             == p["writer"].st.fill_warning.start_color.rgb
         )
-        err_ws = wb["ОШИБКИ ШАБЛОНА"]
-        assert err_ws.cell(2, 4).value == "hard_structure"
+        assert "ОШИБКИ ШАБЛОНА" not in wb.sheetnames
         wb.close()
 
     def test_numeric_text_total_warning_paints_total_not_source(self, full_pipeline):

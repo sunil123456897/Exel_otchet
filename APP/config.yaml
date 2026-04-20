@@ -1,12 +1,12 @@
 database:
-  isolation_level: EXCLUSIVE
-  path: cache.db
-  schema_path: db_schema.sql
+  path: E:\Dlia Dashi\Version5\APP\cache.db
+  schema_path: E:\Dlia Dashi\Version5\APP\db_schema.sql
   timeout: 30.0
+  isolation_level: EXCLUSIVE
   use_wal: true
 locking:
-  retry_backoff: 2.0
   retry_count: 5
+  retry_backoff: 2.0
   use_semaphores: true
 network:
   drive_letters:
@@ -21,12 +21,13 @@ logic:
   return_keywords:
     - возврат
 paths:
-  archive_dir: ../backups
-  master_file: Master_Report.xlsx
+  master_file: E:\Dlia Dashi\Version5\Master_Report.xlsx
+  source_root: Q:/Отчет кураторов 1
   source_roots:
-    - Q:/Отчет кураторов 1
-    - Q:/Отчет кураторов 2
-    - Q:/Отчет кураторов 3
+    - Q:\Отчет кураторов 1
+    - Q:\Отчет кураторов 2
+    - Q:\Отчет кураторов 3
+  archive_dir: ../backups
 sh1:
   markers:
     amount: сумма платежа
@@ -80,3 +81,9 @@ curators:
       - '% посредник 2'
       - Комиссия посредника 2
       - Фильтр
+validation: {}
+rsch:
+  recent_sources:
+    - E:\Dlia Dashi\Version5\РСЧ\рсч для инструкции.xlsx
+  last_output_dir: E:\Dlia Dashi\Version5\РСЧ
+  mode: combined

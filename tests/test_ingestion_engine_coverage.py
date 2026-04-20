@@ -37,9 +37,12 @@ def test_get_available_dates_network_mock(engine, tmp_path):
 
         dates = engine.get_available_dates(network_path)
 
-        assert "01.01.2026" in dates
+        assert "01.01" in dates
         mock_copy.assert_called_once_with(
-            os.path.abspath(str(network_path)), engine.drive_letters
+            os.path.abspath(str(network_path)),
+            engine.drive_letters,
+            remote_mtime=None,
+            remote_size=None,
         )
         mock_wb.assert_called_once_with(str(network_path))
 
@@ -98,9 +101,12 @@ def test_scan_directory_network_drive(engine, tmp_path):
     ):
         mock_wb.return_value.sheet_names = ["Отчет 02.02"]
         dates = engine.get_available_dates(q_path)
-        assert "02.02.2026" in dates
+        assert "02.02" in dates
         mock_q_copy.assert_called_once_with(
-            os.path.abspath(str(q_path)), engine.drive_letters
+            os.path.abspath(str(q_path)),
+            engine.drive_letters,
+            remote_mtime=None,
+            remote_size=None,
         )
         mock_wb.assert_called_once_with(q_local)
 
@@ -115,9 +121,12 @@ def test_scan_directory_network_drive(engine, tmp_path):
     ):
         mock_wb.return_value.sheet_names = ["Отчет 03.03"]
         dates = engine.get_available_dates(z_path)
-        assert "03.03.2026" in dates
+        assert "03.03" in dates
         mock_z_copy.assert_called_once_with(
-            os.path.abspath(str(z_path)), engine.drive_letters
+            os.path.abspath(str(z_path)),
+            engine.drive_letters,
+            remote_mtime=None,
+            remote_size=None,
         )
         mock_wb.assert_called_once_with(z_local)
 

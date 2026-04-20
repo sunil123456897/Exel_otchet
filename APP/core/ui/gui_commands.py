@@ -1,8 +1,9 @@
 import logging
+import re
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from core.infra import open_path
 
@@ -27,15 +28,21 @@ class GuiCommands:
         self.sidebar = sidebar
         self.employee_table = employee_table
         self.stats_panel = stats_panel
+        self._apply_saved_rsch_mode()
 
     def refresh_status(self):
         self.sidebar.set_refresh_state("disabled")
         self.employee_table.clear_tree()
         self.stats_panel.set_progress(0)
+
+        def on_refresh_error(message: str) -> None:
+            self.root.after(0, lambda: messagebox.showerror("Ошибка", message))
+
         self.employee_vm.refresh(
             self.app_controller,
             self.sidebar.get_date(),
             self._on_consolidation_progress,
+            on_error=on_refresh_error,
         )
 
     def run_consolidation(self):
@@ -87,34 +94,211 @@ class GuiCommands:
         )
 
     def run_rsch_report(self):
-        source = filedialog.askopenfilename(
-            title="Выберите ШР файл РСЧ",
-            filetypes=[("Excel files", "*.xlsx *.xlsm *.xlsb"), ("All files", "*.*")],
-        )
-        if not source:
-            return
+        mode = self.sidebar.get_rsch_mode()
+        source_paths: List[Path] = []
+        saved_sources = self._get_saved_rsch_sources()
+        if saved_sources:
+            existing_saved = [p for p in saved_sources if p.exists()]
+            use_saved = messagebox.askyesnocancel(
+                "РСЧ файлы",
+                "Использовать сохраненный набор файлов РСЧ?",
+            )
+            if use_saved is None:
+                return
+            if use_saved:
+                if existing_saved:
+                    source_paths = existing_saved
+                else:
+                    messagebox.showwarning(
+                        "РСЧ файлы",
+                        "Сохраненные пути не найдены. Выберите файлы заново.",
+                    )
+
+        if not source_paths:
+            source_paths = self._select_rsch_sources(saved_sources)
+            if not source_paths:
+                return
 
         selected_date = self.sidebar.get_date()
         date_suffix = selected_date.strftime("%d.%m.%Y")
         default_name = f"РСЧ_отчет_{date_suffix}.xlsx"
+        output_initial_dir = self._suggest_rsch_output_dir(source_paths)
+        if mode == "per_file":
+            output_dir = filedialog.askdirectory(
+                title="Выберите папку для сохранения ШО отчетов",
+                initialdir=output_initial_dir,
+                mustexist=True,
+            )
+            if not output_dir:
+                return
+
+            output_dir_path = Path(output_dir)
+            output_paths = [
+                output_dir_path
+                / self._build_per_file_output_name(src_path, selected_date, idx)
+                for idx, src_path in enumerate(source_paths, start=1)
+            ]
+
+            self._save_rsch_preferences(source_paths, output_paths[0], mode)
+            self.sidebar.set_rsch_state("disabled")
+            self.app_controller.run_rsch_report_batch(
+                source_paths,
+                output_paths,
+                selected_date,
+                self._on_rsch_complete_batch,
+            )
+            return
 
         output = filedialog.asksaveasfilename(
             title="Сохранить ШО отчет",
             defaultextension=".xlsx",
             initialfile=default_name,
-            initialdir=str(Path(source).parent),
+            initialdir=output_initial_dir,
             filetypes=[("Excel files", "*.xlsx")],
         )
         if not output:
             return
 
+        self._save_rsch_preferences(source_paths, Path(output), mode)
+
         self.sidebar.set_rsch_state("disabled")
         self.app_controller.run_rsch_report(
-            Path(source),
+            source_paths,
             Path(output),
             selected_date,
             self._on_rsch_complete,
         )
+
+    def _get_rsch_config(self) -> dict:
+        cfg = getattr(self.config_controller, "config", None)
+        if not isinstance(cfg, dict):
+            cfg = {}
+            try:
+                self.config_controller.config = cfg
+            except Exception:
+                return {}
+
+        rsch_cfg = cfg.get("rsch")
+        if not isinstance(rsch_cfg, dict):
+            rsch_cfg = {}
+            cfg["rsch"] = rsch_cfg
+        return rsch_cfg
+
+    def _get_saved_rsch_sources(self) -> List[Path]:
+        rsch_cfg = self._get_rsch_config()
+        raw_sources = rsch_cfg.get("recent_sources", [])
+        if isinstance(raw_sources, str):
+            raw_sources = [raw_sources]
+
+        normalized: List[Path] = []
+        seen = set()
+        for raw in raw_sources:
+            if not raw:
+                continue
+            path = Path(str(raw))
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(path)
+        return normalized
+
+    def _select_rsch_sources(self, saved_sources: List[Path]) -> List[Path]:
+        selected_paths: List[Path] = []
+        while True:
+            initial_dir = self._suggest_rsch_source_dir(saved_sources + selected_paths)
+            selected = filedialog.askopenfilenames(
+                title="Выберите ШР файлы РСЧ",
+                filetypes=[
+                    ("Excel files", "*.xlsx *.xlsm *.xlsb"),
+                    ("All files", "*.*"),
+                ],
+                initialdir=initial_dir,
+            )
+
+            if selected:
+                selected_paths = self._merge_unique_paths(
+                    selected_paths,
+                    [Path(p) for p in selected],
+                )
+
+            if not selected_paths:
+                if not selected:
+                    return []
+                continue
+
+            more = messagebox.askyesno(
+                "РСЧ файлы",
+                f"Сейчас выбрано {len(selected_paths)} файлов. Добавить еще из другой папки?",
+            )
+            if not more:
+                return selected_paths
+
+    def _merge_unique_paths(
+        self, current: List[Path], new_items: List[Path]
+    ) -> List[Path]:
+        merged = list(current)
+        seen = {str(p) for p in current}
+        for item in new_items:
+            key = str(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+        return merged
+
+    def _build_per_file_output_name(
+        self,
+        source_path: Path,
+        selected_date,
+        index: int,
+    ) -> str:
+        date_suffix = selected_date.strftime("%d.%m.%Y")
+        stem = source_path.stem.strip() or f"file_{index}"
+        safe_stem = re.sub(r"[\\/:*?\"<>|]", "_", stem)
+        return f"РСЧ_отчет_{date_suffix}_{safe_stem}.xlsx"
+
+    def _suggest_rsch_source_dir(self, saved_sources: List[Path]) -> str:
+        for path in saved_sources:
+            parent = path.parent
+            if parent.exists():
+                return str(parent)
+        rsch_cfg = self._get_rsch_config()
+        last_output_dir = rsch_cfg.get("last_output_dir")
+        if last_output_dir:
+            parent = Path(str(last_output_dir))
+            if parent.exists():
+                return str(parent)
+        return ""
+
+    def _suggest_rsch_output_dir(self, source_paths: List[Path]) -> str:
+        rsch_cfg = self._get_rsch_config()
+        last_output_dir = rsch_cfg.get("last_output_dir")
+        if last_output_dir:
+            parent = Path(str(last_output_dir))
+            if parent.exists():
+                return str(parent)
+        if source_paths:
+            first_parent = source_paths[0].parent
+            if first_parent.exists():
+                return str(first_parent)
+        return ""
+
+    def _save_rsch_preferences(
+        self, source_paths: List[Path], output_path: Path, mode: str
+    ) -> None:
+        rsch_cfg = self._get_rsch_config()
+        rsch_cfg["recent_sources"] = [str(p) for p in source_paths]
+        rsch_cfg["last_output_dir"] = str(output_path.parent)
+        rsch_cfg["mode"] = mode
+        save_config = getattr(self.config_controller, "save_config", None)
+        if callable(save_config):
+            save_config()
+
+    def _apply_saved_rsch_mode(self) -> None:
+        rsch_cfg = self._get_rsch_config()
+        mode = rsch_cfg.get("mode", "combined")
+        self.sidebar.set_rsch_mode(mode)
 
     def add_employee_dialog(self):
         from core.ui.ui_dialogs import ask_employee_name
@@ -128,7 +312,9 @@ class GuiCommands:
         from core.ui.ui_dialogs import show_attach_file_dialog
 
         def on_attach(name, paths, append):
-            self.employee_vm.attach_files(self.config_controller, name, paths)
+            self.employee_vm.attach_files(
+                self.config_controller, name, paths, append=append
+            )
             self.refresh_status()
 
         show_attach_file_dialog(
@@ -195,6 +381,26 @@ class GuiCommands:
                     "Успех", "РСЧ отчет собран. Открыть файл?"
                 ):
                     open_path(str(path))
+            else:
+                logging.error(f"Ошибка: {msg}")
+                messagebox.showerror("Ошибка", msg)
+
+        self.root.after(0, fin)
+
+    def _on_rsch_complete_batch(
+        self,
+        ok: bool,
+        msg: str,
+        output_dir: Optional[Path],
+    ):
+        def fin():
+            self.sidebar.set_rsch_state("normal")
+            if ok:
+                logging.info(f"Успешно: {msg}")
+                if output_dir and messagebox.askyesno(
+                    "Успех", "РСЧ отчеты собраны. Открыть папку?"
+                ):
+                    open_path(str(output_dir))
             else:
                 logging.error(f"Ошибка: {msg}")
                 messagebox.showerror("Ошибка", msg)

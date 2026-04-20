@@ -73,9 +73,9 @@ def test_run_consolidation_completes_failure_path_with_real_thread(controller_an
     ):
         ctl.run_consolidation(datetime(2026, 4, 1), lambda _p: None, on_complete)
 
-    assert done.wait(2.0)
-    assert result == {"ok": False, "msg": "Нет файлов", "path": None}
-    deps["persistence"].update_session_status.assert_called()
+        assert done.wait(2.0)
+        assert result == {"ok": False, "msg": "Нет файлов", "path": None}
+        deps["persistence"].update_session_status.assert_called()
 
     ctl.shutdown()
 
