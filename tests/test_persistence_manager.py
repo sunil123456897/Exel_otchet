@@ -3,6 +3,7 @@ import sqlite3
 import json
 import decimal
 import datetime
+import warnings
 from pathlib import Path
 from core.infra.session_repo import SQLiteManager, DecimalEncoder, sanitize_data
 
@@ -214,6 +215,26 @@ def test_get_session_status_not_found(db_setup):
     db_path, schema_path, config = db_setup
     manager = SQLiteManager(str(db_path), str(schema_path), config)
     assert manager.get_session_status("non_existent") == {}
+    manager.close()
+
+
+def test_get_session_status_has_no_timestamp_deprecation_warning(db_setup):
+    db_path, schema_path, config = db_setup
+    manager = SQLiteManager(str(db_path), str(schema_path), config)
+    session_id = "no_warn_session"
+    manager.save_session(session_id, {})
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        status = manager.get_session_status(session_id)
+
+    assert status["session_id"] == session_id
+    assert not any(
+        isinstance(item.message, DeprecationWarning)
+        and "timestamp converter" in str(item.message).lower()
+        for item in caught
+    )
+
     manager.close()
 
 

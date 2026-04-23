@@ -88,6 +88,384 @@ class AppController:
             self._active_threads.append(t)
         t.start()
 
+    @staticmethod
+    def _normalize_selected_datetime(selected_date) -> datetime:
+        if isinstance(selected_date, datetime):
+            return selected_date
+        return datetime.combine(selected_date, datetime.min.time())
+
+    @staticmethod
+    def _has_target_date(
+        available_dates: List[Any], target_date_obj: datetime, today: datetime
+    ) -> bool:
+        if target_date_obj.date() > today.date():
+            return False
+        for available_date in available_dates or []:
+            if date_matches_target(available_date, target_date_obj):
+                return True
+        return False
+
+    def _check_employee_refresh_status(
+        self,
+        name: str,
+        employees_map: Dict[str, List[Dict[str, Any]]],
+        target_date_obj: datetime,
+        today: datetime,
+    ) -> tuple[str, str, str, str]:
+        metas = employees_map.get(name, [])
+        paths = [m["path"] if isinstance(m, dict) else m for m in metas]
+        paths = [p for p in paths if os.path.exists(p)]
+
+        if not paths:
+            return (name, "🔴 НЕТ ФАЙЛА", "---", "missing")
+
+        path_str = (
+            os.path.basename(paths[0]) if len(paths) == 1 else f"[{len(paths)} файлов]"
+        )
+        status, tag = "🟠 НЕТ ДАТЫ", "partial"
+
+        try:
+            forced_refresh_tokens = set()
+            for p in paths:
+                p_path = Path(p)
+                stat = os.stat(p_path)
+                stat_mtime = stat.st_mtime
+                stat_size = stat.st_size
+                cache = self.persistence.get_file_cache(str(p_path))
+
+                cache_hit = (
+                    cache
+                    and cache["mtime"] == stat_mtime
+                    and cache["size"] == stat_size
+                )
+                cache_version = int(cache.get("cache_version", 1)) if cache else 1
+                needs_cache_migration = cache_hit and cache_version < 2
+
+                if cache_hit:
+                    available = cache.get("dates", [])
+                    if self._has_target_date(available, target_date_obj, today) and not needs_cache_migration:
+                        status, tag = "🟢 ГОТОВО", "ready"
+                        break
+
+                    force_token = (
+                        str(p_path),
+                        target_date_obj.strftime("%d.%m.%Y"),
+                        stat_mtime,
+                        stat_size,
+                    )
+                    if force_token not in forced_refresh_tokens:
+                        forced_refresh_tokens.add(force_token)
+                        available = self.ingestion.get_available_dates(
+                            p_path,
+                            remote_mtime=stat_mtime,
+                            remote_size=stat_size,
+                        )
+                        self.persistence.save_file_cache(
+                            str(p_path), stat_mtime, stat_size, available
+                        )
+                else:
+                    available = self.ingestion.get_available_dates(
+                        p_path,
+                        remote_mtime=stat_mtime,
+                        remote_size=stat_size,
+                    )
+                    self.persistence.save_file_cache(
+                        str(p_path), stat_mtime, stat_size, available
+                    )
+
+                if self._has_target_date(available, target_date_obj, today):
+                    status, tag = "🟢 ГОТОВО", "ready"
+                    break
+        except Exception as e:
+            logging.error(f"Error {name}: {e}")
+            status, tag = "[ERR] ОШИБКА", "missing"
+
+        return (name, status, path_str, tag)
+
+    def _run_refresh_status(
+        self,
+        selected_date,
+        on_progress: Callable[[float], None],
+        on_complete: Callable[[List[tuple], Dict, bool], None],
+        on_error: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        try:
+            logging.info("[NET] Начинаю поиск файлов в сети...")
+            employees_map = self._get_employees_map()
+            unique_names = sorted(employees_map.keys())
+            if not unique_names:
+                on_complete([], {}, False)
+                return
+
+            target_date_obj = self._normalize_selected_datetime(selected_date)
+            today = datetime.now()
+            total_count = len(unique_names)
+            local_data: List[tuple] = []
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=_ADAPTIVE_WORKERS) as executor:
+                futures = {
+                    executor.submit(
+                        self._check_employee_refresh_status,
+                        name,
+                        employees_map,
+                        target_date_obj,
+                        today,
+                    ): name
+                    for name in unique_names
+                }
+                for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                    local_data.append(future.result())
+                    on_progress(((i + 1) / total_count) * 100)
+
+            local_data.sort(key=lambda x: x[0])
+            with self._lock:
+                self._cached_employees = employees_map
+            on_complete(local_data, employees_map, self.rename_detected)
+        except Exception as e:
+            logging.error(f"Refresh error: {e}")
+            on_complete([], {}, False)
+            if callable(on_error):
+                on_error(f"Ошибка обновления статусов: {e}")
+
+    @staticmethod
+    def _build_session_meta(
+        session_type: str,
+        target_date_str: Optional[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+    ) -> Dict[str, Any]:
+        meta: Dict[str, Any] = {"type": session_type}
+        if target_date_str:
+            meta["date"] = target_date_str
+        if start_date_str and end_date_str:
+            meta["start_date"] = start_date_str
+            meta["end_date"] = end_date_str
+        return meta
+
+    def _resolve_employees_for_run(self, use_fresh_employees: bool) -> Dict[str, List[Dict[str, Any]]]:
+        if use_fresh_employees:
+            employees_map = self._get_employees_map()
+            with self._lock:
+                self._cached_employees = employees_map
+            return employees_map
+
+        with self._lock:
+            employees_map = dict(self._cached_employees) if self._cached_employees else None
+        if employees_map:
+            return employees_map
+
+        employees_map = self._get_employees_map()
+        with self._lock:
+            if not self._cached_employees:
+                self._cached_employees = employees_map
+        return employees_map
+
+    @staticmethod
+    def _format_file_error_note(file_errors: List[Dict[str, str]]) -> Optional[str]:
+        if not file_errors:
+            return None
+
+        sample = ", ".join(
+            os.path.basename(err.get("path", ""))
+            for err in file_errors[:3]
+            if err.get("path")
+        )
+        suffix = "" if len(file_errors) <= 3 else " ..."
+        if sample:
+            return f"Не удалось обработать {len(file_errors)} файл(ов): {sample}{suffix}."
+        return f"Не удалось обработать {len(file_errors)} файл(ов)."
+
+    @staticmethod
+    def _build_empty_data_message(
+        target_date_str: Optional[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+        range_note: Optional[str],
+        file_error_note: Optional[str],
+    ) -> str:
+        if start_date_str and end_date_str:
+            msg = f"Нет данных за период {start_date_str} — {end_date_str}"
+        elif target_date_str:
+            msg = "Нет данных за дату"
+        else:
+            msg = "Нет данных"
+
+        notes = [note for note in (range_note, file_error_note) if note]
+        if notes:
+            return f"{msg}. {' '.join(notes)}"
+        return msg
+
+    @staticmethod
+    def _build_success_message(
+        session_type: str,
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+        range_note: Optional[str],
+        file_error_note: Optional[str],
+    ) -> str:
+        if start_date_str and end_date_str:
+            msg = f"Готово! ({start_date_str} — {end_date_str})"
+        elif session_type == "all_dates":
+            msg = "Готово!"
+        else:
+            msg = "Успешно!"
+
+        notes = [note for note in (range_note, file_error_note) if note]
+        if notes:
+            return f"{msg} {' '.join(notes)}"
+        return msg
+
+    @staticmethod
+    def _normalize_consolidation_dates(
+        target_date_str: Optional[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+    ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
+        today = datetime.now().date()
+        range_note: Optional[str] = None
+        effective_target_date = target_date_str
+        effective_start_date = start_date_str
+        effective_end_date = end_date_str
+
+        if target_date_str:
+            td = datetime.strptime(target_date_str, "%d.%m.%Y").date()
+            if td > today:
+                msg = f"Дата {target_date_str} в будущем. Будущие даты исключаются из сборки."
+                return None, None, None, msg, None
+
+        if start_date_str and end_date_str:
+            sd = datetime.strptime(start_date_str, "%d.%m.%Y").date()
+            ed = datetime.strptime(end_date_str, "%d.%m.%Y").date()
+            if sd > today:
+                msg = (
+                    f"Период {start_date_str} — {end_date_str} полностью в будущем. "
+                    "Будущие даты исключаются из сборки."
+                )
+                return None, None, None, msg, None
+            if ed > today:
+                effective_end_date = today.strftime("%d.%m.%Y")
+                range_note = (
+                    f"Даты после {effective_end_date} исключены (будущие даты не учитываются)."
+                )
+
+        return effective_target_date, effective_start_date, effective_end_date, None, range_note
+
+    def _execute_consolidation(
+        self,
+        on_progress: Callable[[float], None],
+        on_complete: Callable[[bool, str, Optional[Path]], None],
+        target_date_str: Optional[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+        session_type: str,
+        use_fresh_employees: bool,
+    ) -> None:
+        session_id = str(uuid.uuid4())
+        try:
+            effective_target_date, effective_start_date, effective_end_date, date_error, range_note = (
+                self._normalize_consolidation_dates(
+                    target_date_str,
+                    start_date_str,
+                    end_date_str,
+                )
+            )
+            if date_error:
+                on_complete(False, date_error, None)
+                return
+
+            meta = self._build_session_meta(
+                session_type,
+                effective_target_date,
+                effective_start_date,
+                effective_end_date,
+            )
+            self.persistence.save_session(session_id, meta)
+
+            employees_map = self._resolve_employees_for_run(use_fresh_employees)
+            if not employees_map:
+                self.persistence.update_session_status(session_id, "failed")
+                on_complete(False, "Нет файлов", None)
+                return
+
+            file_errors: List[Dict[str, str]] = []
+
+            def collect_file_errors(errors: List[Dict[str, str]]) -> None:
+                file_errors.extend(errors)
+
+            if not run_engine(
+                self.persistence,
+                self.ingestion,
+                self.validator,
+                employees_map,
+                session_id,
+                effective_target_date,
+                on_progress,
+                start_date_str=effective_start_date,
+                end_date_str=effective_end_date,
+                on_file_error=collect_file_errors,
+            ):
+                self.persistence.update_session_status(session_id, "failed")
+                on_complete(False, "Нет файлов", None)
+                return
+
+            consolidated_data = self.logic_service.consolidate(session_id)
+            errors = self.persistence.get_template_errors(session_id)
+            file_error_note = self._format_file_error_note(file_errors)
+
+            if not consolidated_data:
+                self.persistence.update_session_status(session_id, "failed")
+                on_complete(
+                    False,
+                    self._build_empty_data_message(
+                        effective_target_date,
+                        effective_start_date,
+                        effective_end_date,
+                        range_note,
+                        file_error_note,
+                    ),
+                    None,
+                )
+                return
+
+            master_path = self._resolve_master_path()
+            write_kwargs: Dict[str, Any] = {}
+            if errors:
+                write_kwargs["template_errors"] = errors
+
+            if not self.writer.write_report(consolidated_data, master_path, **write_kwargs):
+                self.persistence.update_session_status(session_id, "failed")
+                on_complete(False, "Ошибка записи основного отчёта", None)
+                return
+
+            logging.info("[MAIN] Основной отчёт собран: %s", master_path)
+            on_progress(100)
+            has_actionable_warnings = any(
+                error.get("error_type") not in {"soft_structure"} for error in errors
+            )
+            has_runtime_warnings = bool(range_note or file_error_note)
+            self.persistence.update_session_status(
+                session_id,
+                "completed_with_warnings"
+                if has_actionable_warnings or has_runtime_warnings
+                else "completed",
+            )
+
+            on_complete(
+                True,
+                self._build_success_message(
+                    session_type,
+                    effective_start_date,
+                    effective_end_date,
+                    range_note,
+                    file_error_note,
+                ),
+                master_path,
+            )
+        except Exception as e:
+            logging.error(f"Error: {e}")
+            self.persistence.update_session_status(session_id, "failed")
+            on_complete(False, str(e), None)
+
     def refresh_status(
         self,
         selected_date,
@@ -106,125 +484,12 @@ class AppController:
             return
 
         def task():
-            try:
-                logging.info("[NET] Начинаю поиск файлов в сети...")
-                employees_map = self._get_employees_map()
-                unique_names = sorted(employees_map.keys())
-                if not unique_names:
-                    on_complete([], {}, False)
-                    return
-
-                local_data, total_count = [], len(unique_names)
-                target_date_obj = (
-                    selected_date
-                    if isinstance(selected_date, datetime)
-                    else datetime.combine(selected_date, datetime.min.time())
-                )
-                today = datetime.now()
-
-                def _has_target_date(available_dates: List[Any]) -> bool:
-                    if target_date_obj.date() > today.date():
-                        return False
-                    for available_date in available_dates or []:
-                        if date_matches_target(available_date, target_date_obj):
-                            return True
-                    return False
-
-                def check_employee(name):
-                    metas = employees_map.get(name, [])
-                    paths = [m["path"] if isinstance(m, dict) else m for m in metas]
-                    paths = [p for p in paths if os.path.exists(p)]
-
-                    if not paths:
-                        return (name, "🔴 НЕТ ФАЙЛА", "---", "missing")
-
-                    path_str = (
-                        os.path.basename(paths[0])
-                        if len(paths) == 1
-                        else f"[{len(paths)} файлов]"
-                    )
-                    status, tag = "🟠 НЕТ ДАТЫ", "partial"
-                    try:
-                        forced_refresh_tokens = set()
-
-                        for p in paths:
-                            p_path = Path(p)
-                            stat = os.stat(p_path)
-                            stat_mtime = stat.st_mtime
-                            stat_size = stat.st_size
-                            cache = self.persistence.get_file_cache(str(p_path))
-
-                            cache_hit = (
-                                cache
-                                and cache["mtime"] == stat_mtime
-                                and cache["size"] == stat_size
-                            )
-
-                            cache_version = int(cache.get("cache_version", 1)) if cache else 1
-                            needs_cache_migration = cache_hit and cache_version < 2
-
-                            if cache_hit:
-                                available = cache.get("dates", [])
-                                if _has_target_date(available) and not needs_cache_migration:
-                                    status, tag = "🟢 ГОТОВО", "ready"
-                                    break
-                                # Safety net: if cache says no date, force one re-parse once.
-                                force_token = (
-                                    str(p_path),
-                                    target_date_obj.strftime("%d.%m.%Y"),
-                                    stat_mtime,
-                                    stat_size,
-                                )
-                                if force_token not in forced_refresh_tokens:
-                                    forced_refresh_tokens.add(force_token)
-                                    available = self.ingestion.get_available_dates(
-                                        p_path,
-                                        remote_mtime=stat_mtime,
-                                        remote_size=stat_size,
-                                    )
-                                    self.persistence.save_file_cache(
-                                        str(p_path), stat_mtime, stat_size, available
-                                    )
-                            else:
-                                available = self.ingestion.get_available_dates(
-                                    p_path,
-                                    remote_mtime=stat_mtime,
-                                    remote_size=stat_size,
-                                )
-                                self.persistence.save_file_cache(
-                                    str(p_path), stat_mtime, stat_size, available
-                                )
-
-                            if _has_target_date(available):
-                                status, tag = "🟢 ГОТОВО", "ready"
-                                break
-                    except Exception as e:
-                        logging.error(f"Error {name}: {e}")
-                        status, tag = "[ERR] ОШИБКА", "missing"
-                    return (name, status, path_str, tag)
-
-                with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=_ADAPTIVE_WORKERS
-                ) as executor:
-                    futures = {
-                        executor.submit(check_employee, name): name
-                        for name in unique_names
-                    }
-                    for i, future in enumerate(
-                        concurrent.futures.as_completed(futures)
-                    ):
-                        local_data.append(future.result())
-                        on_progress(((i + 1) / total_count) * 100)
-
-                local_data.sort(key=lambda x: x[0])
-                with self._lock:
-                    self._cached_employees = employees_map
-                on_complete(local_data, employees_map, self.rename_detected)
-            except Exception as e:
-                logging.error(f"Refresh error: {e}")
-                on_complete([], {}, False)
-                if callable(on_error):
-                    on_error(f"Ошибка обновления статусов: {e}")
+            self._run_refresh_status(
+                selected_date,
+                on_progress,
+                on_complete,
+                on_error=on_error,
+            )
 
         self._start_thread(task)
 
@@ -260,180 +525,15 @@ class AppController:
             return
 
         def task():
-            session_id = str(uuid.uuid4())
-            try:
-                today = datetime.now().date()
-                range_note: Optional[str] = None
-                effective_target_date = target_date_str
-                effective_start_date = start_date_str
-                effective_end_date = end_date_str
-
-                if target_date_str:
-                    td = datetime.strptime(target_date_str, "%d.%m.%Y").date()
-                    if td > today:
-                        on_complete(
-                            False,
-                            (
-                                f"Дата {target_date_str} в будущем. "
-                                "Будущие даты исключаются из сборки."
-                            ),
-                            None,
-                        )
-                        return
-
-                if start_date_str and end_date_str:
-                    sd = datetime.strptime(start_date_str, "%d.%m.%Y").date()
-                    ed = datetime.strptime(end_date_str, "%d.%m.%Y").date()
-                    if sd > today:
-                        on_complete(
-                            False,
-                            (
-                                f"Период {start_date_str} — {end_date_str} полностью в будущем. "
-                                "Будущие даты исключаются из сборки."
-                            ),
-                            None,
-                        )
-                        return
-                    if ed > today:
-                        effective_end_date = today.strftime("%d.%m.%Y")
-                        range_note = (
-                            f"Даты после {effective_end_date} исключены "
-                            "(будущие даты не учитываются)."
-                        )
-
-                # Build session metadata
-                meta: Dict[str, Any] = {"type": session_type}
-                if effective_target_date:
-                    meta["date"] = effective_target_date
-                if effective_start_date and effective_end_date:
-                    meta["start_date"] = effective_start_date
-                    meta["end_date"] = effective_end_date
-                self.persistence.save_session(session_id, meta)
-
-                # Discover employees
-                if use_fresh_employees:
-                    employees_map = self._get_employees_map()
-                    with self._lock:
-                        self._cached_employees = employees_map
-                else:
-                    with self._lock:
-                        employees_map = (
-                            dict(self._cached_employees)
-                            if self._cached_employees
-                            else None
-                        )
-                    if not employees_map:
-                        employees_map = self._get_employees_map()
-                        with self._lock:
-                            if not self._cached_employees:
-                                self._cached_employees = employees_map
-
-                if not employees_map:
-                    self.persistence.update_session_status(session_id, "failed")
-                    on_complete(False, "Нет файлов", None)
-                    return
-
-                file_errors: List[Dict[str, str]] = []
-
-                def collect_file_errors(errors: List[Dict[str, str]]) -> None:
-                    file_errors.extend(errors)
-
-                if not run_engine(
-                    self.persistence,
-                    self.ingestion,
-                    self.validator,
-                    employees_map,
-                    session_id,
-                    effective_target_date,
-                    on_progress,
-                    start_date_str=effective_start_date,
-                    end_date_str=effective_end_date,
-                    on_file_error=collect_file_errors,
-                ):
-                    self.persistence.update_session_status(session_id, "failed")
-                    on_complete(False, "Нет файлов", None)
-                    return
-
-                consolidated_data = self.logic_service.consolidate(session_id)
-                errors = self.persistence.get_template_errors(session_id)
-
-                file_error_note = None
-                if file_errors:
-                    sample = ", ".join(
-                        os.path.basename(err.get("path", ""))
-                        for err in file_errors[:3]
-                        if err.get("path")
-                    )
-                    suffix = "" if len(file_errors) <= 3 else " ..."
-                    if sample:
-                        file_error_note = (
-                            f"Не удалось обработать {len(file_errors)} файл(ов): "
-                            f"{sample}{suffix}."
-                        )
-                    else:
-                        file_error_note = (
-                            f"Не удалось обработать {len(file_errors)} файл(ов)."
-                        )
-
-                if not consolidated_data:
-                    self.persistence.update_session_status(session_id, "failed")
-                    if effective_start_date and effective_end_date:
-                        msg = (
-                            f"Нет данных за период {effective_start_date} — "
-                            f"{effective_end_date}"
-                        )
-                    elif effective_target_date:
-                        msg = "Нет данных за дату"
-                    else:
-                        msg = "Нет данных"
-
-                    notes = [note for note in (range_note, file_error_note) if note]
-                    if notes:
-                        msg = f"{msg}. {' '.join(notes)}"
-                    on_complete(False, msg, None)
-                    return
-
-                master_path = self._resolve_master_path()
-                write_kwargs: Dict[str, Any] = {}
-                if errors:
-                    write_kwargs["template_errors"] = errors
-                has_actionable_warnings = any(
-                    error.get("error_type") not in {"soft_structure"}
-                    for error in errors
-                )
-
-                if not self.writer.write_report(
-                    consolidated_data, master_path, **write_kwargs
-                ):
-                    self.persistence.update_session_status(session_id, "failed")
-                    on_complete(False, "Ошибка записи основного отчёта", None)
-                    return
-
-                logging.info("[MAIN] Основной отчёт собран: %s", master_path)
-                on_progress(100)
-                has_runtime_warnings = bool(range_note or file_error_note)
-                self.persistence.update_session_status(
-                    session_id,
-                    "completed_with_warnings"
-                    if has_actionable_warnings or has_runtime_warnings
-                    else "completed",
-                )
-
-                if effective_start_date and effective_end_date:
-                    msg = f"Готово! ({effective_start_date} — {effective_end_date})"
-                elif session_type == "all_dates":
-                    msg = "Готово!"
-                else:
-                    msg = "Успешно!"
-
-                notes = [note for note in (range_note, file_error_note) if note]
-                if notes:
-                    msg = f"{msg} {' '.join(notes)}"
-                on_complete(True, msg, master_path)
-            except Exception as e:
-                logging.error(f"Error: {e}")
-                self.persistence.update_session_status(session_id, "failed")
-                on_complete(False, str(e), None)
+            self._execute_consolidation(
+                on_progress,
+                on_complete,
+                target_date_str,
+                start_date_str,
+                end_date_str,
+                session_type,
+                use_fresh_employees,
+            )
 
         self._start_thread(task)
 
@@ -560,6 +660,10 @@ class AppController:
                 normalized_outputs = [Path(p) for p in output_paths]
                 if len(normalized_sources) != len(normalized_outputs):
                     raise ValueError("Sources and outputs count mismatch")
+                if len({str(path) for path in normalized_outputs}) != len(
+                    normalized_outputs
+                ):
+                    raise ValueError("Duplicate output paths")
 
                 total_rows = 0
                 issues: List[str] = []

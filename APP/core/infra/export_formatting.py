@@ -90,6 +90,78 @@ WARNING_FIELD_TO_HEADER = {
 }
 
 
+def _get_header_and_source_col(ws):
+    source_col = 1 if ws.cell(1, 1).value == "Источник" else 2
+    return str(ws.cell(1, source_col).value or "").lower(), source_col
+
+
+def _safe_float(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _extract_money_snapshot(row_cells, cols):
+    income = _safe_float(row_cells[cols["приход"] - 1].value) if cols["приход"] > 0 else 0.0
+    expense = _safe_float(row_cells[cols["расход"] - 1].value) if cols["расход"] > 0 else 0.0
+    total = _safe_float(row_cells[cols["итог"] - 1].value) if cols["итог"] > 0 else 0.0
+    commission = (
+        abs(_safe_float(row_cells[cols["комиссия"] - 1].value)) if cols["комиссия"] > 0 else 0.0
+    )
+    return income, expense, total, commission
+
+
+def _is_return_row(rows_data, row_idx, return_keywords):
+    filters_val = str(rows_data[row_idx].get("фильтры", "")).lower()
+    return any(kw in filters_val for kw in return_keywords)
+
+
+def _is_math_error(is_return, income, expense, total, commission):
+    if is_return:
+        return False
+    expected_total_no_comm = income - expense
+    has_money = abs(income) > 0.02 or abs(expense) > 0.02
+    has_total_only = not has_money and abs(total) > 0.02
+
+    if has_money and abs(total) < 0.02:
+        return True
+    if has_money and abs(commission) < 0.02 and abs(total - expected_total_no_comm) > 0.02:
+        return True
+    return has_total_only
+
+
+def _apply_base_cell_style(cell, is_critical, is_math_err, fill_row, st: ExcelStyles):
+    fill_critical = PatternFill(patternType="solid", fgColor="FF9999")
+    cell.border = st.border_thin
+    if is_critical:
+        cell.fill = fill_critical
+    elif is_math_err:
+        cell.fill = PatternFill(patternType="solid", fgColor="FFFF00")
+    else:
+        cell.fill = fill_row
+    cell.font = st.font_standard
+
+
+def _apply_non_numeric_warning_fill(
+    cell,
+    c_idx,
+    is_warning,
+    is_critical,
+    warning_target_col,
+    source_col,
+    st: ExcelStyles,
+):
+    cell.alignment = st.align_left
+    if is_critical or not is_warning:
+        return
+    if warning_target_col is None and c_idx == source_col:
+        cell.fill = st.fill_warning
+        return
+    if c_idx == warning_target_col:
+        cell.fill = st.fill_warning
+
+
 def _get_warning_target_column(ws, warning_info):
     if not warning_info:
         return None
@@ -146,65 +218,23 @@ def apply_cell_styling(
     st: ExcelStyles,
     return_keywords=None,
 ):
-    fill_yellow = PatternFill(patternType="solid", fgColor="FFFF00")
     return_keywords = [str(v).lower() for v in (return_keywords or ["возврат"])]
 
     for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row)):
         warning_info = warning_rows.get(r_idx + 2)
         is_warning = warning_info is not None
         fill_row = st.fill_odd if (r_idx + 1) % 2 == 1 else st.fill_even
-        filters_val = str(rows_data[r_idx].get("фильтры", "")).lower()
-        is_return = any(kw in filters_val for kw in return_keywords)
+        is_return = _is_return_row(rows_data, r_idx, return_keywords)
         warning_target_col = _get_warning_target_column(ws, warning_info)
-        warning_kind = warning_info.get("kind") if warning_info else None
-        source_col = 1 if ws.cell(1, 1).value == "Источник" else 2
+        _source_header, source_col = _get_header_and_source_col(ws)
 
-        i_val = (
-            float(row_cells[cols["приход"] - 1].value or 0) if cols["приход"] > 0 else 0
-        )
-        e_val = (
-            float(row_cells[cols["расход"] - 1].value or 0) if cols["расход"] > 0 else 0
-        )
-        t_val = float(row_cells[cols["итог"] - 1].value or 0) if cols["итог"] > 0 else 0
-        c_val = (
-            abs(float(row_cells[cols["комиссия"] - 1].value or 0))
-            if cols["комиссия"] > 0
-            else 0
-        )
+        i_val, e_val, t_val, c_val = _extract_money_snapshot(row_cells, cols)
 
         is_critical = rows_data[r_idx].get("is_critical", False)
-        fill_critical = PatternFill(patternType="solid", fgColor="FF9999")
-
-        expected_total_no_comm = i_val - e_val
-        has_money = abs(i_val) > 0.02 or abs(e_val) > 0.02
-        has_total_only = not has_money and abs(t_val) > 0.02
-
-        is_math_err = False
-        if not is_return:
-            if has_money and abs(t_val) < 0.02:
-                # Total is 0 / empty
-                is_math_err = True
-            elif (
-                has_money
-                and abs(c_val) < 0.02
-                and abs(t_val - expected_total_no_comm) > 0.02
-            ):
-                # Commission is 0, but total doesn't match income-expense (forgot to write commission)
-                is_math_err = True
-            elif has_total_only:
-                # Income and expense are empty/zero, but total has value
-                is_math_err = True
+        is_math_err = _is_math_error(is_return, i_val, e_val, t_val, c_val)
 
         for c_idx, cell in enumerate(row_cells, 1):
-            cell.border = st.border_thin
-
-            if is_critical:
-                cell.fill = fill_critical
-            elif is_math_err:
-                cell.fill = fill_yellow
-            else:
-                cell.fill = fill_row
-            cell.font = st.font_standard
+            _apply_base_cell_style(cell, is_critical, is_math_err, fill_row, st)
 
             if c_idx in num_indices:
                 format_numeric_cell(
@@ -217,19 +247,18 @@ def apply_cell_styling(
                     is_critical,
                     st,
                     warning_target_col,
-                    warning_kind,
+                    warning_info.get("kind") if warning_info else None,
                 )
             else:
-                cell.alignment = st.align_left
-                if (
-                    is_warning
-                    and not is_critical
-                    and warning_target_col is None
-                    and c_idx == source_col
-                ):
-                    cell.fill = st.fill_warning
-                elif is_warning and not is_critical and c_idx == warning_target_col:
-                    cell.fill = st.fill_warning
+                _apply_non_numeric_warning_fill(
+                    cell,
+                    c_idx,
+                    is_warning,
+                    is_critical,
+                    warning_target_col,
+                    source_col,
+                    st,
+                )
 
 
 def format_numeric_cell(

@@ -136,6 +136,39 @@ def test_run_rsch_report_collects_sources_from_multiple_dirs(commands_fixture):
     assert args[0] == [Path("C:/a/in1.xlsx"), Path("D:/b/in2.xlsx")]
 
 
+def test_run_rsch_report_accepts_five_selected_files(commands_fixture):
+    cmd, _root, sidebar = commands_fixture
+
+    with (
+        patch("core.ui.gui_commands.messagebox.askyesno", return_value=False),
+        patch(
+            "core.ui.gui_commands.filedialog.askopenfilenames",
+            return_value=(
+                "C:/in1.xlsx",
+                "C:/in2.xlsx",
+                "C:/in3.xlsx",
+                "C:/in4.xlsx",
+                "C:/in5.xlsx",
+            ),
+        ),
+        patch(
+            "core.ui.gui_commands.filedialog.asksaveasfilename",
+            return_value="C:/out.xlsx",
+        ),
+    ):
+        cmd.run_rsch_report()
+
+    sidebar.set_rsch_state.assert_called_once_with("disabled")
+    args = cmd.app_controller.run_rsch_report.call_args[0]
+    assert args[0] == [
+        Path("C:/in1.xlsx"),
+        Path("C:/in2.xlsx"),
+        Path("C:/in3.xlsx"),
+        Path("C:/in4.xlsx"),
+        Path("C:/in5.xlsx"),
+    ]
+
+
 def test_run_rsch_report_per_file_mode(commands_fixture):
     cmd, _root, sidebar = commands_fixture
     sidebar.get_rsch_mode.return_value = "per_file"
@@ -159,6 +192,29 @@ def test_run_rsch_report_per_file_mode(commands_fixture):
     assert args[1][0].name.startswith("РСЧ_отчет_13.04.2026")
     assert args[1][1].name.startswith("РСЧ_отчет_13.04.2026")
     assert cmd.config_controller.config["rsch"]["mode"] == "per_file"
+
+
+def test_run_rsch_report_per_file_mode_avoids_name_collisions(commands_fixture):
+    cmd, _root, sidebar = commands_fixture
+    sidebar.get_rsch_mode.return_value = "per_file"
+
+    with (
+        patch("core.ui.gui_commands.messagebox.askyesno", return_value=False),
+        patch(
+            "core.ui.gui_commands.filedialog.askopenfilenames",
+            return_value=("C:/team_a/report.xlsx", "D:/team_b/report.xlsx"),
+        ),
+        patch(
+            "core.ui.gui_commands.filedialog.askdirectory",
+            return_value="C:/outdir",
+        ),
+    ):
+        cmd.run_rsch_report()
+
+    args = cmd.app_controller.run_rsch_report_batch.call_args[0]
+    assert len(args[1]) == 2
+    assert args[1][0] != args[1][1]
+    assert args[1][0].name != args[1][1].name
 
 
 def test_apply_saved_rsch_mode_on_init(commands_fixture):
@@ -188,6 +244,30 @@ def test_on_rsch_complete_error(commands_fixture):
 
     with patch("core.ui.gui_commands.messagebox.showerror") as showerror:
         cmd._on_rsch_complete(False, "fail", None)
+
+    sidebar.set_rsch_state.assert_called_once_with("normal")
+    showerror.assert_called_once_with("Ошибка", "fail")
+
+
+def test_on_rsch_complete_batch_success_opens_folder(commands_fixture):
+    cmd, _root, sidebar = commands_fixture
+
+    with (
+        patch("core.ui.gui_commands.messagebox.askyesno", return_value=True),
+        patch("core.ui.gui_commands.open_path") as open_path,
+    ):
+        cmd._on_rsch_complete_batch(True, "ok", Path("C:/outdir"))
+
+    sidebar.set_rsch_state.assert_called_once_with("normal")
+    open_path.assert_called_once()
+    assert Path(open_path.call_args[0][0]) == Path("C:/outdir")
+
+
+def test_on_rsch_complete_batch_error(commands_fixture):
+    cmd, _root, sidebar = commands_fixture
+
+    with patch("core.ui.gui_commands.messagebox.showerror") as showerror:
+        cmd._on_rsch_complete_batch(False, "fail", None)
 
     sidebar.set_rsch_state.assert_called_once_with("normal")
     showerror.assert_called_once_with("Ошибка", "fail")

@@ -22,7 +22,7 @@ logic:
     - возврат
 paths:
   master_file: E:\Dlia Dashi\Version5\Master_Report.xlsx
-  source_root: Q:/Отчет кураторов 1
+  source_root: Q:\Отчет кураторов 1
   source_roots:
     - Q:\Отчет кураторов 1
     - Q:\Отчет кураторов 2

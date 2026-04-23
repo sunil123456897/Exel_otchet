@@ -337,6 +337,40 @@ class TestPathResolution:
                 result = ds.get_employees_map()
                 assert "Alice" in result
 
+    def test_reports_alias_resolves_to_matching_source_root_and_skips_scan(self, tmp_path):
+        app_dir = tmp_path / "APP"
+        app_dir.mkdir()
+        config_file = app_dir / "config.yaml"
+        config_file.touch()
+
+        q_root = tmp_path / "Q" / "Отчет кураторов 2"
+        lola_dir = q_root / "Лола Б"
+        lola_dir.mkdir(parents=True)
+        target_file = lola_dir / "Отчет Лола.xlsx"
+        target_file.touch()
+
+        config_controller = MagicMock()
+        config_controller.config = {
+            "employees": ["Лола Б"],
+            "paths": {"source_roots": [str(q_root)]},
+        }
+        config_controller.config_path = str(config_file)
+        config_controller.get_paths.return_value = {"source_roots": [str(q_root)]}
+        config_controller.employees = {
+            "Лола Б": ["../REPORTS/Отчет кураторов 2/Лола Б/Отчет Лола.xlsx"]
+        }
+        config_controller._save_employees = MagicMock()
+
+        ingestion = MagicMock()
+        ingestion.scan_directory.return_value = []
+
+        ds = DiscoveryService(config_controller, ingestion)
+        result = ds.get_employees_map()
+
+        ingestion.scan_directory.assert_not_called()
+        assert result["Лола Б"] == [{"path": str(target_file.resolve())}]
+        config_controller._save_employees.assert_not_called()
+
     def test_relative_existing_paths_skip_scan_and_stay_relative(self, tmp_path):
         """Существующие относительные пути не должны вызывать scan и переписывать config."""
         app_dir = tmp_path / "APP"

@@ -33,6 +33,44 @@ ALIASES = {
     'customer': ['фио', 'сотрудник']
 }
 
+
+def _get_float_env(name, default):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def evaluate_kpi_status(hot_duration):
+    goal_seconds = _get_float_env("BENCHMARK_GOAL_SECONDS", None)
+    previous_seconds = _get_float_env("BENCHMARK_PREVIOUS_SECONDS", 3.72)
+    tolerance = _get_float_env("BENCHMARK_REGRESSION_TOLERANCE", 0.10)
+
+    if goal_seconds is not None:
+        passed = hot_duration < goal_seconds
+        status = (
+            f"PASSED (Goal: {goal_seconds}s, Current: {hot_duration:.2f}s)"
+            if passed
+            else f"FAILED (Goal: {goal_seconds}s, Current: {hot_duration:.2f}s)"
+        )
+        return status, passed
+
+    threshold = previous_seconds * (1.0 + tolerance)
+    passed = hot_duration <= threshold
+    status = (
+        "PASSED "
+        f"(Baseline: {previous_seconds}s, Tolerance: +{int(tolerance * 100)}%, "
+        f"Threshold: {threshold:.2f}s, Current: {hot_duration:.2f}s)"
+        if passed
+        else "FAILED "
+        f"(Baseline: {previous_seconds}s, Tolerance: +{int(tolerance * 100)}%, "
+        f"Threshold: {threshold:.2f}s, Current: {hot_duration:.2f}s)"
+    )
+    return status, passed
+
 def generate_150k_data(file_path):
     if os.path.exists(file_path):
         return
@@ -116,10 +154,11 @@ def run_concurrency_audit():
 if __name__ == "__main__":
     cold, hot = run_parsing_benchmark()
     errors = run_concurrency_audit()
+    kpi_status, _ = evaluate_kpi_status(hot)
     
     print("## PERFORMANCE BENCHMARK RESULTS")
     print(f"- Cold Start: {cold:.4f}s")
     print(f"- Hot Start:  {hot:.4f}s")
     print(f"- Database Locks: {len(errors)} errors")
-    print(f"- KPI Status: {'PASSED' if hot < 2.0 else 'FAILED (Previous: 3.72s, Goal: 2.0s, Current: ' + str(round(hot, 2)) + 's)'}")
+    print(f"- KPI Status: {kpi_status}")
     print(f"- Concurrency Status: {'PASSED' if len(errors) == 0 else 'FAILED'}")

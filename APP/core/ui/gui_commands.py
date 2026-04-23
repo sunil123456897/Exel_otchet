@@ -1,6 +1,7 @@
 import logging
 import re
 import tkinter as tk
+from collections import Counter
 from tkinter import filedialog, messagebox
 from pathlib import Path
 from typing import Optional, List
@@ -133,9 +134,15 @@ class GuiCommands:
                 return
 
             output_dir_path = Path(output_dir)
+            duplicate_stems = self._get_duplicate_source_stems(source_paths)
             output_paths = [
                 output_dir_path
-                / self._build_per_file_output_name(src_path, selected_date, idx)
+                / self._build_per_file_output_name(
+                    src_path,
+                    selected_date,
+                    idx,
+                    duplicate_stems,
+                )
                 for idx, src_path in enumerate(source_paths, start=1)
             ]
 
@@ -252,11 +259,27 @@ class GuiCommands:
         source_path: Path,
         selected_date,
         index: int,
+        duplicate_stems: Optional[set[str]] = None,
     ) -> str:
         date_suffix = selected_date.strftime("%d.%m.%Y")
         stem = source_path.stem.strip() or f"file_{index}"
         safe_stem = re.sub(r"[\\/:*?\"<>|]", "_", stem)
+        if duplicate_stems and safe_stem in duplicate_stems:
+            parent_name = source_path.parent.name.strip() or f"folder_{index}"
+            safe_parent = re.sub(r"[\\/:*?\"<>|]", "_", parent_name)
+            safe_stem = f"{safe_parent}_{safe_stem}_{index}"
         return f"РСЧ_отчет_{date_suffix}_{safe_stem}.xlsx"
+
+    def _get_duplicate_source_stems(self, source_paths: List[Path]) -> set[str]:
+        stem_counts = Counter(
+            re.sub(r"[\\/:*?\"<>|]", "_", path.stem.strip() or "")
+            for path in source_paths
+        )
+        return {
+            stem
+            for stem, count in stem_counts.items()
+            if stem and count > 1
+        }
 
     def _suggest_rsch_source_dir(self, saved_sources: List[Path]) -> str:
         for path in saved_sources:

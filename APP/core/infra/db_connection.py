@@ -37,6 +37,14 @@ class SQLiteConnectionManager:
 
         sqlite3.register_adapter(decimal.Decimal, str)
 
+        def _convert_timestamp(v: bytes) -> str:
+            try:
+                return v.decode("utf-8")
+            except UnicodeDecodeError:
+                return ""
+
+        sqlite3.register_converter("TIMESTAMP", _convert_timestamp)
+
         def _convert_numeric(v: bytes) -> decimal.Decimal:
             try:
                 s = v.decode("utf-8").strip()

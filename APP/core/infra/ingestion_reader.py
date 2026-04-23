@@ -333,6 +333,441 @@ class CalamineReader:
 
         return col_map, used_aliases
 
+    @staticmethod
+    def _row_has_values(row: List[Any]) -> bool:
+        return any(v is not None and v != "" for v in row)
+
+    @staticmethod
+    def _is_trash_row(row: List[Any]) -> bool:
+        row_values_lower = [_normalize_header_text(v) for v in row if v is not None]
+        for val_lower in row_values_lower:
+            for tk in _TRASH_KEYWORDS:
+                if tk in val_lower:
+                    return True
+        return False
+
+    @staticmethod
+    def _should_skip_sheet(sheet_name: str) -> bool:
+        return sheet_name.startswith("_") or sheet_name in ("АНАЛИТИКА", "СВОД")
+
+    @staticmethod
+    def _unpack_sheet_date_meta(sheet_name: str) -> tuple[Optional[str], Optional[int]]:
+        sheet_date_meta = extract_date_from_sheet(sheet_name, with_year_hint=True)
+        if not sheet_date_meta:
+            return None, None
+        if isinstance(sheet_date_meta, dict):
+            return sheet_date_meta.get("date"), sheet_date_meta.get("year_hint")
+        return sheet_date_meta, None
+
+    def _load_sheet_sample_rows(self, sheet, sheet_name: str) -> tuple[Optional[List[Any]], bool]:
+        use_to_python = False
+        try:
+            rows_sample = []
+            for idx, row in enumerate(sheet.iter_rows()):
+                rows_sample.append(row)
+                if idx >= MAX_HEADER_SCAN_ROWS - 1:
+                    break
+            return rows_sample, use_to_python
+        except BaseException as iter_err:
+            if isinstance(iter_err, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                raise
+            logger.debug(
+                f"iter_rows failed for sheet {sheet_name} with {type(iter_err).__name__}: {iter_err}. "
+                f"Falling back to to_python()."
+            )
+
+        use_to_python = True
+        try:
+            rows_sample = sheet.to_python()[:MAX_HEADER_SCAN_ROWS]
+            return rows_sample, use_to_python
+        except Exception as e:
+            logger.debug(f"Could not read sheet {sheet_name}: {e}")
+            return None, use_to_python
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                raise
+            logger.debug(f"PanicException reading sheet {sheet_name}: {e}")
+            return None, use_to_python
+
+    @staticmethod
+    def _header_match_score(row_str: str, header_search_terms: List[tuple[str, ...]]) -> int:
+        return sum(1 for terms in header_search_terms if any(alias in row_str for alias in terms))
+
+    @staticmethod
+    def _is_valid_header_map(map_res: Dict[str, int]) -> bool:
+        return "amount" in map_res and ("customer" in map_res or "contractor" in map_res)
+
+    def _find_best_header_candidate(
+        self,
+        rows_sample: List[Any],
+        header_search_terms: List[tuple[str, ...]],
+    ) -> tuple[Optional[int], Optional[Dict[str, int]], Optional[str], Optional[str], set, int]:
+        max_score = 0
+        standard_keys = set()
+        best_header_idx = None
+        best_col_map = None
+        best_structure_kind = None
+        best_structure_reason = None
+
+        for idx, row in enumerate(rows_sample[:MAX_HEADER_SCAN_ROWS]):
+            if not self._row_has_values(row):
+                continue
+
+            row_str = " ".join(_normalize_header_text(v) for v in row if v is not None)
+            score = self._header_match_score(row_str, header_search_terms)
+            if score < 2 or score <= max_score:
+                continue
+
+            map_res, _ = self._map_columns(row)
+            if not self._is_valid_header_map(map_res):
+                continue
+
+            structure_kind, structure_reason = self._classify_header_structure(row, map_res)
+            max_score = score
+            standard_keys = set(map_res.keys())
+            best_header_idx = idx
+            best_col_map = map_res
+            best_structure_kind = structure_kind
+            best_structure_reason = structure_reason
+
+            if score >= 5 or len(standard_keys) >= 5:
+                break
+
+        return (
+            best_header_idx,
+            best_col_map,
+            best_structure_kind,
+            best_structure_reason,
+            standard_keys,
+            max_score,
+        )
+
+    def _activate_header_state(
+        self,
+        row: List[Any],
+        i: int,
+        sheet_name: str,
+        best_header_idx: Optional[int],
+        best_col_map: Optional[Dict[str, int]],
+        best_structure_kind: Optional[str],
+        best_structure_reason: Optional[str],
+    ) -> Optional[tuple[Dict[str, int], tuple, Optional[int], Optional[int], Optional[int], bool, Optional[str], Optional[str]]]:
+        if best_header_idx is None or i != best_header_idx:
+            return None
+
+        tmp_map, _used_aliases = self._map_columns(row)
+        active_col_map = tmp_map or best_col_map
+        if not active_col_map:
+            return None
+
+        active_col_items = tuple(active_col_map.items())
+        amount_idx = active_col_map.get("amount")
+        commission_idx = active_col_map.get("commission")
+        total_idx = active_col_map.get("total")
+        logger.debug(f"DEBUG: Found header in {sheet_name} row {i + 1}: {active_col_map}")
+
+        structure_kind, structure_reason = self._classify_header_structure(row, active_col_map)
+        current_warning_kind = structure_kind or best_structure_kind
+        current_warning_reason = structure_reason or best_structure_reason
+        current_is_warning = current_warning_kind == "hard_structure"
+
+        return (
+            active_col_map,
+            active_col_items,
+            amount_idx,
+            commission_idx,
+            total_idx,
+            current_is_warning,
+            current_warning_kind,
+            current_warning_reason,
+        )
+
+    def _coerce_numeric_cell(self, key: str, val: Any) -> tuple[Any, bool, bool]:
+        if isinstance(val, (int, float)):
+            d_val = Decimal(str(val))
+            return d_val, d_val != 0, False
+
+        try:
+            d_val = to_decimal(val) if key != "percent_broker" else to_decimal_percent(val)
+            return d_val, d_val != 0, False
+        except Exception:
+            if key == "amount":
+                return val, False, False
+            return None, False, True
+
+    @staticmethod
+    def _apply_shifted_columns_fix(
+        raw_data: Dict[str, Any],
+        row: List[Any],
+        row_len: int,
+        amount_idx: Optional[int],
+        commission_idx: Optional[int],
+        total_idx: Optional[int],
+        row_has_numeric_text_warning: bool,
+        row_warning_reason: Optional[str],
+    ) -> tuple[Dict[str, Any], bool, Optional[str]]:
+        amount_val = raw_data.get("amount")
+        commission_val = raw_data.get("commission")
+        total_val = raw_data.get("total")
+        next_total_val = (
+            row[total_idx + 1] if total_idx is not None and total_idx + 1 < row_len else None
+        )
+
+        if (
+            isinstance(amount_val, str)
+            and commission_idx is not None
+            and total_idx is not None
+            and amount_idx is not None
+            and commission_idx == amount_idx + 1
+            and total_idx == commission_idx + 1
+            and isinstance(commission_val, Decimal)
+            and isinstance(total_val, Decimal)
+            and abs(total_val) <= Decimal("1")
+            and isinstance(next_total_val, (int, float))
+        ):
+            raw_data["amount"] = commission_val
+            raw_data["commission"] = total_val
+            raw_data["total"] = Decimal(str(next_total_val))
+            row_has_numeric_text_warning = True
+            row_warning_reason = "shifted columns after amount"
+
+        return raw_data, row_has_numeric_text_warning, row_warning_reason
+
+    @staticmethod
+    def _attach_warning_metadata(
+        raw_data: Dict[str, Any],
+        row_has_numeric_text_warning: bool,
+        row_warning_reason: Optional[str],
+        current_is_warning: bool,
+        current_warning_kind: Optional[str],
+        current_warning_reason: Optional[str],
+    ) -> None:
+        if row_has_numeric_text_warning:
+            raw_data["is_template_warning"] = True
+            raw_data["_template_warning_kind"] = "template_warning"
+            raw_data["_template_warning_reason"] = (
+                row_warning_reason or "numeric text in numeric field"
+            )
+            return
+
+        raw_data["is_template_warning"] = current_is_warning
+        if current_warning_kind:
+            raw_data["_template_warning_kind"] = current_warning_kind
+            raw_data["_template_warning_reason"] = current_warning_reason
+
+    def _build_data_row_payload(
+        self,
+        row: List[Any],
+        i: int,
+        sheet_name: str,
+        f_path_abs: str,
+        sheet_date: str,
+        sheet_year_hint: Optional[int],
+        active_col_items: tuple,
+        amount_idx: Optional[int],
+        commission_idx: Optional[int],
+        total_idx: Optional[int],
+        current_is_warning: bool,
+        current_warning_kind: Optional[str],
+        current_warning_reason: Optional[str],
+        file_basename: str,
+    ) -> Optional[Dict[str, Any]]:
+        raw_data = {
+            "_sheet_name": sheet_name,
+            "_row_index": i + 1,
+            "_file_path": f_path_abs,
+            "date": sheet_date,
+            "_sheet_year_hint": sheet_year_hint,
+        }
+
+        has_data = False
+        has_financial = False
+        row_has_numeric_text_warning = False
+        row_warning_reason = None
+        row_len = len(row)
+
+        for key, col_idx in active_col_items:
+            if col_idx >= row_len:
+                continue
+            val = row[col_idx]
+            if val is None or val == "":
+                continue
+
+            has_data = True
+            if key in _NUMERIC_FIELDS:
+                parsed_val, has_financial_value, numeric_text_warning = self._coerce_numeric_cell(
+                    key, val
+                )
+                raw_data[key] = parsed_val
+                if has_financial_value:
+                    has_financial = True
+                if numeric_text_warning:
+                    row_has_numeric_text_warning = True
+                    if row_warning_reason is None:
+                        row_warning_reason = f"text in numeric field: {key}"
+            else:
+                raw_data[key] = val
+
+        raw_data, row_has_numeric_text_warning, row_warning_reason = self._apply_shifted_columns_fix(
+            raw_data,
+            row,
+            row_len,
+            amount_idx,
+            commission_idx,
+            total_idx,
+            row_has_numeric_text_warning,
+            row_warning_reason,
+        )
+
+        if not (has_data and has_financial):
+            if has_data:
+                logger.debug(
+                    f"Row {i + 1} in {sheet_name} has data but no financial values"
+                )
+            return None
+
+        self._attach_warning_metadata(
+            raw_data,
+            row_has_numeric_text_warning,
+            row_warning_reason,
+            current_is_warning,
+            current_warning_kind,
+            current_warning_reason,
+        )
+        raw_data["_source_info"] = f"{file_basename} | {sheet_name} | Row {i + 1}"
+        return raw_data
+
+    def _iter_sheet_rows_safe(self, sheet, use_to_python: bool, sheet_name: str):
+        row_iterator = enumerate(sheet.to_python() if use_to_python else sheet.iter_rows())
+        while True:
+            try:
+                yield next(row_iterator)
+            except StopIteration:
+                return
+            except BaseException as second_pass_err:
+                if isinstance(second_pass_err, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                    raise
+                logger.warning(
+                    f"Error during second pass in sheet {sheet_name}: "
+                    f"{type(second_pass_err).__name__} - {second_pass_err}"
+                )
+                return
+
+    def _process_workbook_sheet(
+        self,
+        wb,
+        sheet_name: str,
+        f_path_abs: str,
+        file_basename: str,
+        header_search_terms: List[tuple[str, ...]],
+        all_rows: List[Dict[str, Any]],
+    ) -> None:
+        if self._should_skip_sheet(sheet_name):
+            return
+
+        try:
+            sheet = wb.get_sheet_by_name(sheet_name)
+        except Exception as e:
+            logger.debug(f"Could not load sheet {sheet_name}: {e}")
+            return
+        except BaseException as e:
+            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                raise
+            logger.debug(f"PanicException loading sheet {sheet_name}: {e}")
+            return
+
+        sheet_date, sheet_year_hint = self._unpack_sheet_date_meta(sheet_name)
+        if not sheet_date:
+            logger.debug(f"Skipping sheet {sheet_name}: no date found")
+            return
+
+        rows_sample, use_to_python = self._load_sheet_sample_rows(sheet, sheet_name)
+        if not rows_sample:
+            return
+
+        (
+            best_header_idx,
+            best_col_map,
+            best_structure_kind,
+            best_structure_reason,
+            standard_keys,
+            max_score,
+        ) = self._find_best_header_candidate(rows_sample, header_search_terms)
+
+        if not standard_keys:
+            logger.debug(f"No headers found in sheet {sheet_name} (max score: {max_score})")
+            return
+
+        active_col_map = None
+        active_col_items = ()
+        amount_idx = None
+        commission_idx = None
+        total_idx = None
+        current_is_warning = False
+        current_warning_kind = None
+        current_warning_reason = None
+
+        for i, row in self._iter_sheet_rows_safe(sheet, use_to_python, sheet_name):
+            if not self._row_has_values(row):
+                continue
+
+            if not active_col_map:
+                header_state = self._activate_header_state(
+                    row,
+                    i,
+                    sheet_name,
+                    best_header_idx,
+                    best_col_map,
+                    best_structure_kind,
+                    best_structure_reason,
+                )
+                if header_state:
+                    (
+                        active_col_map,
+                        active_col_items,
+                        amount_idx,
+                        commission_idx,
+                        total_idx,
+                        current_is_warning,
+                        current_warning_kind,
+                        current_warning_reason,
+                    ) = header_state
+                continue
+
+            if self._is_trash_row(row):
+                continue
+
+            payload = self._build_data_row_payload(
+                row,
+                i,
+                sheet_name,
+                f_path_abs,
+                sheet_date,
+                sheet_year_hint,
+                active_col_items,
+                amount_idx,
+                commission_idx,
+                total_idx,
+                current_is_warning,
+                current_warning_kind,
+                current_warning_reason,
+                file_basename,
+            )
+            if payload is None:
+                continue
+            try:
+                all_rows.append(payload)
+            except Exception as ve:
+                logger.debug(f"Row {i + 1} in {sheet_name} failed: {ve}")
+
+    @staticmethod
+    def _cleanup_temp_file(temp_file: Optional[str]) -> None:
+        if temp_file and os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except Exception:
+                pass
+
     def read(self, file_path: Path, strict_io: bool = False) -> List[Dict[str, Any]]:
         """Прочитать все листы файла и вернуть список строк.
 
@@ -341,10 +776,9 @@ class CalamineReader:
         2. Первый проход (первые 6000 строк) — найти заголовки
         3. Второй проход — извлечь данные с маппингом
         """
-        all_rows = []
+        all_rows: List[Dict[str, Any]] = []
         f_path_abs = os.path.abspath(str(file_path))
         file_basename = os.path.basename(f_path_abs)
-
         header_search_terms = self._header_search_terms
 
         try:
@@ -361,283 +795,14 @@ class CalamineReader:
         try:
             wb = CalamineWorkbook.from_path(target_path)
             for sheet_name in wb.sheet_names:
-                if sheet_name.startswith("_") or sheet_name in ("АНАЛИТИКА", "СВОД"):
-                    continue
-
-                try:
-                    sheet = wb.get_sheet_by_name(sheet_name)
-                except Exception as e:
-                    logger.debug(f"Could not load sheet {sheet_name}: {e}")
-                    continue
-                except BaseException as e:
-                    if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
-                        raise
-                    logger.debug(f"PanicException loading sheet {sheet_name}: {e}")
-                    continue
-
-                sheet_date_meta = extract_date_from_sheet(sheet_name, with_year_hint=True)
-                if not sheet_date_meta:
-                    logger.debug(f"Skipping sheet {sheet_name}: no date found")
-                    continue
-
-                if isinstance(sheet_date_meta, dict):
-                    sheet_date = sheet_date_meta.get("date")
-                    sheet_year_hint = sheet_date_meta.get("year_hint")
-                else:
-                    sheet_date = sheet_date_meta
-                    sheet_year_hint = None
-
-                if not sheet_date:
-                    logger.debug(f"Skipping sheet {sheet_name}: no date found")
-                    continue
-
-                # Первый проход: поиск стандартных ключей (не загружаем лист целиком в память)
-                use_to_python = False
-                try:
-                    rows_sample = []
-                    for idx, row in enumerate(sheet.iter_rows()):
-                        rows_sample.append(row)
-                        if idx >= MAX_HEADER_SCAN_ROWS - 1:
-                            break
-                except BaseException as iter_err:
-                    if isinstance(
-                        iter_err, (KeyboardInterrupt, SystemExit, GeneratorExit)
-                    ):
-                        raise
-                    logger.debug(
-                        f"iter_rows failed for sheet {sheet_name} with {type(iter_err).__name__}: {iter_err}. "
-                        f"Falling back to to_python()."
-                    )
-                    use_to_python = True
-                    try:
-                        rows_sample = sheet.to_python()[:MAX_HEADER_SCAN_ROWS]
-                    except Exception as e:
-                        logger.debug(f"Could not read sheet {sheet_name}: {e}")
-                        continue
-                    except BaseException as e:
-                        if isinstance(
-                            e, (KeyboardInterrupt, SystemExit, GeneratorExit)
-                        ):
-                            raise
-                        logger.debug(f"PanicException reading sheet {sheet_name}: {e}")
-                        continue
-
-                if not rows_sample:
-                    continue
-
-                standard_keys, max_score = set(), 0
-                best_header_idx = None
-                best_col_map = None
-                best_structure_kind = None
-                best_structure_reason = None
-                for idx, row in enumerate(rows_sample[:MAX_HEADER_SCAN_ROWS]):
-                    if not any(v is not None and v != "" for v in row):
-                        continue
-                    row_str = " ".join(
-                        [_normalize_header_text(v) for v in row if v is not None]
-                    )
-                    score = sum(
-                        1
-                        for m in header_search_terms
-                        if any(alias in row_str for alias in m)
-                    )
-                    if score >= 2 and score > max_score:
-                        map_res, _ = self._map_columns(row)
-                        if "amount" in map_res and (
-                            "customer" in map_res or "contractor" in map_res
-                        ):
-                            structure_kind, structure_reason = (
-                                self._classify_header_structure(row, map_res)
-                            )
-                            max_score = score
-                            standard_keys = set(map_res.keys())
-                            best_header_idx = idx
-                            best_col_map = map_res
-                            best_structure_kind = structure_kind
-                            best_structure_reason = structure_reason
-                            # Strong header match found early; no need to scan more rows.
-                            if score >= 5 or len(standard_keys) >= 5:
-                                break
-
-                if not standard_keys:
-                    logger.debug(
-                        f"No headers found in sheet {sheet_name} (max score: {max_score})"
-                    )
-                    continue
-
-                # Второй проход: чтение данных через итератор для экономии памяти
-                active_col_map, current_is_warning = None, False
-                current_warning_kind, current_warning_reason = None, None
-                active_col_items = ()
-                amount_idx = None
-                commission_idx = None
-                total_idx = None
-
-                row_iterator = enumerate(
-                    sheet.to_python() if use_to_python else sheet.iter_rows()
+                self._process_workbook_sheet(
+                    wb,
+                    sheet_name,
+                    f_path_abs,
+                    file_basename,
+                    header_search_terms,
+                    all_rows,
                 )
-                while True:
-                    try:
-                        i, row = next(row_iterator)
-                    except StopIteration:
-                        break
-                    except BaseException as second_pass_err:
-                        if isinstance(
-                            second_pass_err,
-                            (KeyboardInterrupt, SystemExit, GeneratorExit),
-                        ):
-                            raise
-                        logger.warning(
-                            f"Error during second pass in sheet {sheet_name}: {type(second_pass_err).__name__} - {second_pass_err}"
-                        )
-                        break
-                    if not any(v is not None and v != "" for v in row):
-                        continue
-
-                    if not active_col_map:
-                        if best_header_idx is not None and i == best_header_idx:
-                            tmp_map, _used_aliases = self._map_columns(row)
-                            active_col_map = tmp_map or best_col_map
-                            active_col_items = tuple(active_col_map.items())
-                            amount_idx = active_col_map.get("amount")
-                            commission_idx = active_col_map.get("commission")
-                            total_idx = active_col_map.get("total")
-                            logger.debug(
-                                f"DEBUG: Found header in {sheet_name} row {i + 1}: {active_col_map}"
-                            )
-                            structure_kind, structure_reason = (
-                                self._classify_header_structure(row, active_col_map)
-                            )
-                            current_warning_kind = structure_kind or best_structure_kind
-                            current_warning_reason = (
-                                structure_reason or best_structure_reason
-                            )
-                            current_is_warning = (
-                                current_warning_kind == "hard_structure"
-                            )
-                        continue
-
-                    row_values_lower = [
-                        _normalize_header_text(v) for v in row if v is not None
-                    ]
-
-                    is_trash = False
-                    for val_lower in row_values_lower:
-                        for tk in _TRASH_KEYWORDS:
-                            if tk in val_lower:
-                                is_trash = True
-                                break
-                        if is_trash:
-                            break
-                    if is_trash:
-                        continue
-
-                    raw_data = {
-                        "_sheet_name": sheet_name,
-                        "_row_index": i + 1,
-                        "_file_path": f_path_abs,
-                        "date": sheet_date,
-                        "_sheet_year_hint": sheet_year_hint,
-                    }
-
-                    has_data, has_financial = False, False
-                    row_has_numeric_text_warning = False
-                    row_warning_reason = None
-                    row_len = len(row)
-                    for key, col_idx in active_col_items:
-                        if col_idx < row_len:
-                            val = row[col_idx]
-                            if val is not None and val != "":
-                                has_data = True
-                                if key in _NUMERIC_FIELDS:
-                                    if isinstance(val, (int, float)):
-                                        d_val = Decimal(str(val))
-                                        if d_val != 0:
-                                            has_financial = True
-                                        raw_data[key] = d_val
-                                    else:
-                                        try:
-                                            d_val = (
-                                                to_decimal(val)
-                                                if key != "percent_broker"
-                                                else to_decimal_percent(val)
-                                            )
-                                            if d_val != 0:
-                                                has_financial = True
-                                            raw_data[key] = d_val
-                                        except Exception:
-                                            raw_data[key] = None
-                                            if key != "amount":
-                                                row_has_numeric_text_warning = True
-                                                if row_warning_reason is None:
-                                                    row_warning_reason = (
-                                                        f"text in numeric field: {key}"
-                                                    )
-                                            else:
-                                                raw_data[key] = val
-                                else:
-                                    raw_data[key] = val
-
-                        # Some malformed rows shift one cell right after the amount column:
-                        # amount becomes bank text, commission holds the amount, total holds percent,
-                        # and the next physical cell contains the real total.
-                    amount_val = raw_data.get("amount")
-                    commission_val = raw_data.get("commission")
-                    total_val = raw_data.get("total")
-                    next_total_val = (
-                        row[total_idx + 1]
-                        if total_idx is not None and total_idx + 1 < row_len
-                        else None
-                    )
-
-                    if (
-                        isinstance(amount_val, str)
-                        and commission_idx is not None
-                        and total_idx is not None
-                        and amount_idx is not None
-                        and commission_idx == amount_idx + 1
-                        and total_idx == commission_idx + 1
-                        and isinstance(commission_val, Decimal)
-                        and isinstance(total_val, Decimal)
-                        and abs(total_val) <= Decimal("1")
-                        and isinstance(next_total_val, (int, float))
-                    ):
-                        raw_data["amount"] = commission_val
-                        raw_data["commission"] = total_val
-                        raw_data["total"] = Decimal(str(next_total_val))
-                        row_has_numeric_text_warning = True
-                        row_warning_reason = "shifted columns after amount"
-
-                    if has_data and has_financial:
-                        try:
-                            if row_has_numeric_text_warning:
-                                raw_data["is_template_warning"] = True
-                                raw_data["_template_warning_kind"] = "template_warning"
-                                raw_data["_template_warning_reason"] = (
-                                    row_warning_reason
-                                    or "numeric text in numeric field"
-                                )
-                            else:
-                                raw_data["is_template_warning"] = current_is_warning
-                                if current_warning_kind:
-                                    raw_data["_template_warning_kind"] = (
-                                        current_warning_kind
-                                    )
-                                    raw_data["_template_warning_reason"] = (
-                                        current_warning_reason
-                                    )
-                            raw_data["_source_info"] = (
-                                f"{file_basename} | {sheet_name} | Row {i + 1}"
-                            )
-                            all_rows.append(raw_data)
-                        except Exception as ve:
-                            logger.debug(
-                                f"Row {i + 1} in {sheet_name} failed: {ve}"
-                            )
-                    elif has_data:
-                        logger.debug(
-                            f"Row {i + 1} in {sheet_name} has data but no financial values"
-                        )
 
         except (OSError, IOError, PermissionError) as e:
             if strict_io:
@@ -650,10 +815,6 @@ class CalamineReader:
                 raise
             logger.error(f"Calamine PanicException {f_path_abs}: {e}")
         finally:
-            if temp_file and os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                except Exception:
-                    pass
+            self._cleanup_temp_file(temp_file)
 
         return all_rows

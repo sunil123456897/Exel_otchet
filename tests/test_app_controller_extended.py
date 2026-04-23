@@ -1366,6 +1366,29 @@ class TestRunRschReport:
 
         on_complete.assert_called_once_with(False, "Ошибка сборки РСЧ: boom", None)
 
+    def test_success_with_five_sources(self, app_controller):
+        on_complete = MagicMock()
+        sources = [Path(f"/tmp/source{i}.xlsx") for i in range(1, 6)]
+        output = Path("/tmp/out.xlsx")
+
+        with (
+            patch("core.app_controller.build_rsch_report", return_value=25),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_rsch_report(
+                sources,
+                output,
+                datetime(2026, 4, 13),
+                on_complete,
+            )
+            run_thread_task(mock_thread)
+
+        on_complete.assert_called_once_with(
+            True,
+            "РСЧ отчет собран: 25 строк из 5 файлов",
+            output,
+        )
+
 
 class TestRunRschReportBatch:
     def test_success(self, app_controller):
@@ -1441,6 +1464,32 @@ class TestRunRschReportBatch:
         assert args[0] is False
         assert "Ошибка пакетной сборки РСЧ:" in args[1]
         assert "mismatch" in args[1]
+
+    def test_duplicate_outputs_raise_failure(self, app_controller):
+        on_complete = MagicMock()
+        sources = [Path("/tmp/source1.xlsx"), Path("/tmp/source2.xlsx")]
+        duplicate_output = Path("/tmp/out.xlsx")
+        outputs = [duplicate_output, duplicate_output]
+
+        with (
+            patch("core.app_controller.build_rsch_report") as build_report,
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_rsch_report_batch(
+                sources,
+                outputs,
+                datetime(2026, 4, 13),
+                on_complete,
+            )
+            run_thread_task(mock_thread)
+
+        build_report.assert_not_called()
+        on_complete.assert_called_once()
+        ok, msg, path = on_complete.call_args[0]
+        assert ok is False
+        assert path is None
+        assert "Ошибка пакетной сборки РСЧ:" in msg
+        assert "Duplicate output paths" in msg
 
 
 class TestMasterPathFallback:
