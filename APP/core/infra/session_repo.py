@@ -4,9 +4,10 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from core.domain import IPersistence
 from core.infra.db_connection import SQLiteConnectionManager, DecimalEncoder
+from core.infra.db_connection import sanitize_data as sanitize_data
 from core.infra.source_file_repo import SourceFileRepository
-from core.infra.staging_repo import StagingDataRepository, DBWriterThread
-from core.infra.db_connection import sanitize_data
+from core.infra.staging_repo import DBWriterThread as DBWriterThread
+from core.infra.staging_repo import StagingDataRepository
 
 
 class SessionRepository(IPersistence):

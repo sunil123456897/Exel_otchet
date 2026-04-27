@@ -45,27 +45,35 @@ class TestGetAvailableDates:
 
     def test_single_date(self, engine, temp_xlsx):
         f = temp_xlsx("single.xlsx", {
-            "Отчет 01.04": [["Заказчик", "Сумма"], ["А", "100"]],
+            "Отчет 01.04.2026": [["Заказчик", "Сумма"], ["А", "100"]],
         })
         dates = engine.get_available_dates(f)
-        assert dates == ["01.04"]
+        assert dates == ["01.04.2026"]
+
+    def test_date_without_year_is_ignored(self, engine, temp_xlsx):
+        f = temp_xlsx("short-date.xlsx", {
+            "Отчет 01.04": [["Заказчик", "Сумма"], ["А", "100"]],
+            "Отчет 01.04.2026": [["Заказчик", "Сумма"], ["Б", "200"]],
+        })
+        dates = engine.get_available_dates(f)
+        assert dates == ["01.04.2026"]
 
     def test_multiple_dates(self, engine, temp_xlsx):
         f = temp_xlsx("multi.xlsx", {
-            "Отчет 01.04": [["А", "100"]],
-            "Отчет 02.04": [["Б", "200"]],
-            "Отчет 05.04": [["В", "300"]],
+            "Отчет 01.04.2026": [["А", "100"]],
+            "Отчет 02.04.2026": [["Б", "200"]],
+            "Отчет 05.04.2026": [["В", "300"]],
         })
         dates = engine.get_available_dates(f)
         assert len(dates) == 3
-        assert "01.04" in dates
-        assert "02.04" in dates
-        assert "05.04" in dates
+        assert "01.04.2026" in dates
+        assert "02.04.2026" in dates
+        assert "05.04.2026" in dates
 
     def test_skips_hidden_sheets(self, engine, temp_xlsx):
         f = temp_xlsx("hidden.xlsx", {
             "_hidden": [["data"]],
-            "Отчет 01.04": [["А", "100"]],
+            "Отчет 01.04.2026": [["А", "100"]],
         })
         dates = engine.get_available_dates(f)
         assert len(dates) == 1
@@ -74,10 +82,10 @@ class TestGetAvailableDates:
         f = temp_xlsx("analytics.xlsx", {
             "АНАЛИТИКА": [["data"]],
             "СВОД": [["total"]],
-            "Отчет 01.04": [["А", "100"]],
+            "Отчет 01.04.2026": [["А", "100"]],
         })
         dates = engine.get_available_dates(f)
-        assert dates == ["01.04"]
+        assert dates == ["01.04.2026"]
 
     def test_dd_mm_yy_sheet_year_parsed(self, engine, temp_xlsx):
         f = temp_xlsx("two_digit_year.xlsx", {
@@ -114,9 +122,9 @@ class TestGetAvailableDates:
 
     def test_sorted_output(self, engine, temp_xlsx):
         f = temp_xlsx("unsorted.xlsx", {
-            "Отчет 10.04": [["А", "100"]],
-            "Отчет 01.04": [["Б", "200"]],
-            "Отчет 05.04": [["В", "300"]],
+            "Отчет 10.04.2026": [["А", "100"]],
+            "Отчет 01.04.2026": [["Б", "200"]],
+            "Отчет 05.04.2026": [["В", "300"]],
         })
         dates = engine.get_available_dates(f)
         assert dates == sorted(dates)
@@ -184,7 +192,7 @@ class TestReadFile:
 
     def test_read_existing_file(self, engine, temp_xlsx):
         f = temp_xlsx("read.xlsx", {
-            "Отчет 01.04": [
+            "Отчет 01.04.2026": [
                 ["Заказчик", "Сумма платежа"],
                 ["А", "100"],
             ]
@@ -207,7 +215,7 @@ class TestNetworkOptimization:
 
     def test_local_file_no_copy(self, engine, temp_xlsx):
         """Локальный файл — не создаётся временная копия."""
-        f = temp_xlsx("local.xlsx", {"Отчет 01.04": [["А", "100"]]})
+        f = temp_xlsx("local.xlsx", {"Отчет 01.04.2026": [["А", "100"]]})
         with patch('shutil.copy2') as mock_copy:
             engine.get_available_dates(f)
             mock_copy.assert_not_called()

@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 
-from core.infra import DiscoveryService
+from core.infra import DiscoveryService, is_file_writable
 from core.app.file_processor import (
     check_master_lock,
     run_engine,
@@ -80,6 +80,49 @@ class AppController:
                     save_config()
             return fallback
 
+    def _get_curator_config(self, curator: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not curator:
+            return None
+        curators = self.config_controller.config.get("curators", {})
+        if not isinstance(curators, dict):
+            return None
+        cfg = curators.get(curator)
+        if not isinstance(cfg, dict) or not cfg.get("enabled", True):
+            return None
+        return cfg
+
+    def _resolve_report_path(self, curator_config: Optional[Dict[str, Any]]) -> Path:
+        if curator_config and curator_config.get("output_path"):
+            return self.config_controller.resolve_path(str(curator_config["output_path"]))
+        return self._resolve_master_path()
+
+    def _is_report_writable(self, curator_config: Optional[Dict[str, Any]]) -> bool:
+        if not curator_config:
+            return check_master_lock(self.config_controller)
+        path = self._resolve_report_path(curator_config)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return False
+        return is_file_writable(str(path))
+
+    @staticmethod
+    def _filter_employees_for_curator(
+        employees_map: Dict[str, List[Dict[str, Any]]], curator_config: Optional[Dict[str, Any]]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        if not curator_config:
+            return employees_map
+
+        key = str(curator_config.get("employees_key") or "").strip().lower()
+        if not key:
+            return employees_map
+
+        return {
+            name: metas
+            for name, metas in employees_map.items()
+            if key in str(name).lower()
+        }
+
     def _start_thread(self, target: Callable) -> None:
         """Start a task thread and track it for graceful shutdown."""
         t = threading.Thread(target=target, daemon=True)
@@ -139,7 +182,7 @@ class AppController:
                     and cache["size"] == stat_size
                 )
                 cache_version = int(cache.get("cache_version", 1)) if cache else 1
-                needs_cache_migration = cache_hit and cache_version < 2
+                needs_cache_migration = cache_hit and cache_version < 3
 
                 if cache_hit:
                     available = cache.get("dates", [])
@@ -359,9 +402,11 @@ class AppController:
         end_date_str: Optional[str],
         session_type: str,
         use_fresh_employees: bool,
+        curator: Optional[str] = None,
     ) -> None:
         session_id = str(uuid.uuid4())
         try:
+            curator_config = self._get_curator_config(curator)
             effective_target_date, effective_start_date, effective_end_date, date_error, range_note = (
                 self._normalize_consolidation_dates(
                     target_date_str,
@@ -382,6 +427,7 @@ class AppController:
             self.persistence.save_session(session_id, meta)
 
             employees_map = self._resolve_employees_for_run(use_fresh_employees)
+            employees_map = self._filter_employees_for_curator(employees_map, curator_config)
             if not employees_map:
                 self.persistence.update_session_status(session_id, "failed")
                 on_complete(False, "Нет файлов", None)
@@ -408,7 +454,11 @@ class AppController:
                 on_complete(False, "Нет файлов", None)
                 return
 
-            consolidated_data = self.logic_service.consolidate(session_id)
+            consolidated_data = self.logic_service.consolidate(
+                session_id,
+                curator=curator,
+                curator_config=curator_config,
+            )
             errors = self.persistence.get_template_errors(session_id)
             file_error_note = self._format_file_error_note(file_errors)
 
@@ -427,10 +477,13 @@ class AppController:
                 )
                 return
 
-            master_path = self._resolve_master_path()
+            master_path = self._resolve_report_path(curator_config)
             write_kwargs: Dict[str, Any] = {}
             if errors:
                 write_kwargs["template_errors"] = errors
+            if curator_config:
+                write_kwargs["curator"] = curator
+                write_kwargs["curator_config"] = curator_config
 
             if not self.writer.write_report(consolidated_data, master_path, **write_kwargs):
                 self.persistence.update_session_status(session_id, "failed")
@@ -504,6 +557,7 @@ class AppController:
         end_date_str: Optional[str] = None,
         session_type: str = "daily",
         use_fresh_employees: bool = False,
+        curator: Optional[str] = None,
     ):
         """Core consolidation logic shared by all consolidation entry points.
 
@@ -518,9 +572,10 @@ class AppController:
             session_type: 'daily', 'all_dates', or 'monthly'.
             use_fresh_employees: If True, re-discover employees from disk.
         """
-        if not check_master_lock(self.config_controller):
+        curator_config = self._get_curator_config(curator)
+        if not self._is_report_writable(curator_config):
             on_complete(
-                False, "Мастер-файл занят в Excel! Закройте его и повторите.", None
+                False, "Файл отчёта занят в Excel! Закройте его и повторите.", None
             )
             return
 
@@ -533,6 +588,7 @@ class AppController:
                 end_date_str,
                 session_type,
                 use_fresh_employees,
+                curator,
             )
 
         self._start_thread(task)
@@ -542,6 +598,7 @@ class AppController:
         selected_date,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        curator: Optional[str] = None,
     ):
         """Run consolidation for a single selected date."""
         self._run_consolidation_core(
@@ -549,12 +606,14 @@ class AppController:
             on_complete,
             target_date_str=selected_date.strftime("%d.%m.%Y"),
             session_type="daily",
+            curator=curator,
         )
 
     def run_consolidation_all_dates(
         self,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        curator: Optional[str] = None,
     ):
         """Run consolidation for all available dates."""
         self._run_consolidation_core(
@@ -562,6 +621,7 @@ class AppController:
             on_complete,
             session_type="all_dates",
             use_fresh_employees=True,
+            curator=curator,
         )
 
     def run_consolidation_month(
@@ -570,6 +630,7 @@ class AppController:
         end_date,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        curator: Optional[str] = None,
     ):
         """Run consolidation for a date range (monthly)."""
         self._run_consolidation_core(
@@ -578,6 +639,7 @@ class AppController:
             start_date_str=start_date.strftime("%d.%m.%Y"),
             end_date_str=end_date.strftime("%d.%m.%Y"),
             session_type="monthly",
+            curator=curator,
         )
 
     def run_rsch_report(

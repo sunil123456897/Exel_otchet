@@ -581,7 +581,6 @@ class TestWriteDailyData:
             }
         ]
         headers = [
-            "Дата",
             "Источник",
             "ЗАКАЗЧИК",
             "ИСПОЛНИТЕЛЬ",
@@ -605,7 +604,7 @@ class TestWriteDailyData:
         )
         ws = wb["01.04.2026"]
 
-        source_cell = ws.cell(2, 2)
+        source_cell = ws.cell(2, 1)
         total_col = next(cell.column for cell in ws[1] if cell.value == "ИТОГ")
         total_cell = ws.cell(2, total_col)
 
@@ -617,6 +616,50 @@ class TestWriteDailyData:
             total_cell.fill.start_color.rgb
             == master_writer.st.fill_warning.start_color.rgb
         )
+
+    def test_curator_structure_warning_does_not_paint_source_red(self, master_writer):
+        rows = [
+            {
+                "Источник": "boris.xlsx : Строка 7",
+                "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": "ООО Тест",
+                "ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)": "ООО Исп",
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 100,
+                "% посредника": 0,
+                "посредник 1(кэш)": 0,
+                "% посредник 2": 0,
+                "посредник 2": 0,
+                "фильтры": "",
+                "is_template_warning": True,
+                "_template_warning_kind": "hard_structure",
+                "_template_warning_reason": "missing columns: сумма платежа",
+            }
+        ]
+        headers = [
+            "Источник",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
+            "Комиссия",
+            "ИТОГ",
+            "% посредник 1",
+            "посредник 1(кэш)",
+            "% посредник 2",
+            "посредник 2",
+            "Фильтры",
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(
+            datetime(2026, 4, 1), rows, wb=wb, curator="boris", headers=headers
+        )
+        ws = wb["01.04.2026"]
+
+        source_cell = ws.cell(2, 1)
+        assert source_cell.value == "boris.xlsx : Строка 7"
+        assert source_cell.fill.start_color.rgb != master_writer.st.fill_warning.start_color.rgb
 
     def test_numeric_text_commission_warning_paints_commission_for_ivan_layout(
         self, master_writer
@@ -639,16 +682,21 @@ class TestWriteDailyData:
             }
         ]
         headers = [
-            "Заказчик (название проекта, наименование ЮЛ)",
-            "Исполнитель (наименование ЮЛ, банк)",
-            "Сумма платежа",
+            "Сотрудник",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
             "Комиссия",
-            "Итог",
-            "%",
-            "Комиссия посредника 1",
-            "% посредник 2",
-            "Комиссия посредника 2",
-            "Фильтр",
+            "ИТОГ",
+            "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ",
+            "% посредника 1",
+            "посредник 1(кэш)",
+            "посредник 2",
+            "курс",
+            "сумма",
+            "валюта",
+            "фильтры",
         ]
         wb = Workbook()
         master_writer.write_daily_data(

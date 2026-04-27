@@ -1,8 +1,5 @@
 import os
-import hashlib
 import logging
-import tempfile
-import shutil
 import time
 import json
 import subprocess
@@ -23,7 +20,14 @@ _APP_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _run_calamine_worker(
-    mode: str, target_path: str, markers, aliases, strict_io: bool = False
+    mode: str,
+    target_path: str,
+    markers,
+    aliases,
+    strict_io: bool = False,
+    target_date_str: str | None = None,
+    start_date_str: str | None = None,
+    end_date_str: str | None = None,
 ) -> Dict[str, Any]:
     script = r"""
 import json
@@ -75,6 +79,9 @@ target_path = sys.argv[2]
 markers = json.loads(sys.argv[3])
 aliases = json.loads(sys.argv[4])
 strict_io = json.loads(sys.argv[5])
+target_date_str = json.loads(sys.argv[7])
+start_date_str = json.loads(sys.argv[8])
+end_date_str = json.loads(sys.argv[9])
 
 if mode == "dates":
     dates = set()
@@ -88,7 +95,13 @@ if mode == "dates":
     print(json.dumps({"ok": True, "result": sorted(dates)}, ensure_ascii=False))
 elif mode == "rows":
     reader = CalamineReader(markers, aliases)
-    rows = reader.read(Path(target_path), strict_io=strict_io)
+    rows = reader.read(
+        Path(target_path),
+        strict_io=strict_io,
+        target_date_str=target_date_str,
+        start_date_str=start_date_str,
+        end_date_str=end_date_str,
+    )
     print(json.dumps({"ok": True, "result": rows}, ensure_ascii=False, default=str))
 else:
     print(json.dumps({"ok": False, "error": f"Unknown mode: {mode}"}, ensure_ascii=False))
@@ -106,6 +119,9 @@ else:
             json.dumps(aliases, ensure_ascii=False),
             json.dumps(strict_io),
             str(_APP_ROOT),
+            json.dumps(target_date_str),
+            json.dumps(start_date_str),
+            json.dumps(end_date_str),
         ],
         capture_output=True,
         text=True,
@@ -155,6 +171,7 @@ class IngestionEngine(IDataSource):
             "customer": ["заказчик", "агент"],
             "contractor": ["исполнитель", "вторая сторона"],
             "total": ["итог", "итоги дня", "итог дня", "формула"],
+            "transit_obligation": ["отправка транзитных обязательств"],
             "commission": ["комиссия", "ставка/цена"],
             "percent_broker": ["% посредника", "%"],
             "broker1": [
@@ -164,6 +181,9 @@ class IngestionEngine(IDataSource):
                 "приходный кассовый ордер",
             ],
             "broker2": ["посредник 2", "комиссия посредника 2", "%.1"],
+            "exchange_rate": ["курс"],
+            "currency_amount": ["сумма"],
+            "currency": ["валюта"],
             "filters": ["фильтры", "фильтр", "filter"],
         }
         self.reader = CalamineReader(self.markers, self.aliases, self.drive_letters)
@@ -251,7 +271,12 @@ class IngestionEngine(IDataSource):
         return res
 
     def read_file(
-        self, file_path: Path, strict_io: bool = False
+        self,
+        file_path: Path,
+        strict_io: bool = False,
+        target_date_str: str | None = None,
+        start_date_str: str | None = None,
+        end_date_str: str | None = None,
     ) -> List[Dict[str, Any]]:
         """Read Excel file with retry logic for transient network errors."""
         if not file_path.exists():
@@ -266,6 +291,9 @@ class IngestionEngine(IDataSource):
                         self.markers,
                         self.aliases,
                         strict_io=strict_io,
+                        target_date_str=target_date_str,
+                        start_date_str=start_date_str,
+                        end_date_str=end_date_str,
                     )
                     if not payload.get("ok"):
                         raise RuntimeError(
@@ -274,6 +302,14 @@ class IngestionEngine(IDataSource):
                     if payload.get("stderr"):
                         logger.warning(payload["stderr"])
                     return payload.get("result", [])
+                if target_date_str or (start_date_str and end_date_str):
+                    return self.reader.read(
+                        file_path,
+                        strict_io=strict_io,
+                        target_date_str=target_date_str,
+                        start_date_str=start_date_str,
+                        end_date_str=end_date_str,
+                    )
                 return self.reader.read(file_path, strict_io=strict_io)
             except (OSError, IOError, PermissionError) as e:
                 last_err = e

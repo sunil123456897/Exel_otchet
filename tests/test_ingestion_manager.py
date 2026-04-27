@@ -12,12 +12,12 @@ from core.infra.ingestion_engine import IngestionEngine
 def test_extract_date_from_sheet():
     assert extract_date_from_sheet("01.01.2026") == "01.01.2026"
     assert extract_date_from_sheet("01,01,2026") == "01.01.2026"
-    assert extract_date_from_sheet("Sheet 01.01") == "01.01"
+    assert extract_date_from_sheet("Sheet 01.01") is None
     assert extract_date_from_sheet("15.04.26") == "15.04.2026"
     assert extract_date_from_sheet("No date here") is None
     assert extract_date_from_sheet("32.01.2026") is None  # Invalid date
-    assert extract_date_from_sheet("31.12") == "31.12"
-    assert extract_date_from_sheet("05.01") == "05.01"
+    assert extract_date_from_sheet("31.12") is None
+    assert extract_date_from_sheet("05.01") is None
 
 
 def test_ingestion_engine_scan_directory(tmp_path):
@@ -89,6 +89,115 @@ def test_calamine_reader_read_xlsx(tmp_path, create_temp_xlsx):
     assert res[0]["amount"] == Decimal("100.00")
     assert res[0]["customer"] == "Client A"
     assert res[0]["date"] == "01.01.2026"
+
+
+def test_calamine_reader_read_filters_target_date_sheets(tmp_path):
+    import openpyxl
+
+    markers = {
+        "amount": "сумма",
+        "customer": "заказчик",
+        "income": "приход",
+        "expense": "расход",
+    }
+    aliases = {
+        "amount": ["сумма"],
+        "income": ["приход"],
+        "expense": ["расход"],
+        "customer": ["заказчик"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    file_path = tmp_path / "dated_sheets.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "12.04.2026"
+    ws.append(["сумма", "заказчик", "приход", "расход"])
+    ws.append([100, "Wrong Day", 100, 0])
+    ws = wb.create_sheet("13.04.2026")
+    ws.append(["сумма", "заказчик", "приход", "расход"])
+    ws.append([200, "Right Day", 200, 0])
+    wb.save(file_path)
+
+    rows = reader.read(file_path, target_date_str="13.04.2026")
+
+    assert [row["customer"] for row in rows] == ["Right Day"]
+
+
+def test_calamine_reader_read_ignores_sheets_without_year(tmp_path):
+    import openpyxl
+
+    markers = {
+        "amount": "сумма",
+        "customer": "заказчик",
+        "income": "приход",
+        "expense": "расход",
+    }
+    aliases = {
+        "amount": ["сумма"],
+        "income": ["приход"],
+        "expense": ["расход"],
+        "customer": ["заказчик"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    file_path = tmp_path / "year_required.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "13.04"
+    ws.append(["сумма", "заказчик", "приход", "расход"])
+    ws.append([100, "No Year", 100, 0])
+    ws = wb.create_sheet("13.04.2026")
+    ws.append(["сумма", "заказчик", "приход", "расход"])
+    ws.append([200, "With Year", 200, 0])
+    wb.save(file_path)
+
+    rows = reader.read(file_path)
+
+    assert [row["customer"] for row in rows] == ["With Year"]
+
+
+def test_calamine_reader_read_filters_date_range_sheets(tmp_path):
+    import openpyxl
+
+    markers = {
+        "amount": "сумма",
+        "customer": "заказчик",
+        "income": "приход",
+        "expense": "расход",
+    }
+    aliases = {
+        "amount": ["сумма"],
+        "income": ["приход"],
+        "expense": ["расход"],
+        "customer": ["заказчик"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    file_path = tmp_path / "range_sheets.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "31.03.2026"
+    ws.append(["сумма", "заказчик", "приход", "расход"])
+    ws.append([100, "Before", 100, 0])
+    ws = wb.create_sheet("01.04.2026")
+    ws.append(["сумма", "заказчик", "приход", "расход"])
+    ws.append([200, "Inside Start", 200, 0])
+    ws = wb.create_sheet("30.04.2026")
+    ws.append(["сумма", "заказчик", "приход", "расход"])
+    ws.append([300, "Inside End", 300, 0])
+    ws = wb.create_sheet("01.05.2026")
+    ws.append(["сумма", "заказчик", "приход", "расход"])
+    ws.append([400, "After", 400, 0])
+    wb.save(file_path)
+
+    rows = reader.read(
+        file_path,
+        start_date_str="01.04.2026",
+        end_date_str="30.04.2026",
+    )
+
+    assert [row["customer"] for row in rows] == ["Inside Start", "Inside End"]
 
 
 def test_calamine_reader_two_pass_header_detection(tmp_path, create_temp_xlsx):

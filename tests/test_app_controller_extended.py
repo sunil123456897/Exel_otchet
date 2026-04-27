@@ -65,7 +65,7 @@ class TestRefreshStatus:
         mock_deps["persistence"].get_file_cache.return_value = {
             "mtime": 1000.0,
             "size": 5000,
-            "cache_version": 2,
+            "cache_version": 3,
             "dates": ["01.04.2026"],
         }
 
@@ -114,6 +114,36 @@ class TestRefreshStatus:
 
         args = on_complete.call_args[0]
         assert "🟠 НЕТ ДАТЫ" in args[0][0][1]
+        mock_deps["ingestion"].get_available_dates.assert_called_once()
+
+    def test_cached_dates_from_old_yearless_scan_are_refreshed(self, app_controller, mock_deps):
+        app_controller.discovery.get_employees_map.return_value = {
+            "Ivan": [{"path": "/path/ivan.xlsx"}],
+        }
+        mock_deps["persistence"].get_file_cache.return_value = {
+            "mtime": 1000.0,
+            "size": 5000,
+            "cache_version": 2,
+            "dates": ["13.04.2026"],
+        }
+        mock_deps["ingestion"].get_available_dates.return_value = []
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.refresh_status(
+                datetime(2026, 4, 13), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        args = on_complete.call_args[0]
+        assert args[0][0] == ("Ivan", "🟠 НЕТ ДАТЫ", "ivan.xlsx", "partial")
         mock_deps["ingestion"].get_available_dates.assert_called_once()
 
     def test_cached_dates_legacy_full_date_forces_reparse(self, app_controller, mock_deps):
@@ -222,6 +252,31 @@ class TestRefreshStatus:
 
         mock_deps["ingestion"].get_available_dates.assert_called()
         mock_deps["persistence"].save_file_cache.assert_called()
+
+    def test_status_uses_sheet_dates_even_when_rows_are_problematic(self, app_controller, mock_deps):
+        """Статус опирается только на даты листов, а не на содержимое строк."""
+        app_controller.discovery.get_employees_map.return_value = {
+            "Damir": [{"path": "/path/damir.xlsx"}],
+        }
+        mock_deps["persistence"].get_file_cache.return_value = None
+        mock_deps["ingestion"].get_available_dates.return_value = ["24.04.2026"]
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.refresh_status(
+                datetime(2026, 4, 24), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        args = on_complete.call_args[0]
+        assert "🟢 ГОТОВО" in args[0][0][1]
 
     def test_cache_miss_passes_stat_hints_to_get_available_dates(
         self, app_controller, mock_deps

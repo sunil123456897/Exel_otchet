@@ -8,10 +8,8 @@
 import os
 import re
 import logging
-import shutil
-import tempfile
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, date
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
 
@@ -40,10 +38,13 @@ _NUMERIC_FIELDS = frozenset(
         "income",
         "expense",
         "total",
+        "transit_obligation",
         "commission",
         "percent_broker",
         "broker1",
         "broker2",
+        "exchange_rate",
+        "currency_amount",
     }
 )
 _PREFERRED_HEADER_ORDER = (
@@ -54,9 +55,13 @@ _PREFERRED_HEADER_ORDER = (
     "expense",
     "commission",
     "total",
+    "transit_obligation",
     "percent_broker",
     "broker1",
     "broker2",
+    "exchange_rate",
+    "currency_amount",
+    "currency",
     "filters",
 )
 _STRICT_TEMPLATE_ORDER = (
@@ -65,12 +70,19 @@ _STRICT_TEMPLATE_ORDER = (
     "amount",
     "commission",
     "total",
+    "transit_obligation",
     "percent_broker",
     "broker1",
     "broker2",
+    "exchange_rate",
+    "currency_amount",
+    "currency",
     "filters",
 )
-_STRICT_OPTIONAL_KEYS = frozenset({"filters"})
+_STRICT_OPTIONAL_KEYS = frozenset(
+    {"filters", "transit_obligation", "exchange_rate", "currency_amount", "currency"}
+)
+_STRICT_SOFT_MISSING_KEYS = frozenset({"filters"})
 _STRICT_HELPER_HEADERS = frozenset(
     {
         "итог дня",
@@ -93,8 +105,8 @@ def _normalize_header_text(value: Any) -> str:
 def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
     """Извлечь дату из имени листа.
 
-    Поддерживаемые форматы: DD.MM, DD.MM.YYYY, DD.MM.YY, DD,MM,YY и т.д.
-    Если год не указан — возвращается только DD.MM (без навязывания года).
+    Поддерживаемые форматы: DD.MM.YYYY, DD.MM.YY, DD,MM,YY и т.д.
+    Если год не указан — лист считается некорректным и игнорируется.
     """
     if not sheet_name:
         return None
@@ -109,13 +121,7 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
             d, month = int(m.group(2)), int(m.group(3))
             year_token = m.group(4)
             if year_token is None:
-                datetime(2000, month, d)
-                if kwargs.get("with_year_hint"):
-                    return {
-                        "date": f"{d:02d}.{month:02d}",
-                        "year_hint": None,
-                    }
-                return f"{d:02d}.{month:02d}"
+                return None
 
             y = int(year_token)
             if len(year_token) == 2:
@@ -134,6 +140,38 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
             )
             return None
     return None
+
+
+def _parse_scope_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%d.%m.%Y").date()
+    except ValueError:
+        return None
+
+
+def _sheet_date_matches_scope(
+    sheet_date: str,
+    target_date_str: Optional[str] = None,
+    start_date_str: Optional[str] = None,
+    end_date_str: Optional[str] = None,
+) -> bool:
+    target = _parse_scope_date(target_date_str)
+    start = _parse_scope_date(start_date_str)
+    end = _parse_scope_date(end_date_str)
+    if target is None and (start is None or end is None):
+        return True
+
+    if len(sheet_date) != 10:
+        return False
+    try:
+        sheet_dt = datetime.strptime(sheet_date, "%d.%m.%Y").date()
+    except ValueError:
+        return False
+    if target is not None:
+        return sheet_dt == target
+    return start <= sheet_dt <= end
 
 
 class CalamineReader:
@@ -157,9 +195,8 @@ class CalamineReader:
         self._canonical_order = [
             key for key in _PREFERRED_HEADER_ORDER if key in markers
         ] + [key for key in markers if key not in _PREFERRED_HEADER_ORDER]
-        self._strict_template_enabled = set(_STRICT_TEMPLATE_ORDER).issubset(
-            set(markers)
-        )
+        required_strict_keys = set(_STRICT_TEMPLATE_ORDER) - _STRICT_OPTIONAL_KEYS
+        self._strict_template_enabled = required_strict_keys.issubset(set(markers))
         self._normalized_markers = {
             key: [
                 _normalize_header_text(v)
@@ -282,7 +319,7 @@ class CalamineReader:
         soft_missing = [
             self._preferred_header_name(key)
             for key in missing_keys
-            if key in _STRICT_OPTIONAL_KEYS
+            if key in _STRICT_SOFT_MISSING_KEYS
         ]
         if soft_missing:
             soft_reasons.append("missing optional columns: " + ", ".join(soft_missing))
@@ -290,6 +327,51 @@ class CalamineReader:
             return ("soft_structure", "; ".join(soft_reasons))
 
         return None, None
+
+    @staticmethod
+    def _should_skip_commission_match(key: str, value: str) -> bool:
+        return key == "commission" and "посредник" in value
+
+    def _find_header_index(
+        self,
+        header_values: List[str],
+        tokens: List[str],
+        key: str,
+        *,
+        exact: bool,
+    ) -> Optional[int]:
+        for idx, value in enumerate(header_values):
+            if self._should_skip_commission_match(key, value):
+                continue
+            if exact and value in tokens:
+                return idx
+            if not exact and any(token in value for token in tokens):
+                return idx
+        return None
+
+    def _find_alias_index(
+        self,
+        header_values: List[str],
+        alias_lowers: List[str],
+        key: str,
+    ) -> Optional[int]:
+        found_idx = self._find_header_index(
+            header_values, alias_lowers, key, exact=True
+        )
+        if found_idx is not None:
+            return found_idx
+
+        for alias in alias_lowers:
+            for idx, value in enumerate(header_values):
+                if self._should_skip_commission_match(key, value):
+                    continue
+                if alias in value or (
+                    key == "broker1"
+                    and value == "посредник"
+                    and "посредник 2" not in value
+                ):
+                    return idx
+        return None
 
     def _map_columns(self, header_row: List[Any]) -> tuple[Dict[str, int], bool]:
         """Сопоставить колонки заголовка с известными маркерами.
@@ -302,31 +384,20 @@ class CalamineReader:
         header_values = [_normalize_header_text(val) for val in header_row]
 
         for key, marker in self.markers.items():
-            found_idx = None
             marker_lowers = self._normalized_markers.get(key, [])
-
-            for idx, val in enumerate(header_values):
-                if any(m in val for m in marker_lowers):
-                    if key == "commission" and "посредник" in val:
-                        continue
-                    found_idx = idx
-                    break
+            found_idx = self._find_header_index(
+                header_values, marker_lowers, key, exact=True
+            )
+            if found_idx is None:
+                found_idx = self._find_header_index(
+                    header_values, marker_lowers, key, exact=False
+                )
 
             if found_idx is None and key in self.aliases:
-                for alt_lower in self._normalized_aliases.get(key, []):
-                    for idx, val in enumerate(header_values):
-                        if alt_lower in val or (
-                            key == "broker1"
-                            and val == "посредник"
-                            and "посредник 2" not in val
-                        ):
-                            if key == "commission" and "посредник" in val:
-                                continue
-                            found_idx = idx
-                            used_aliases = True
-                            break
-                    if found_idx is not None:
-                        break
+                alias_lowers = self._normalized_aliases.get(key, [])
+                found_idx = self._find_alias_index(header_values, alias_lowers, key)
+                if found_idx is not None:
+                    used_aliases = True
 
             if found_idx is not None:
                 col_map[key] = found_idx
@@ -661,8 +732,23 @@ class CalamineReader:
         file_basename: str,
         header_search_terms: List[tuple[str, ...]],
         all_rows: List[Dict[str, Any]],
+        target_date_str: Optional[str] = None,
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None,
     ) -> None:
         if self._should_skip_sheet(sheet_name):
+            return
+
+        sheet_date, sheet_year_hint = self._unpack_sheet_date_meta(sheet_name)
+        if not sheet_date:
+            logger.debug(f"Skipping sheet {sheet_name}: no date found")
+            return
+        if not _sheet_date_matches_scope(
+            sheet_date,
+            target_date_str=target_date_str,
+            start_date_str=start_date_str,
+            end_date_str=end_date_str,
+        ):
             return
 
         try:
@@ -674,11 +760,6 @@ class CalamineReader:
             if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
                 raise
             logger.debug(f"PanicException loading sheet {sheet_name}: {e}")
-            return
-
-        sheet_date, sheet_year_hint = self._unpack_sheet_date_meta(sheet_name)
-        if not sheet_date:
-            logger.debug(f"Skipping sheet {sheet_name}: no date found")
             return
 
         rows_sample, use_to_python = self._load_sheet_sample_rows(sheet, sheet_name)
@@ -768,7 +849,14 @@ class CalamineReader:
             except Exception:
                 pass
 
-    def read(self, file_path: Path, strict_io: bool = False) -> List[Dict[str, Any]]:
+    def read(
+        self,
+        file_path: Path,
+        strict_io: bool = False,
+        target_date_str: Optional[str] = None,
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Прочитать все листы файла и вернуть список строк.
 
         Алгоритм:
@@ -802,6 +890,9 @@ class CalamineReader:
                     file_basename,
                     header_search_terms,
                     all_rows,
+                    target_date_str=target_date_str,
+                    start_date_str=start_date_str,
+                    end_date_str=end_date_str,
                 )
 
         except (OSError, IOError, PermissionError) as e:

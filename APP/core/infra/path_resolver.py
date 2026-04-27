@@ -1,5 +1,3 @@
-import os
-import hashlib
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -44,7 +42,9 @@ def _resolve_reports_alias(path_str: str, config_controller) -> Optional[Path]:
             continue
         if root_parts[-1].lower() != curator_root_name.lower():
             continue
-        return Path(root, *suffix_parts)
+        candidate = Path(root, *suffix_parts)
+        if candidate.exists():
+            return candidate
 
     return None
 

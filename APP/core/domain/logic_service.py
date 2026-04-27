@@ -113,14 +113,10 @@ class BorisCuratorStrategy(CuratorStrategy):
 
 
 class IvanCuratorStrategy(CuratorStrategy):
-    """Ivan-specific: overrides both intermediary1 and intermediary2 rates."""
+    """Ivan-specific layout keeps manually entered intermediary values."""
 
     def apply(self, curator_config, pb_val, amt, tot):
-        rate1 = Decimal(str(curator_config.get("intermediary1_rate", 0.05)))
-        rate2 = Decimal(str(curator_config.get("intermediary2_rate", 0.05)))
-        base = tot if tot != 0 else amt
-        broker2_calc = (base * rate2).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        return rate1, rate2, broker2_calc
+        return pb_val, Decimal("0.00"), Decimal("0.00")
 
 
 # Global registry — add new curators here without modifying LogicService
@@ -173,6 +169,7 @@ class LogicService(ILogicService):
         return {
             "Дата": r.get("date", ""),
             "Источник": r.get("_source_info", "Unknown"),
+            "Сотрудник": self._sanitize(r.get("employee_name", "")),
             "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": self._sanitize(
                 r.get("customer", "")
             ),
@@ -188,6 +185,10 @@ class LogicService(ILogicService):
             "посредник 2": Decimal("0.00"),
             "% посредник 2": Decimal("0.00"),
             "Посредник 2 (сумма)": Decimal("0.00"),
+            "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ": Decimal("0.00"),
+            "курс": Decimal("0.00"),
+            "сумма": Decimal("0.00"),
+            "валюта": self._sanitize(r.get("currency", "")),
             "фильтры": self._sanitize(r.get("filters", "")),
             "is_critical": is_critical,
             "is_template_warning": r.get("is_template_warning", False),
@@ -198,6 +199,93 @@ class LogicService(ILogicService):
         if not curator:
             return _DEFAULT_STRATEGY
         return CURATOR_STRATEGIES.get(curator, _DEFAULT_STRATEGY)
+
+    @staticmethod
+    def _parse_decimal_or_warn(value: Any) -> tuple[Decimal, bool]:
+        try:
+            return to_decimal(value), False
+        except (NumericParsingError, ValueError):
+            return Decimal("0.00"), True
+
+    @staticmethod
+    def _has_transit_values(r: Dict[str, Any]) -> bool:
+        return any(
+            to_decimal(r.get(field, 0)) != 0
+            for field in ("transit_obligation", "exchange_rate", "currency_amount")
+        ) or bool(str(r.get("currency", "")).strip())
+
+    @staticmethod
+    def _resolve_flow(amount: Decimal, is_add: bool, is_ret: bool) -> tuple[Decimal, Decimal]:
+        if is_add:
+            return amount, Decimal("0.00")
+        if is_ret:
+            return Decimal("0.00"), -abs(amount)
+        if amount < 0:
+            return Decimal("0.00"), abs(amount)
+        return amount, Decimal("0.00")
+
+    def _resolve_commission(self, raw_value: Any) -> tuple[Decimal, bool]:
+        c_raw = to_decimal_percent(raw_value or 0)
+        try:
+            if self.commission_is_percent and c_raw != 0 and abs(c_raw) <= 1:
+                return (
+                    abs(c_raw * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                    False,
+                )
+            return abs(c_raw).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), False
+        except (TypeError, ArithmeticError):
+            try:
+                return abs(to_decimal(c_raw)), False
+            except (NumericParsingError, ValueError):
+                return Decimal("0.00"), True
+
+    def _build_result_row(
+        self,
+        r: Dict[str, Any],
+        *,
+        inc: Decimal,
+        exp: Decimal,
+        comm: Decimal,
+        tot: Decimal,
+        pb_val: Decimal,
+        b1_val: Decimal,
+        b2_val: Decimal,
+        pb2_val: Decimal,
+        broker2_calc: Decimal,
+        is_critical: bool,
+        is_warn: bool,
+    ) -> Dict[str, Any]:
+        return {
+            "Дата": r.get("date", ""),
+            "Источник": r.get("_source_info", "Unknown"),
+            "Сотрудник": self._sanitize(r.get("employee_name", "")),
+            "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": self._sanitize(
+                r.get("customer", "")
+            ),
+            "ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)": self._sanitize(
+                r.get("contractor", "")
+            ),
+            "сумма платежа ПРИХОД": inc,
+            "сумма платежа РАСХОД": exp,
+            "комиссия": comm,
+            "ИТОГ": tot,
+            "% посредника": pb_val,
+            "посредник 1(кэш)": b1_val,
+            "посредник 2": b2_val,
+            "% посредник 2": pb2_val,
+            "Посредник 2 (сумма)": broker2_calc,
+            "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ": to_decimal(
+                r.get("transit_obligation", 0)
+            ),
+            "курс": to_decimal(r.get("exchange_rate", 0)),
+            "сумма": to_decimal(r.get("currency_amount", 0)),
+            "валюта": self._sanitize(r.get("currency", "")),
+            "фильтры": self._sanitize(r.get("filters", "")),
+            "is_critical": is_critical,
+            "is_template_warning": is_warn,
+            "_template_warning_kind": r.get("_template_warning_kind"),
+            "_template_warning_reason": r.get("_template_warning_reason"),
+        }
 
     def apply_financial_rules(
         self, raw_rows: List[Dict[str, Any]], curator=None, curator_config=None
@@ -238,54 +326,26 @@ class LogicService(ILogicService):
                 res.append(self._build_error_row(r, is_critical=True))
                 continue
 
-            try:
-                raw_b1 = to_decimal(r.get("broker1"))
-            except (NumericParsingError, ValueError):
-                raw_b1 = Decimal("0.00")
-                is_warn = True
-
-            try:
-                raw_b2 = to_decimal(r.get("broker2"))
-            except (NumericParsingError, ValueError):
-                raw_b2 = Decimal("0.00")
-                is_warn = True
+            raw_b1, broker1_warn = self._parse_decimal_or_warn(r.get("broker1"))
+            raw_b2, broker2_warn = self._parse_decimal_or_warn(r.get("broker2"))
+            is_warn = is_warn or broker1_warn or broker2_warn
 
             has_broker_values = raw_b1 != 0 or raw_b2 != 0
+            has_transit_values = self._has_transit_values(r)
 
             if (
                 amt == 0
                 and tot == 0
                 and not has_broker_values
+                and not has_transit_values
                 and not is_add
                 and not is_critical
             ):
                 continue
 
-            # Financial routing
-            if is_add:
-                inc, exp = amt, Decimal("0.00")
-            elif is_ret:
-                inc, exp = Decimal("0.00"), -abs(amt)
-            elif amt < 0:
-                inc, exp = Decimal("0.00"), abs(amt)
-            else:
-                inc, exp = amt, Decimal("0.00")
-
-            c_raw = to_decimal_percent(r.get("commission", 0))
-            try:
-                if self.commission_is_percent and c_raw != 0 and abs(c_raw) <= 1:
-                    comm = abs(c_raw * 100).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
-                else:
-                    comm = abs(c_raw).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            except (TypeError, ArithmeticError):
-                # If c_raw is a string or math fails, try to convert to Decimal or use 0
-                try:
-                    comm = abs(to_decimal(c_raw))
-                except (NumericParsingError, ValueError):
-                    comm = Decimal("0.00")
-                    is_warn = True
+            inc, exp = self._resolve_flow(amt, is_add, is_ret)
+            comm, commission_warn = self._resolve_commission(r.get("commission", 0))
+            is_warn = is_warn or commission_warn
 
             pb_raw = r.get("percent_broker")
             pb_val = to_decimal_percent(pb_raw)
@@ -310,30 +370,20 @@ class LogicService(ILogicService):
             b2_val = abs(raw_b2)
 
             res.append(
-                {
-                    "Дата": r.get("date", ""),
-                    "Источник": r.get("_source_info", "Unknown"),
-                    "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": self._sanitize(
-                        r.get("customer", "")
-                    ),
-                    "ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)": self._sanitize(
-                        r.get("contractor", "")
-                    ),
-                    "сумма платежа ПРИХОД": inc,
-                    "сумма платежа РАСХОД": exp,
-                    "комиссия": comm,
-                    "ИТОГ": tot,
-                    "% посредника": pb_val,
-                    "посредник 1(кэш)": b1_val,
-                    "посредник 2": b2_val,
-                    "% посредник 2": pb2_val,
-                    "Посредник 2 (сумма)": broker2_calc,
-                    "фильтры": self._sanitize(r.get("filters", "")),
-                    "is_critical": is_critical,
-                    "is_template_warning": is_warn,
-                    "_template_warning_kind": r.get("_template_warning_kind"),
-                    "_template_warning_reason": r.get("_template_warning_reason"),
-                }
+                self._build_result_row(
+                    r,
+                    inc=inc,
+                    exp=exp,
+                    comm=comm,
+                    tot=tot,
+                    pb_val=pb_val,
+                    b1_val=b1_val,
+                    b2_val=b2_val,
+                    pb2_val=pb2_val,
+                    broker2_calc=broker2_calc,
+                    is_critical=is_critical,
+                    is_warn=is_warn,
+                )
             )
         return res
 
@@ -342,9 +392,11 @@ class LogicService(ILogicService):
     ) -> List[Dict[str, Any]]:
         """Perform SQL-based aggregation for the final report.
 
-        The curator/curator_config parameters are kept for backward
-        compatibility but are not used in the standard single-report flow.
+        The curator/curator_config parameters enable separate curator-specific
+        reports without affecting the standard single-report flow.
         """
         return self.apply_financial_rules(
             self.persistence.get_consolidated_data(session_id),
+            curator=curator,
+            curator_config=curator_config,
         )

@@ -29,10 +29,31 @@ locking:
 ```
 
 ## Как запустить
-*   **Windows**: Запустите файл `ЗАПУСК.bat`.
-*   **Другие ОС**:
-    1. Установите зависимости: `pip install -r requirements.txt`
-    2. Перейдите в папку `APP`: `cd APP`
-    3. Запустите: `python3 main.py`
+*   **Windows**: запустите `ЗАПУСК.bat`.
+*   **Python напрямую**:
 
-Подробная информация об архитектуре доступна в [APP/docs/README_TECHNICAL.md](APP/docs/README_TECHNICAL.md).
+```bash
+python -m pip install -r requirements.txt
+python APP/main.py
+```
+
+## Проверка качества
+
+Для разработки установите dev-зависимости:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+Полный gate перед завершением работы:
+
+```bash
+pytest tests
+python -m ruff check APP tests
+python -m mypy APP tests
+pytest --cov=APP/core --cov-report=term-missing tests
+```
+
+Текущий ожидаемый baseline: все тесты проходят, Ruff проходит, mypy проходит, coverage выше 90%.
+
+Подробная документация для людей и ИИ-агентов: [docs/PROJECT_AI_GUIDE.md](docs/PROJECT_AI_GUIDE.md).

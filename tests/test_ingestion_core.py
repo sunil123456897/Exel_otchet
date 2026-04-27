@@ -62,13 +62,13 @@ class TestExtractDateFromSheet:
     """Тесты extract_date_from_sheet."""
 
     def test_dd_mm_format(self):
-        assert extract_date_from_sheet("Отчет 01.04") == "01.04"
+        assert extract_date_from_sheet("Отчет 01.04") is None
 
     def test_dd_mm_yyyy_format(self):
         assert extract_date_from_sheet("01.04.2025") == "01.04.2025"
 
     def test_comma_separator(self):
-        assert extract_date_from_sheet("01,04") == "01.04"
+        assert extract_date_from_sheet("01,04") is None
 
     def test_no_date_returns_none(self):
         assert extract_date_from_sheet("АНАЛИТИКА") is None
@@ -80,10 +80,10 @@ class TestExtractDateFromSheet:
         assert extract_date_from_sheet(None) is None
 
     def test_leading_zeros(self):
-        assert extract_date_from_sheet("05.01") == "05.01"
+        assert extract_date_from_sheet("05.01") is None
 
     def test_single_digit_day(self):
-        assert extract_date_from_sheet("5.04") == "05.04"
+        assert extract_date_from_sheet("5.04") is None
 
     def test_dd_mm_yy_format(self):
         assert extract_date_from_sheet("15.04.26") == "15.04.2026"
@@ -99,12 +99,10 @@ class TestExtractDateFromSheet:
 
     def test_with_year_hint_metadata_when_year_absent(self):
         meta = extract_date_from_sheet("Отчет 18.04", with_year_hint=True)
-        assert isinstance(meta, dict)
-        assert meta["date"] == "18.04"
-        assert meta["year_hint"] is None
+        assert meta is None
 
-    def test_plain_dd_mm_without_year_returns_short_date(self):
-        assert extract_date_from_sheet("Отчет 18.04") == "18.04"
+    def test_plain_dd_mm_without_year_returns_none(self):
+        assert extract_date_from_sheet("Отчет 18.04") is None
 
     def test_invalid_date_feb29(self):
         """29 февраля в невисокосном году — дата отбрасывается."""
@@ -112,15 +110,15 @@ class TestExtractDateFromSheet:
         assert result is None
 
     def test_unicode_cleaning(self):
-        assert extract_date_from_sheet("01.\u200b04") == "01.04"
+        assert extract_date_from_sheet("01.\u200b04.2026") == "01.04.2026"
 
     def test_bom_cleaning(self):
-        assert extract_date_from_sheet("\ufeff01.04") == "01.04"
+        assert extract_date_from_sheet("\ufeff01.04.2026") == "01.04.2026"
 
     def test_multiple_dates_uses_first(self):
         """Несколько дат — берёт первую."""
-        result = extract_date_from_sheet("01.04 и 02.05")
-        assert result == "01.04"
+        result = extract_date_from_sheet("01.04.2026 и 02.05.2026")
+        assert result == "01.04.2026"
 
 
 class TestCalamineReaderMapColumns:
@@ -159,13 +157,45 @@ class TestCalamineReaderMapColumns:
         assert col_map['customer'] == 0
         assert col_map['amount'] == 1
 
+    def test_currency_amount_prefers_exact_sum_column(self):
+        markers = {
+            'customer': 'заказчик',
+            'contractor': 'исполнитель',
+            'amount': 'сумма платежа',
+            'currency_amount': 'сумма',
+            'exchange_rate': 'курс',
+            'currency': 'валюта',
+        }
+        aliases = {
+            'amount': ['сумма платежа', 'бн рф руб', 'бн'],
+            'currency_amount': ['сумма'],
+            'exchange_rate': ['курс'],
+            'currency': ['валюта'],
+        }
+        reader = CalamineReader(markers, aliases)
+        header = [
+            'Заказчик',
+            'Исполнитель',
+            'Сумма платежа',
+            'Курс',
+            'Сумма',
+            'Валюта',
+        ]
+
+        col_map, _ = reader._map_columns(header)
+
+        assert col_map['amount'] == 2
+        assert col_map['exchange_rate'] == 3
+        assert col_map['currency_amount'] == 4
+        assert col_map['currency'] == 5
+
 
 class TestCalamineReaderRead:
     """Тесты read — полное чтение файлов."""
 
     def test_read_simple_xlsx(self, reader, temp_xlsx):
         f = temp_xlsx("simple.xlsx", {
-            "Отчет 01.04": [
+            "Отчет 01.04.2026": [
                 ["Заказчик", "Исполнитель", "Сумма платежа", "Приход", "Расход", "Комиссия", "Итог"],
                 ["ООО А", "ИП Б", "10000", "10000", "0", "2.5", "10000"],
                 ["ООО В", "ИП Г", "5000", "0", "5000", "1", "5000"],
@@ -176,7 +206,7 @@ class TestCalamineReaderRead:
 
     def test_read_skips_analytics_sheet(self, reader, temp_xlsx):
         f = temp_xlsx("with_analytics.xlsx", {
-            "Отчет 01.04": [
+            "Отчет 01.04.2026": [
                 ["Заказчик", "Сумма платежа"],
                 ["А", "100"],
             ],
@@ -184,7 +214,7 @@ class TestCalamineReaderRead:
             "СВОД": [["Итого"]],
         })
         rows = reader.read(f)
-        # Данные только из "Отчет 01.04"
+        # Данные только из "Отчет 01.04.2026"
         for row in rows:
             assert row.get('_sheet_name') != "АНАЛИТИКА"
             assert row.get('_sheet_name') != "СВОД"
@@ -192,7 +222,7 @@ class TestCalamineReaderRead:
     def test_read_skips_hidden_sheets(self, reader, temp_xlsx):
         f = temp_xlsx("hidden.xlsx", {
             "_hidden": [["data"]],
-            "Отчет 01.04": [
+            "Отчет 01.04.2026": [
                 ["Заказчик", "Сумма платежа"],
                 ["А", "100"],
             ]
@@ -203,7 +233,7 @@ class TestCalamineReaderRead:
 
     def test_read_includes_metadata(self, reader, temp_xlsx):
         f = temp_xlsx("meta.xlsx", {
-            "Отчет 01.04": [
+            "Отчет 01.04.2026": [
                 ["Заказчик", "Сумма платежа"],
                 ["А", "100"],
             ]
@@ -222,7 +252,7 @@ class TestCalamineReaderRead:
 
     def test_read_empty_sheet(self, reader, temp_xlsx):
         f = temp_xlsx("empty.xlsx", {
-            "Отчет 01.04": [],
+            "Отчет 01.04.2026": [],
         })
         rows = reader.read(f)
         assert rows == []
@@ -230,7 +260,7 @@ class TestCalamineReaderRead:
     def test_read_no_financial_data(self, reader, temp_xlsx):
         """Лист без финансовых данных — пустой результат."""
         f = temp_xlsx("nofin.xlsx", {
-            "Отчет 01.04": [
+            "Отчет 01.04.2026": [
                 ["Имя", "Фамилия"],
                 ["Иван", "Иванов"],
             ]
@@ -241,7 +271,7 @@ class TestCalamineReaderRead:
     def test_read_trash_filtering(self, reader, temp_xlsx):
         """Строки с trash keywords — фильтруются."""
         f = temp_xlsx("trash.xlsx", {
-            "Отчет 01.04": [
+            "Отчет 01.04.2026": [
                 ["Заказчик", "Сумма платежа"],
                 ["Название клиента", "100"],  # trash
                 ["ООО А", "200"],  # valid
@@ -254,7 +284,7 @@ class TestCalamineReaderRead:
     def test_read_numeric_conversion(self, reader, temp_xlsx):
         """Числовые значения должны быть Decimal."""
         f = temp_xlsx("numeric.xlsx", {
-            "Отчет 01.04": [
+            "Отчет 01.04.2026": [
                 ["Заказчик", "Сумма платежа", "Приход"],
                 ["А", "1234.56", "1234.56"],
             ]

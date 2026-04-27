@@ -3,7 +3,7 @@ import logging
 import hashlib
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from ruamel.yaml import YAML
 
 

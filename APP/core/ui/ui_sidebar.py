@@ -65,6 +65,16 @@ class Sidebar(ttk.Frame):
         action_frame = ttk.LabelFrame(self, text="🚀 СБОРКА", padding=10)
         action_frame.pack(fill=tk.X, pady=(0, 10))
 
+        ttk.Label(action_frame, text="Кураторский отчет:").pack(anchor=tk.W)
+        self.curator_var = tk.StringVar(value="Общий отчет")
+        self.curator_combo = ttk.Combobox(
+            action_frame,
+            textvariable=self.curator_var,
+            state="readonly",
+            values=["Общий отчет", "Куратор Борис", "Куратор Иван"],
+        )
+        self.curator_combo.pack(fill=tk.X, pady=(0, 5))
+
         self.consolidate_btn = ttk.Button(
             action_frame,
             text="⚡ СОБРАТЬ ДЕНЬ",
@@ -184,6 +194,14 @@ class Sidebar(ttk.Frame):
 
     def get_date(self):
         return self.date_entry.get_date()
+
+    def get_curator(self):
+        value = self.curator_var.get()
+        if value == "Куратор Борис":
+            return "boris"
+        if value == "Куратор Иван":
+            return "ivan"
+        return None
 
     def get_month_range(self):
         """Возвращает (start_date, end_date) для месячного отчёта."""

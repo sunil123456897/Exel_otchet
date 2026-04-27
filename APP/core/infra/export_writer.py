@@ -1,7 +1,7 @@
 import os
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from pathlib import Path
 import openpyxl
 from openpyxl.utils import get_column_letter
@@ -151,17 +151,20 @@ class MasterWriter(IExporter):
 
     def _append_data_rows(self, ws, date, rows, curator=None):
         warning_rows = {}
-        date_str = date.strftime("%d.%m.%Y")
         for r in rows:
-            if r.get("is_template_warning"):
+            warning_kind = r.get("_template_warning_kind")
+            suppress_structure_warning = curator in {"boris", "ivan"} and warning_kind in {
+                "hard_structure",
+                "soft_structure",
+            }
+            if r.get("is_template_warning") and not suppress_structure_warning:
                 warning_rows[ws.max_row + 1] = {
-                    "kind": r.get("_template_warning_kind"),
+                    "kind": warning_kind,
                     "reason": r.get("_template_warning_reason"),
                 }
             if curator == "boris":
                 ws.append(
                     [
-                        date_str,
                         r.get("Источник", ""),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
@@ -179,15 +182,20 @@ class MasterWriter(IExporter):
             elif curator == "ivan":
                 ws.append(
                     [
+                        r.get("Сотрудник", r.get("Источник", "")),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
                         float(r.get("сумма платежа ПРИХОД", 0)),
+                        float(r.get("сумма платежа РАСХОД", 0)),
                         float(r.get("комиссия", 0)),
                         float(r.get("ИТОГ", 0)),
+                        float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                         r.get("% посредника", 0),
                         float(r.get("посредник 1(кэш)", 0)),
-                        r.get("% посредник 2", 0),
                         float(r.get("посредник 2", 0)),
+                        r.get("курс", ""),
+                        r.get("сумма", ""),
+                        r.get("валюта", ""),
                         r.get("фильтры", ""),
                     ]
                 )

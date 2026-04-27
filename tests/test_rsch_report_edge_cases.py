@@ -30,10 +30,13 @@ def _make_template(path: Path) -> None:
             "Приход",
             "Расход",
             "р/с",
+            "Источник",
         ]
     )
-    ws.append([datetime(2026, 4, 13), "", "", "", "", 0, 0, ""])
-    ws.append(["ИТОГО:", None, None, None, None, "=SUM(F2:F2)", "=SUM(G2:G2)", None])
+    ws.append([datetime(2026, 4, 13), "", "", "", "", 0, 0, "", ""])
+    ws.append(
+        ["ИТОГО:", None, None, None, None, "=SUM(F2:F2)", "=SUM(G2:G2)", None, None]
+    )
     wb.save(path)
 
 
@@ -544,6 +547,14 @@ def test_missing_default_template_uses_builtin_fallback(tmp_path: Path) -> None:
     assert output.exists()
     assert any("Шаблон РСЧ не найден" in issue for issue in issues)
 
+    out_wb = load_workbook(output, data_only=False)
+    out_ws = out_wb[out_wb.sheetnames[0]]
+    assert out_ws.cell(3, 1).fill.fgColor.rgb == "FFD9E1F2"
+    assert out_ws.cell(3, 6).fill.fgColor.rgb == "FFD9E1F2"
+    assert out_ws.cell(3, 7).fill.fgColor.rgb == "FFD9E1F2"
+    assert out_ws.cell(3, 6).number_format == "#,##0.00"
+    assert out_ws.cell(3, 7).number_format == "#,##0.00"
+
 
 def test_zero_rows_still_writes_total(tmp_path: Path) -> None:
     source = tmp_path / "source.xlsx"
@@ -627,7 +638,7 @@ def test_autosize_all_columns(tmp_path: Path) -> None:
 
     out_wb = load_workbook(output)
     out_ws = out_wb[out_wb.sheetnames[0]]
-    widths = {c: out_ws.column_dimensions[c].width for c in "ABCDEFGH"}
+    widths = {c: out_ws.column_dimensions[c].width for c in "ABCDEFGHI"}
 
     assert all(widths[c] is not None and widths[c] >= 10 for c in widths)
     assert widths["B"] > 10

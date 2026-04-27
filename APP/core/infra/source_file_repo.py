@@ -3,7 +3,6 @@ import logging
 import threading
 import queue
 from typing import List, Dict, Any, Optional
-from pathlib import Path
 from core.infra.db_connection import SQLiteConnectionManager
 
 
@@ -109,7 +108,7 @@ class SourceFileRepository:
                         size,
                         json.dumps(
                             {
-                                "cache_version": 2,
+                                "cache_version": 3,
                                 "dates": dates,
                             },
                             ensure_ascii=False,

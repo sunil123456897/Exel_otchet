@@ -1,6 +1,5 @@
 import logging
 import re
-import tkinter as tk
 from collections import Counter
 from tkinter import filedialog, messagebox
 from pathlib import Path
@@ -47,8 +46,6 @@ class GuiCommands:
         )
 
     def run_consolidation(self):
-        from core.view_models.consolidation_viewmodel import ConsolidationViewModel
-        from core.ui.ui_dialogs import ask_employee_name
 
         missing_names = self.employee_vm.get_missing_names()
         if missing_names:
@@ -59,10 +56,12 @@ class GuiCommands:
         if not messagebox.askyesno("Подтверждение сборки", "Собрать основной отчет?"):
             return
 
+        curator = self.sidebar.get_curator()
         self.sidebar.set_consolidate_state("disabled")
         self.consolidation_vm.run_consolidation(
             self.app_controller,
             self.sidebar.get_date(),
+            curator=curator,
         )
 
     def run_consolidation_all_dates(self):
@@ -71,9 +70,11 @@ class GuiCommands:
         ):
             return
 
+        curator = self.sidebar.get_curator()
         self.sidebar.set_consolidate_all_state("disabled")
         self.consolidation_vm.run_consolidation_all_dates(
             self.app_controller,
+            curator=curator,
         )
 
     def run_consolidation_month(self):
@@ -87,11 +88,13 @@ class GuiCommands:
         if not messagebox.askyesno("Подтверждение сборки", "Собрать основной отчет?"):
             return
 
+        curator = self.sidebar.get_curator()
         self.sidebar.set_consolidate_month_state("disabled")
         self.consolidation_vm.run_consolidation_month(
             self.app_controller,
             start_date,
             end_date,
+            curator=curator,
         )
 
     def run_rsch_report(self):
@@ -364,15 +367,48 @@ class GuiCommands:
 
     def open_employee_folder(self):
         name = self.employee_table.get_selected_employee()
-        path = self.employee_vm.get_selected_employee_path(name)
-        if path:
-            open_path(str(Path(path).parent))
+        paths = self.employee_vm.get_selected_employee_paths(name)
+        if not paths:
+            return
+
+        unique_parents = []
+        seen = set()
+        for raw_path in paths:
+            parent = str(Path(raw_path).parent)
+            if parent in seen:
+                continue
+            seen.add(parent)
+            unique_parents.append(parent)
+
+        for parent in unique_parents:
+            open_path(parent)
 
     def open_employee_file(self):
         name = self.employee_table.get_selected_employee()
-        path = self.employee_vm.get_selected_employee_path(name)
-        if path:
-            open_path(path)
+        paths = self.employee_vm.get_selected_employee_paths(name)
+        if not paths:
+            return
+        if len(paths) == 1:
+            open_path(paths[0])
+            return
+
+        action = messagebox.askyesnocancel(
+            "Несколько файлов",
+            (
+                f"У сотрудника '{name}' найдено {len(paths)} файлов.\n\n"
+                "Да - открыть все файлы\n"
+                "Нет - открыть папки с файлами\n"
+                "Отмена - ничего не делать"
+            ),
+        )
+        if action is None:
+            return
+        if action:
+            for path in paths:
+                open_path(path)
+            return
+
+        self.open_employee_folder()
 
     def delete_employee(self):
         name = self.employee_table.get_selected_employee()

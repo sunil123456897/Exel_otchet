@@ -91,7 +91,7 @@ def test_read_realigns_shifted_amount_bank_row_as_warning(reader, temp_xlsx):
     f = temp_xlsx(
         "shifted_amount.xlsx",
         {
-            "03.04": [
+            "03.04.2026": [
                 [
                     "Заказчик",
                     "Исполнитель",

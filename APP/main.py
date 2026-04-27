@@ -40,7 +40,7 @@ def main():
         GuiMaster = preflight_gui_imports()
         cfg_ctl, app_ctl, db = Bootstrap.setup(app_root, str(app_root / "config.yaml"))
         root = tk.Tk()
-        app = GuiMaster(root, cfg_ctl, app_ctl)
+        GuiMaster(root, cfg_ctl, app_ctl)
 
         def on_close():
             logger.info("Shutdown...")

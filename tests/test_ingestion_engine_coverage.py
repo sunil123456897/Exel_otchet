@@ -33,11 +33,11 @@ def test_get_available_dates_network_mock(engine, tmp_path):
         ) as mock_copy,
         patch("python_calamine.CalamineWorkbook.from_path") as mock_wb,
     ):
-        mock_wb.return_value.sheet_names = ["Отчет 01.01"]
+        mock_wb.return_value.sheet_names = ["Отчет 01.01.2026"]
 
         dates = engine.get_available_dates(network_path)
 
-        assert "01.01" in dates
+        assert "01.01.2026" in dates
         mock_copy.assert_called_once_with(
             os.path.abspath(str(network_path)),
             engine.drive_letters,
@@ -99,9 +99,9 @@ def test_scan_directory_network_drive(engine, tmp_path):
         ) as mock_q_copy,
         patch("python_calamine.CalamineWorkbook.from_path") as mock_wb,
     ):
-        mock_wb.return_value.sheet_names = ["Отчет 02.02"]
+        mock_wb.return_value.sheet_names = ["Отчет 02.02.2026"]
         dates = engine.get_available_dates(q_path)
-        assert "02.02" in dates
+        assert "02.02.2026" in dates
         mock_q_copy.assert_called_once_with(
             os.path.abspath(str(q_path)),
             engine.drive_letters,
@@ -119,9 +119,9 @@ def test_scan_directory_network_drive(engine, tmp_path):
         ) as mock_z_copy,
         patch("python_calamine.CalamineWorkbook.from_path") as mock_wb,
     ):
-        mock_wb.return_value.sheet_names = ["Отчет 03.03"]
+        mock_wb.return_value.sheet_names = ["Отчет 03.03.2026"]
         dates = engine.get_available_dates(z_path)
-        assert "03.03" in dates
+        assert "03.03.2026" in dates
         mock_z_copy.assert_called_once_with(
             os.path.abspath(str(z_path)),
             engine.drive_letters,

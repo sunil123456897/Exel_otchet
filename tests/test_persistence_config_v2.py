@@ -117,7 +117,7 @@ def test_source_file_repo_cache(temp_db, db_config, schema_path):
     assert cache["mtime"] == 123.45
     assert cache["size"] == 1000
     assert cache["dates"] == ["2023-01-01"]
-    assert cache["cache_version"] == 2
+    assert cache["cache_version"] == 3
 
     assert repo.get_file_cache("nonexistent") is None
     repo.close()

@@ -2,7 +2,6 @@ import os
 import sys
 import logging
 import threading
-import time
 import argparse
 from datetime import datetime
 from pathlib import Path

@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 from typing import Tuple, Optional, Dict, Any, List
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 from core.infra import ConfigController, MasterWriter
 from core.infra.ingestion_engine import IngestionEngine

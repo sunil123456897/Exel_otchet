@@ -127,15 +127,56 @@ def test_delete_employee(gui_app, mocker):
 def test_open_employee_folder(gui_app, mocker):
     gui_app.employee_vm._employees_map = {"Alice": [{"path": "C:/alice.xlsx"}]}
     gui_app.employee_table.get_selected_employee.return_value = "Alice"
-    mocker.patch("core.ui.gui_commands.open_path")
+    open_path = mocker.patch("core.ui.gui_commands.open_path")
     gui_app.open_employee_folder()
+    open_path.assert_called_once_with("C:\\")
 
 
 def test_open_employee_file(gui_app, mocker):
     gui_app.employee_vm._employees_map = {"Alice": [{"path": "C:/alice.xlsx"}]}
     gui_app.employee_table.get_selected_employee.return_value = "Alice"
-    mocker.patch("core.ui.gui_commands.open_path")
+    open_path = mocker.patch("core.ui.gui_commands.open_path")
     gui_app.open_employee_file()
+    open_path.assert_called_once_with("C:/alice.xlsx")
+
+
+def test_open_employee_file_opens_all_files_after_confirmation(gui_app, mocker):
+    gui_app.employee_vm._employees_map = {
+        "Alice": [
+            {"path": "C:/alice-1.xlsx"},
+            {"path": "D:/alice-2.xlsx"},
+        ]
+    }
+    gui_app.employee_table.get_selected_employee.return_value = "Alice"
+    askyesnocancel = mocker.patch(
+        "core.ui.gui_commands.messagebox.askyesnocancel", return_value=True
+    )
+    open_path = mocker.patch("core.ui.gui_commands.open_path")
+
+    gui_app.open_employee_file()
+
+    askyesnocancel.assert_called_once()
+    open_path.assert_any_call("C:/alice-1.xlsx")
+    open_path.assert_any_call("D:/alice-2.xlsx")
+    assert open_path.call_count == 2
+
+
+def test_open_employee_folder_opens_all_unique_parent_folders(gui_app, mocker):
+    gui_app.employee_vm._employees_map = {
+        "Alice": [
+            {"path": "C:/reports/alice-1.xlsx"},
+            {"path": "D:/archive/alice-2.xlsx"},
+            {"path": "D:/archive/alice-3.xlsx"},
+        ]
+    }
+    gui_app.employee_table.get_selected_employee.return_value = "Alice"
+    open_path = mocker.patch("core.ui.gui_commands.open_path")
+
+    gui_app.open_employee_folder()
+
+    open_path.assert_any_call("C:\\reports")
+    open_path.assert_any_call("D:\\archive")
+    assert open_path.call_count == 2
 
 
 def test_run_rsch_report(gui_app):

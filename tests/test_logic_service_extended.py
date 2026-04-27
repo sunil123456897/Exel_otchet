@@ -284,3 +284,32 @@ def test_broker_only_row_with_broker2_is_not_dropped(logic_service):
     assert res[0]["сумма платежа РАСХОД"] == Decimal("0.00")
     assert res[0]["посредник 2"] == Decimal("500.50")
     assert res[0]["ИТОГ"] == Decimal("0.00")
+
+
+def test_transit_only_row_is_not_dropped_for_ivan_layout(logic_service):
+    raw_rows = [
+        {
+            "customer": "Бекхем",
+            "contractor": "Доха Катар",
+            "amount": "0",
+            "total": "0",
+            "transit_obligation": "335936.0",
+            "exchange_rate": "23.2",
+            "currency_amount": "14480",
+            "currency": "риал",
+            "filters": "транзит",
+            "_source_info": "ivan.xlsx | 13.04.2026 | Row 3",
+            "is_template_warning": True,
+        }
+    ]
+
+    res = logic_service.apply_financial_rules(raw_rows, curator="ivan", curator_config={})
+
+    assert len(res) == 1
+    assert res[0]["ЗАКАЗЧИК (название проекта, наименование ЮЛ)"] == "Бекхем"
+    assert res[0]["сумма платежа ПРИХОД"] == Decimal("0.00")
+    assert res[0]["сумма платежа РАСХОД"] == Decimal("0.00")
+    assert res[0]["ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ"] == Decimal("335936.0")
+    assert res[0]["курс"] == Decimal("23.2")
+    assert res[0]["сумма"] == Decimal("14480")
+    assert res[0]["валюта"] == "риал"

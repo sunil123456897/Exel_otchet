@@ -80,7 +80,7 @@ def test_xlsx(temp_dir):
     f = temp_dir / "test_report.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Отчет 01.04"
+    ws.title = "Отчет 01.04.2026"
 
     # Заголовки
     ws.append(
@@ -556,7 +556,7 @@ class TestFullPipeline:
         file2 = temp_dir / "test_report_2.xlsx"
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = "Отчет 02.04"
+        ws.title = "Отчет 02.04.2026"
         ws.append(
             [
                 "Заказчик",

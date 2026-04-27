@@ -22,7 +22,7 @@ def is_file_writable(path: str) -> bool:
     if not p.exists():
         return True
     try:
-        with open(str(p), "r+b") as f:
+        with open(str(p), "r+b"):
             pass
         return True
     except (IOError, PermissionError, OSError):

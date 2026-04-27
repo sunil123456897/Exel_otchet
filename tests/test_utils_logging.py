@@ -102,7 +102,7 @@ def test_temporal_warning_suppression_real_call():
     handler = setup_gui_logging(mock_text_widget)
 
     # Call the function that used to produce a warning
-    extract_date_from_sheet("31.04")
+    extract_date_from_sheet("31.04.2026")
 
     # Check the queue
     messages = []

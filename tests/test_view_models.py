@@ -76,6 +76,24 @@ class TestEmployeeListViewModel:
         assert vm.get_selected_employee_path("Missing") is None
         assert vm.get_selected_employee_path(None) is None
 
+    def test_get_selected_employee_paths(self):
+        vm = EmployeeListViewModel()
+        vm._employees_map = {
+            "Alice": [
+                {"path": "/path/alice-1.xlsx"},
+                {"path": "/path/alice-2.xlsx"},
+            ],
+            "Bob": ["/path/bob.xlsx"],
+        }
+
+        assert vm.get_selected_employee_paths("Alice") == [
+            "/path/alice-1.xlsx",
+            "/path/alice-2.xlsx",
+        ]
+        assert vm.get_selected_employee_paths("Bob") == ["/path/bob.xlsx"]
+        assert vm.get_selected_employee_paths("Missing") == []
+        assert vm.get_selected_employee_paths(None) == []
+
     def test_progress_percent(self):
         vm = EmployeeListViewModel()
         vm._all_employees = [
@@ -217,6 +235,19 @@ class TestConsolidationViewModel:
         assert vm.is_running is False
         assert 50.0 in progress_values
         assert complete_results[0] == (True, "Успешно!", "/path/master.xlsx")
+
+    def test_run_consolidation_passes_curator(self):
+        vm = ConsolidationViewModel()
+        mock_controller = MagicMock()
+        mock_controller.run_consolidation = MagicMock(
+            side_effect=lambda date, on_prog, on_comp, **kwargs: on_comp(
+                True, "Успешно!", "/path/boris.xlsx"
+            )
+        )
+
+        vm.run_consolidation(mock_controller, datetime(2026, 4, 1), curator="boris")
+
+        assert mock_controller.run_consolidation.call_args.kwargs["curator"] == "boris"
 
     def test_double_run_prevented(self):
         """Нельзя запустить дважды одновременно."""

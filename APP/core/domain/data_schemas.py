@@ -14,11 +14,15 @@ class FinancialRowSchema(BaseModel):
     income: Decimal = Decimal("0.00")
     expense: Decimal = Decimal("0.00")
     total: Decimal = Decimal("0.00")
+    transit_obligation: Decimal = Decimal("0.00")
     commission: Decimal = Decimal("0.00")
     percent_broker: Any = Decimal("0.00")
     broker1: Decimal = Decimal("0.00")
     broker2: Decimal = Decimal("0.00")
     percent_broker2: Any = Decimal("0.00")
+    exchange_rate: Decimal = Decimal("0.00")
+    currency_amount: Decimal = Decimal("0.00")
+    currency: Optional[str] = ""
     filters: Optional[str] = ""
 
     _sheet_name: Optional[str] = None
@@ -44,11 +48,14 @@ class FinancialRowSchema(BaseModel):
         "income",
         "expense",
         "total",
+        "transit_obligation",
         "commission",
         "percent_broker",
         "broker1",
         "broker2",
         "percent_broker2",
+        "exchange_rate",
+        "currency_amount",
         mode="before",
     )
     @classmethod

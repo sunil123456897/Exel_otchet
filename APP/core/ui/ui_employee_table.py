@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import ttk
-from core.ui.theme import ThemeManager
 
 class EmployeeTable(ttk.Frame):
     def __init__(self, parent, controller):

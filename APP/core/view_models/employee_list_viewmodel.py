@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Callable, Optional
 from datetime import datetime
 from pathlib import Path
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +177,19 @@ class EmployeeListViewModel:
             return None
         meta = metas[0]
         return meta["path"] if isinstance(meta, dict) else meta
+
+    def get_selected_employee_paths(self, selected_name: Optional[str]) -> List[str]:
+        """Получить все пути выбранного сотрудника."""
+        if not selected_name:
+            return []
+        with self._lock:
+            metas = list(self._employees_map.get(selected_name, []))
+        paths: List[str] = []
+        for meta in metas:
+            path = meta["path"] if isinstance(meta, dict) else meta
+            if path:
+                paths.append(path)
+        return paths
 
     def get_progress_percent(self) -> float:
         """Процент готовности (для прогресс-бара)."""

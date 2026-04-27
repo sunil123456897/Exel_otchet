@@ -1,6 +1,5 @@
 import os
 import logging
-import uuid
 import concurrent.futures
 from datetime import datetime
 from pathlib import Path
@@ -185,7 +184,13 @@ def process_file_task(
     file_ids = persistence.save_file_metadata(session_id, [meta])
     file_id = file_ids[0]
     try:
-        rows = ingestion.read_file(Path(path_str), strict_io=True)
+        rows = ingestion.read_file(
+            Path(path_str),
+            strict_io=True,
+            target_date_str=target_date_str,
+            start_date_str=start_date_str,
+            end_date_str=end_date_str,
+        )
         valid_rows = []
         target_date = (
             datetime.strptime(target_date_str, "%d.%m.%Y") if target_date_str else None

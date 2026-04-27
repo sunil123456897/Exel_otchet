@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from core.infra.rsch_report import build_rsch_report
 
@@ -125,12 +126,159 @@ def _create_template_book(path: Path) -> None:
             "Приход",
             "Расход",
             "р/с",
+            "Источник",
         ]
     )
-    ws.append([datetime(2026, 4, 13), "", "", "", "", 0, 0, ""])
-    ws.append(["ИТОГО:", None, None, None, None, "=SUM(F2:F2)", "=SUM(G2:G2)", None])
+    ws.append([datetime(2026, 4, 13), "", "", "", "", 0, 0, "", ""])
+    ws.append(
+        ["ИТОГО:", None, None, None, None, "=SUM(F2:F2)", "=SUM(G2:G2)", None, None]
+    )
     ws["F2"].number_format = "#,##0.00"
     ws["G2"].number_format = "#,##0.00"
+    wb.save(path)
+
+
+def _create_styled_modern_template_book(path: Path) -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "13.04"
+    purple = "FF7030A0"
+    peach = "FFFCE4D6"
+
+    ws.append(
+        [
+            "Дата",
+            "ИСПОЛНИТЕЛЬ",
+            "ЗАКАЗЧИК",
+            "Контрагент",
+            "Комментарий",
+            "Приход",
+            "Расход",
+            "р/с",
+            "Источник",
+        ]
+    )
+    ws.append([datetime(2026, 4, 13), "", "", "", "", 0, 0, "", ""])
+    ws.append(
+        ["ИТОГО:", None, None, None, None, "=SUM(F2:F2)", "=SUM(G2:G2)", None, None]
+    )
+
+    for col_idx in range(1, 10):
+        cell = ws.cell(1, col_idx)
+        cell.fill = PatternFill(fill_type="solid", fgColor=purple)
+        cell.font = Font(color="FFFFFFFF", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    for ref in ("A3", "F3", "G3"):
+        ws[ref].fill = PatternFill(fill_type="solid", fgColor=peach)
+        ws[ref].font = Font(bold=True)
+
+    ws["E2"].alignment = Alignment(horizontal="center", vertical="center")
+    ws["H2"].alignment = Alignment(horizontal="center", vertical="center")
+
+    ws["F2"].number_format = "#,##0.0000"
+    ws["G2"].number_format = "#,##0.0000"
+    ws["F3"].number_format = "0.0"
+    ws["G3"].number_format = "0.0"
+    ws.freeze_panes = "A2"
+    wb.save(path)
+
+
+def _create_legacy_template_book(path: Path) -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "13.04"
+
+    dark_blue = "FF1F4E79"
+    light_blue = "FFD9E1F2"
+    green_fill = "FFC6EFCE"
+    red_fill = "FFFFC7CE"
+    green_font = "FF006100"
+    red_font = "FF9C0006"
+    white = "FFFFFFFF"
+    black = "FF000000"
+
+    thin = Side(style="thin", color=black)
+    medium = Side(style="medium", color=black)
+
+    header_font = Font(color=white, bold=True)
+    header_fill = PatternFill(fill_type="solid", fgColor=dark_blue)
+    header_alignment = Alignment(
+        horizontal="center", vertical="center", wrap_text=True
+    )
+    data_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    total_border = Border(left=medium, right=medium, top=medium, bottom=medium)
+
+    ws.append(
+        [
+            "Дата",
+            "Контрагент",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
+            "р/с",
+        ]
+    )
+    ws.append(
+        [
+            datetime(2026, 4, 13),
+            'ООО "Манyфактура"',
+            "МРВ",
+            "СТИ",
+            100,
+            50,
+            "40702810638000239606",
+        ]
+    )
+    ws.append(["ИТОГО:", None, None, None, "=SUM(E2:E2)", "=SUM(F2:F2)", None])
+
+    for col_idx in range(1, 8):
+        cell = ws.cell(1, col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = data_border
+
+    ws["A2"].number_format = "mm-dd-yy"
+    ws["A2"].alignment = Alignment(horizontal="left", vertical="center")
+    ws["A2"].border = data_border
+
+    ws["B2"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    ws["B2"].border = data_border
+    ws["C2"].alignment = Alignment(horizontal="left", vertical="center")
+    ws["C2"].border = data_border
+    ws["D2"].alignment = Alignment(horizontal="left", vertical="center")
+    ws["D2"].border = data_border
+
+    ws["E2"].number_format = "#,##0.00"
+    ws["E2"].font = Font(color=green_font, bold=True)
+    ws["E2"].fill = PatternFill(fill_type="solid", fgColor=green_fill)
+    ws["E2"].alignment = Alignment(horizontal="right", vertical="center")
+    ws["E2"].border = data_border
+
+    ws["F2"].number_format = "#,##0.00"
+    ws["F2"].font = Font(color=red_font, bold=True)
+    ws["F2"].fill = PatternFill(fill_type="solid", fgColor=red_fill)
+    ws["F2"].alignment = Alignment(horizontal="right", vertical="center")
+    ws["F2"].border = data_border
+
+    ws["G2"].alignment = Alignment(horizontal="left", vertical="center")
+    ws["G2"].border = data_border
+
+    ws["A3"].font = Font(bold=True)
+    ws["A3"].fill = PatternFill(fill_type="solid", fgColor=light_blue)
+    ws["A3"].border = total_border
+    ws["E3"].font = Font(bold=True)
+    ws["E3"].fill = PatternFill(fill_type="solid", fgColor=light_blue)
+    ws["E3"].border = total_border
+    ws["E3"].number_format = "#,##0.00"
+    ws["F3"].font = Font(bold=True)
+    ws["F3"].fill = PatternFill(fill_type="solid", fgColor=light_blue)
+    ws["F3"].border = total_border
+    ws["F3"].number_format = "#,##0.00"
+
+    ws.freeze_panes = "A2"
     wb.save(path)
 
 
@@ -153,7 +301,7 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     wb = load_workbook(output, data_only=False)
     ws = wb["13.04"]
 
-    assert [ws.cell(1, c).value for c in range(1, 9)] == [
+    assert [ws.cell(1, c).value for c in range(1, 10)] == [
         "Дата",
         "ИСПОЛНИТЕЛЬ",
         "ЗАКАЗЧИК",
@@ -162,6 +310,7 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
         "Приход",
         "Расход",
         "р/с",
+        "Источник",
     ]
 
     # income leg from left D/E, expense comment is ignored
@@ -172,6 +321,7 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     assert ws.cell(2, 6).value == 100
     assert ws.cell(2, 7).value == 0
     assert ws.cell(2, 8).value == "40702810"
+    assert ws.cell(2, 9).value == "source.xlsx | сти рсч | строка 3"
 
     # expense leg from right H/I and comment from J
     assert ws.cell(3, 2).value == "СТИ"
@@ -181,6 +331,7 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     assert ws.cell(3, 6).value == 0
     assert ws.cell(3, 7).value == 200
     assert ws.cell(3, 8).value == "40702811"
+    assert ws.cell(3, 9).value == "source.xlsx | сти рсч | строка 4"
 
     # both-leg row stays as one operation, keeps both signs, and takes comment from J
     assert ws.cell(4, 2).value == "СТИ"
@@ -190,6 +341,7 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     assert ws.cell(4, 6).value == -30
     assert ws.cell(4, 7).value == -40
     assert ws.cell(4, 8).value == "40702812"
+    assert ws.cell(4, 9).value == "source.xlsx | сти рсч | строка 5"
 
     assert ws.cell(5, 1).value == "ИТОГО:"
     assert ws.cell(5, 6).value == "=SUM(F2:F4)"
@@ -244,6 +396,93 @@ def test_build_rsch_report_combines_multiple_sources(tmp_path: Path) -> None:
     assert ws.cell(8, 1).value == "ИТОГО:"
     assert ws.cell(8, 6).value == "=SUM(F2:F7)"
     assert ws.cell(8, 7).value == "=SUM(G2:G7)"
+
+
+def test_build_rsch_report_normalizes_formatting_from_legacy_template(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.xlsx"
+    template = tmp_path / "legacy_template.xlsx"
+    output = tmp_path / "report_legacy_style.xlsx"
+
+    _create_source_book(source)
+    _create_legacy_template_book(template)
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+    )
+
+    assert written == 3
+
+    wb = load_workbook(output, data_only=False)
+    ws = wb["13.04"]
+
+    assert ws.freeze_panes == "A2"
+    assert ws.auto_filter.ref == "A1:I4"
+
+    for col_idx in range(1, 9):
+        cell = ws.cell(1, col_idx)
+        assert cell.fill.fgColor.rgb == "FF1F4E79"
+        assert cell.font.bold is True
+        assert cell.font.color.rgb == "FFFFFFFF"
+        assert cell.alignment.horizontal == "center"
+        assert cell.alignment.vertical == "center"
+
+    assert ws.cell(2, 5).number_format == "General"
+    assert ws.cell(2, 5).fill.fill_type is None
+    assert ws.cell(3, 5).alignment.wrap_text is True
+
+    assert ws.cell(2, 6).number_format == "#,##0.00"
+    assert ws.cell(3, 7).number_format == "#,##0.00"
+    assert ws.cell(5, 6).number_format == "#,##0.00"
+    assert ws.cell(5, 7).number_format == "#,##0.00"
+
+    assert ws.cell(2, 8).border.left.style == "thin"
+    assert ws.cell(2, 8).border.right.style == "thin"
+
+    assert ws.cell(5, 1).fill.fgColor.rgb == "FFD9E1F2"
+    assert ws.cell(5, 6).fill.fgColor.rgb == "FFD9E1F2"
+    assert ws.cell(5, 7).fill.fgColor.rgb == "FFD9E1F2"
+    assert ws.cell(5, 5).number_format == "General"
+    assert ws.cell(5, 9).number_format == "General"
+
+
+def test_build_rsch_report_preserves_modern_template_palette_and_data_formats(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.xlsx"
+    template = tmp_path / "styled_modern_template.xlsx"
+    output = tmp_path / "report_modern_style.xlsx"
+
+    _create_source_book(source)
+    _create_styled_modern_template_book(template)
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+    )
+
+    assert written == 3
+
+    wb = load_workbook(output, data_only=False)
+    ws = wb["13.04"]
+
+    for col_idx in range(1, 10):
+        assert ws.cell(1, col_idx).fill.fgColor.rgb == "FF7030A0"
+
+    assert ws.cell(2, 6).number_format == "#,##0.0000"
+    assert ws.cell(3, 7).number_format == "#,##0.0000"
+    assert ws.cell(2, 5).alignment.horizontal == "center"
+    assert ws.cell(2, 8).alignment.horizontal == "center"
+    assert ws.cell(2, 8).border.left.style is None
+    assert ws.cell(5, 1).fill.fgColor.rgb == "FFFCE4D6"
+    assert ws.cell(5, 6).fill.fgColor.rgb == "FFFCE4D6"
+    assert ws.cell(5, 7).fill.fgColor.rgb == "FFFCE4D6"
 
 
 def test_combined_income_and_expense_row_is_marked_yellow_but_keeps_amount_colors(

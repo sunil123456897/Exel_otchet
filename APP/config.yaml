@@ -35,11 +35,15 @@ sh1:
     broker2: посредник 2
     commission: комиссия
     contractor: Исполнитель
+    currency: валюта
+    currency_amount: сумма
+    exchange_rate: курс
     customer: Заказчик
     expense: расход
     filters: фильтры
     income: приход
     percent_broker: '% посредника'
+    transit_obligation: отправка транзитных обязательств
     total: итог
 sh2: {}
 curators:
@@ -50,7 +54,6 @@ curators:
     employees_key: борис
     direct_paths: []
     headers:
-      - Дата
       - Источник
       - ЗАКАЗЧИК
       - ИСПОЛНИТЕЛЬ
@@ -71,19 +74,28 @@ curators:
     employees_key: иван
     direct_paths: []
     headers:
-      - Заказчик (название проекта, наименование ЮЛ)
-      - Исполнитель (наименование ЮЛ, банк)
-      - Сумма платежа
+      - Сотрудник
+      - ЗАКАЗЧИК
+      - ИСПОЛНИТЕЛЬ
+      - Приход
+      - Расход
       - Комиссия
-      - Итог
-      - '%'
-      - Комиссия посредника 1
-      - '% посредник 2'
-      - Комиссия посредника 2
-      - Фильтр
+      - ИТОГ
+      - ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ
+      - '% посредника 1'
+      - посредник 1(кэш)
+      - посредник 2
+      - курс
+      - сумма
+      - валюта
+      - фильтры
 validation: {}
 rsch:
   recent_sources:
-    - E:\Dlia Dashi\Version5\РСЧ\рсч для инструкции.xlsx
+    - E:\Dlia Dashi\Version5\рсч всех\!!РСЧ Ханде.xlsx
+    - E:\Dlia Dashi\Version5\рсч всех\!РСЧ_Алина.xlsx
+    - E:\Dlia Dashi\Version5\рсч всех\РСЧ Антон.xlsx
+    - E:\Dlia Dashi\Version5\рсч всех\РСЧ дядя Розетта.xlsx
+    - E:\Dlia Dashi\Version5\рсч всех\РСЧ Моника.xlsx
   last_output_dir: E:\Dlia Dashi\Version5\РСЧ
   mode: combined
