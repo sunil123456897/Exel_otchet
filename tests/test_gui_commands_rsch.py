@@ -217,6 +217,35 @@ def test_run_rsch_report_per_file_mode_avoids_name_collisions(commands_fixture):
     assert args[1][0].name != args[1][1].name
 
 
+def test_run_rsch_report_month_uses_selected_period(commands_fixture):
+    cmd, _root, sidebar = commands_fixture
+    start = datetime(2026, 4, 1)
+    end = datetime(2026, 4, 30)
+    sidebar.get_month_range.return_value = (start, end)
+
+    with (
+        patch("core.ui.gui_commands.messagebox.askyesno", return_value=False),
+        patch(
+            "core.ui.gui_commands.filedialog.askopenfilenames",
+            return_value=("C:/in.xlsx",),
+        ),
+        patch(
+            "core.ui.gui_commands.filedialog.asksaveasfilename",
+            return_value="C:/rsch_period.xlsx",
+        ),
+    ):
+        cmd.run_rsch_report_month()
+
+    sidebar.set_rsch_state.assert_called_once_with("disabled")
+    cmd.app_controller.run_rsch_report_period.assert_called_once()
+    args = cmd.app_controller.run_rsch_report_period.call_args[0]
+    assert args[0] == [Path("C:/in.xlsx")]
+    assert args[1] == Path("C:/rsch_period.xlsx")
+    assert args[2] == start
+    assert args[3] == end
+    assert callable(args[4])
+
+
 def test_apply_saved_rsch_mode_on_init(commands_fixture):
     cmd, _root, sidebar = commands_fixture
     cmd.config_controller.config = {"rsch": {"mode": "per_file"}}

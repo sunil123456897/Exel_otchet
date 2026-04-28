@@ -703,6 +703,64 @@ class AppController:
 
         self._start_thread(task)
 
+    def run_rsch_report_period(
+        self,
+        source_paths: Path | Sequence[Path],
+        output_path: Path,
+        start_date,
+        end_date,
+        on_complete: Callable[[bool, str, Optional[Path]], None],
+    ) -> None:
+        """Build one RSC control workbook with one sheet per row date in range."""
+
+        def task() -> None:
+            try:
+                start = start_date.date() if hasattr(start_date, "date") else start_date
+                end = end_date.date() if hasattr(end_date, "date") else end_date
+
+                if isinstance(source_paths, (str, Path)):
+                    normalized_sources = [Path(source_paths)]
+                else:
+                    normalized_sources = [Path(p) for p in source_paths]
+
+                issues: List[str] = []
+                written_rows = build_rsch_report(
+                    normalized_sources,
+                    output_path,
+                    start_date=start,
+                    end_date=end,
+                    issues_sink=issues,
+                )
+
+                if issues:
+                    unique_issues = []
+                    seen = set()
+                    for issue in issues:
+                        if issue in seen:
+                            continue
+                        seen.add(issue)
+                        unique_issues.append(issue)
+
+                    preview = "; ".join(unique_issues[:3])
+                    if len(unique_issues) > 3:
+                        preview += f"; и еще {len(unique_issues) - 3}"
+                    msg = (
+                        f"РСЧ отчет за период собран: {written_rows} строк из {len(normalized_sources)} файлов. "
+                        f"Есть проблемы с листами: {preview}"
+                    )
+                else:
+                    msg = (
+                        f"РСЧ отчет за период собран: {written_rows} строк из "
+                        f"{len(normalized_sources)} файлов"
+                    )
+
+                on_complete(True, msg, output_path)
+            except Exception as e:
+                logging.error("RSC period build error: %s", e)
+                on_complete(False, f"Ошибка сборки РСЧ за период: {e}", None)
+
+        self._start_thread(task)
+
     def run_rsch_report_batch(
         self,
         source_paths: Sequence[Path],

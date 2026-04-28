@@ -398,6 +398,114 @@ def test_build_rsch_report_combines_multiple_sources(tmp_path: Path) -> None:
     assert ws.cell(8, 7).value == "=SUM(G2:G7)"
 
 
+def test_build_rsch_report_period_creates_one_sheet_per_row_date(tmp_path: Path) -> None:
+    source = tmp_path / "source.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "report_period.xlsx"
+
+    _create_source_book_with_rows(
+        source,
+        [
+            [
+                datetime(2026, 4, 12),
+                None,
+                None,
+                "Before",
+                "Before Contractor",
+                1000,
+                0,
+                "",
+                "",
+                None,
+                None,
+                "40700000",
+            ],
+            [
+                datetime(2026, 4, 13),
+                None,
+                "Комментарий 13",
+                "Project 13",
+                "Contractor 13",
+                100,
+                0,
+                "",
+                "",
+                None,
+                None,
+                "40700013",
+            ],
+            [
+                "14.04.2026",
+                None,
+                None,
+                "Project 14 income",
+                "Contractor 14 income",
+                0,
+                200,
+                "Project 14 expense",
+                "Contractor 14 expense",
+                "Комментарий 14",
+                None,
+                "40700014",
+            ],
+            [
+                "15.04",
+                None,
+                None,
+                "No Year",
+                "No Year Contractor",
+                300,
+                0,
+                "",
+                "",
+                None,
+                None,
+                "40700015",
+            ],
+            [
+                datetime(2026, 4, 16),
+                None,
+                None,
+                "After",
+                "After Contractor",
+                400,
+                0,
+                "",
+                "",
+                None,
+                None,
+                "40700016",
+            ],
+        ],
+    )
+    _create_template_book(template)
+
+    written = build_rsch_report(
+        source,
+        output,
+        start_date=date(2026, 4, 13),
+        end_date=date(2026, 4, 14),
+        template_path=template,
+    )
+
+    assert written == 2
+
+    wb = load_workbook(output, data_only=False)
+    assert wb.sheetnames == ["13.04", "14.04"]
+
+    ws_13 = wb["13.04"]
+    assert ws_13.cell(2, 3).value == "Project 13"
+    assert ws_13.cell(2, 9).value == "source.xlsx | сти рсч | строка 4"
+    assert ws_13.cell(3, 1).value == "ИТОГО:"
+    assert ws_13.cell(3, 6).value == "=SUM(F2:F2)"
+
+    ws_14 = wb["14.04"]
+    assert ws_14.cell(2, 3).value == "Project 14 expense"
+    assert ws_14.cell(2, 5).value == "Комментарий 14"
+    assert ws_14.cell(2, 7).value == 200
+    assert ws_14.cell(3, 7).value == "=SUM(G2:G2)"
+
+
 def test_build_rsch_report_normalizes_formatting_from_legacy_template(
     tmp_path: Path,
 ) -> None:

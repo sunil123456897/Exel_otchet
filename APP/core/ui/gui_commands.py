@@ -179,6 +179,61 @@ class GuiCommands:
             self._on_rsch_complete,
         )
 
+    def run_rsch_report_month(self):
+        start_date, end_date = self.sidebar.get_month_range()
+        if start_date > end_date:
+            messagebox.showerror(
+                "Ошибка", "Дата начала должна быть раньше даты окончания"
+            )
+            return
+
+        source_paths: List[Path] = []
+        saved_sources = self._get_saved_rsch_sources()
+        if saved_sources:
+            existing_saved = [p for p in saved_sources if p.exists()]
+            use_saved = messagebox.askyesnocancel(
+                "РСЧ файлы",
+                "Использовать сохраненный набор файлов РСЧ?",
+            )
+            if use_saved is None:
+                return
+            if use_saved:
+                if existing_saved:
+                    source_paths = existing_saved
+                else:
+                    messagebox.showwarning(
+                        "РСЧ файлы",
+                        "Сохраненные пути не найдены. Выберите файлы заново.",
+                    )
+
+        if not source_paths:
+            source_paths = self._select_rsch_sources(saved_sources)
+            if not source_paths:
+                return
+
+        start_suffix = start_date.strftime("%d.%m.%Y")
+        end_suffix = end_date.strftime("%d.%m.%Y")
+        default_name = f"РСЧ_отчет_{start_suffix}-{end_suffix}.xlsx"
+        output = filedialog.asksaveasfilename(
+            title="Сохранить ШО отчет за период",
+            defaultextension=".xlsx",
+            initialfile=default_name,
+            initialdir=self._suggest_rsch_output_dir(source_paths),
+            filetypes=[("Excel files", "*.xlsx")],
+        )
+        if not output:
+            return
+
+        self._save_rsch_preferences(source_paths, Path(output), "combined")
+        self.sidebar.set_rsch_state("disabled")
+        self.app_controller.run_rsch_report_period(
+            source_paths,
+            Path(output),
+            start_date,
+            end_date,
+            self._on_rsch_complete,
+        )
+
     def _get_rsch_config(self) -> dict:
         cfg = getattr(self.config_controller, "config", None)
         if not isinstance(cfg, dict):

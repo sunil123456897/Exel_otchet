@@ -116,6 +116,9 @@ class GuiMaster:
     def run_rsch_report(self):
         self.commands.run_rsch_report()
 
+    def run_rsch_report_month(self):
+        self.commands.run_rsch_report_month()
+
     def add_employee_dialog(self):
         self.commands.add_employee_dialog()
 

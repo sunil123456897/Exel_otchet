@@ -147,7 +147,14 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_consolidation_month,
         )
-        self.consolidate_month_btn.pack(fill=tk.X)
+        self.consolidate_month_btn.pack(fill=tk.X, pady=(0, 5))
+
+        self.rsch_month_btn = ttk.Button(
+            month_frame,
+            text="🧾 СОБРАТЬ РСЧ ЗА ПЕРИОД",
+            command=self.controller.run_rsch_report_month,
+        )
+        self.rsch_month_btn.pack(fill=tk.X)
 
         self.rsch_btn = ttk.Button(
             action_frame,
@@ -226,6 +233,8 @@ class Sidebar(ttk.Frame):
 
     def set_rsch_state(self, state):
         self.rsch_btn.config(state=state)
+        if hasattr(self, "rsch_month_btn"):
+            self.rsch_month_btn.config(state=state)
 
     def get_rsch_mode(self) -> str:
         value = self.rsch_mode_var.get()

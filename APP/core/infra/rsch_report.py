@@ -264,6 +264,8 @@ def _collect_rows_from_sheet(
     ws: Worksheet,
     target_date: Optional[date],
     source_name: str,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> List[Dict[str, Any]]:
     header_row_idx = _find_header_row(ws)
     if header_row_idx is None:
@@ -277,6 +279,8 @@ def _collect_rows_from_sheet(
         if row_date is None:
             continue
         if target_date and row_date != target_date:
+            continue
+        if start_date and end_date and not (start_date <= row_date <= end_date):
             continue
 
         income = _to_decimal(ws.cell(row_idx, col_map["income"]).value)
@@ -674,6 +678,8 @@ def _collect_rows_from_workbook(
     source_path: Path,
     target_date: Optional[date],
     issues_sink: Optional[List[str]] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> List[Dict[str, Any]]:
     wb_source = openpyxl.load_workbook(source_path, data_only=True)
     try:
@@ -684,7 +690,15 @@ def _collect_rows_from_workbook(
             if not _is_rsch_sheet_title(ws.title):
                 continue
             try:
-                rows.extend(_collect_rows_from_sheet(ws, target_date, source_path.name))
+                rows.extend(
+                    _collect_rows_from_sheet(
+                        ws,
+                        target_date,
+                        source_path.name,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                )
             except Exception as e:
                 issue = (
                     f"Лист '{ws.title}' в файле '{source_path.name}' пропущен: {e}"
@@ -748,57 +762,38 @@ def _create_builtin_template_workbook() -> Workbook:
     return wb
 
 
-def build_rsch_report(
-    source_path: Path | str | Sequence[Path | str],
-    output_path: Path,
+def _write_rsch_sheet(
+    wb_out: Workbook,
+    template_ws: Worksheet,
+    sheet_name: str,
+    rows: List[Dict[str, Any]],
     *,
-    target_date: Optional[date] = None,
-    template_path: Optional[Path] = None,
-    issues_sink: Optional[List[str]] = None,
-) -> int:
-    source_paths = _normalize_source_paths(source_path)
-    output_path = Path(output_path)
-    template_to_use = (
-        Path(template_path) if template_path else DEFAULT_RSCH_TEMPLATE_PATH
-    )
+    first_sheet: bool,
+) -> None:
+    ws_out = wb_out.active if first_sheet else wb_out.create_sheet()
+    ws_out.title = sheet_name
 
-    if not source_paths:
-        raise ValueError("Не выбраны файлы РСЧ")
-    for src_path in source_paths:
-        if not src_path.exists():
-            raise FileNotFoundError(f"Не найден файл РСЧ: {src_path}")
-    if template_to_use.exists():
-        wb_template = openpyxl.load_workbook(template_to_use)
-    elif template_path is not None:
-        raise FileNotFoundError(f"Не найден шаблон РСЧ: {template_to_use}")
-    else:
-        warning = (
-            f"Шаблон РСЧ не найден: {template_to_use}. "
-            "Используется встроенный шаблон."
-        )
-        logger.warning(warning)
-        if issues_sink is not None:
-            issues_sink.append(warning)
-        wb_template = _create_builtin_template_workbook()
+    style_layout = _resolve_template_style_layout(template_ws)
+    ws_out.append(RSCH_HEADERS)
 
-    template_ws = wb_template[wb_template.sheetnames[0]]
+    for col_idx, _ in enumerate(RSCH_HEADERS, start=1):
+        header_source = template_ws.cell(1, style_layout["header_cols"][col_idx])
+        _copy_style(header_source, ws_out.cell(1, col_idx))
+        col = get_column_letter(col_idx)
+        source_col = get_column_letter(style_layout["width_cols"][col_idx])
+        src_dim = template_ws.column_dimensions.get(source_col)
+        if src_dim and src_dim.width:
+            ws_out.column_dimensions[col].width = src_dim.width
 
-    rows: List[Dict[str, Any]] = []
-    issues: List[str] = []
-    for src_path in source_paths:
-        rows.extend(_collect_rows_from_workbook(src_path, target_date, issues))
+    ws_out.freeze_panes = template_ws.freeze_panes
+    ws_out.sheet_view.zoomScale = template_ws.sheet_view.zoomScale
+    ws_out.sheet_view.showGridLines = template_ws.sheet_view.showGridLines
+    ws_out.sheet_format.defaultRowHeight = template_ws.sheet_format.defaultRowHeight
+    header_height = template_ws.row_dimensions[1].height
+    if header_height:
+        ws_out.row_dimensions[1].height = header_height
 
-    if issues_sink is not None:
-        issues_sink.extend(issues)
-
-    if issues:
-        logger.warning(
-            "РСЧ: обнаружены проблемы в листах (%s). Сборка продолжена по валидным листам.",
-            len(issues),
-        )
-
-    sheet_name = target_date.strftime("%d.%m") if target_date else template_ws.title
-    wb_out, ws_out, style_layout = _prepare_output_sheet(template_ws, sheet_name)
+    _ensure_header_style(ws_out, style_layout["legacy_template"])
 
     template_data_row_idx = 2 if template_ws.max_row >= 2 else 1
     for row in rows:
@@ -859,6 +854,91 @@ def build_rsch_report(
     ws_out.auto_filter.ref = (
         f"A1:{get_column_letter(len(RSCH_HEADERS))}{max(1, total_row_idx - 1)}"
     )
+
+
+def build_rsch_report(
+    source_path: Path | str | Sequence[Path | str],
+    output_path: Path,
+    *,
+    target_date: Optional[date] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    template_path: Optional[Path] = None,
+    issues_sink: Optional[List[str]] = None,
+) -> int:
+    source_paths = _normalize_source_paths(source_path)
+    output_path = Path(output_path)
+    template_to_use = (
+        Path(template_path) if template_path else DEFAULT_RSCH_TEMPLATE_PATH
+    )
+
+    if not source_paths:
+        raise ValueError("Не выбраны файлы РСЧ")
+    for src_path in source_paths:
+        if not src_path.exists():
+            raise FileNotFoundError(f"Не найден файл РСЧ: {src_path}")
+    if template_to_use.exists():
+        wb_template = openpyxl.load_workbook(template_to_use)
+    elif template_path is not None:
+        raise FileNotFoundError(f"Не найден шаблон РСЧ: {template_to_use}")
+    else:
+        warning = (
+            f"Шаблон РСЧ не найден: {template_to_use}. "
+            "Используется встроенный шаблон."
+        )
+        logger.warning(warning)
+        if issues_sink is not None:
+            issues_sink.append(warning)
+        wb_template = _create_builtin_template_workbook()
+
+    template_ws = wb_template[wb_template.sheetnames[0]]
+
+    rows: List[Dict[str, Any]] = []
+    issues: List[str] = []
+    for src_path in source_paths:
+        rows.extend(
+            _collect_rows_from_workbook(
+                src_path,
+                target_date,
+                issues,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+
+    if issues_sink is not None:
+        issues_sink.extend(issues)
+
+    if issues:
+        logger.warning(
+            "РСЧ: обнаружены проблемы в листах (%s). Сборка продолжена по валидным листам.",
+            len(issues),
+        )
+
+    use_period = start_date is not None and end_date is not None
+    wb_out = Workbook()
+    if use_period and rows:
+        rows_by_date: Dict[date, List[Dict[str, Any]]] = {}
+        for row in rows:
+            rows_by_date.setdefault(row["date"], []).append(row)
+        for idx, row_date in enumerate(sorted(rows_by_date), start=1):
+            _write_rsch_sheet(
+                wb_out,
+                template_ws,
+                row_date.strftime("%d.%m"),
+                rows_by_date[row_date],
+                first_sheet=idx == 1,
+            )
+    else:
+        sheet_date = target_date or start_date
+        sheet_name = sheet_date.strftime("%d.%m") if sheet_date else template_ws.title
+        _write_rsch_sheet(
+            wb_out,
+            template_ws,
+            sheet_name,
+            rows,
+            first_sheet=True,
+        )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb_out.save(output_path)
