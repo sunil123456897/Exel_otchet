@@ -18,7 +18,7 @@ def _resolve_reports_alias(path_str: str, config_controller) -> Optional[Path]:
     if not parts or parts[0].lower() != "reports" or len(parts) < 3:
         return None
 
-    get_paths = getattr(config_controller, "get_paths")
+    get_paths = config_controller.get_paths
     if not callable(get_paths):
         return None
 
@@ -86,7 +86,7 @@ def _resolve_with_config_controller(path_str: str, config_controller) -> Path:
     if reports_alias is not None:
         return reports_alias
 
-    resolver = getattr(config_controller, "resolve_path")
+    resolver = config_controller.resolve_path
     if not callable(resolver):
         return p_abs
 
@@ -145,7 +145,7 @@ def resolve_employee_path(
     path_str: str,
     file_id=None,
     file_hash=None,
-    discovered_files: List[Dict[str, Any]] = None,
+    discovered_files: Optional[List[Dict[str, Any]]] = None,
     config_controller=None,
 ) -> tuple:
     """Резолвит путь к файлу сотрудника с обнаружением переименований.

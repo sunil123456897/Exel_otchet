@@ -1,7 +1,7 @@
 """Consolidation ViewModel — состояние и логика консолидации."""
 
 import threading
-from typing import Callable, Optional
+from typing import Callable
 from datetime import datetime
 from pathlib import Path
 import logging
@@ -15,13 +15,13 @@ class ConsolidationViewModel:
         self._lock = threading.Lock()
         self._is_running = False
         self._progress = 0.0
-        self._on_progress: Optional[Callable[[float], None]] = None
-        self._on_complete: Optional[Callable[[bool, str, Optional[Path]], None]] = None
+        self._on_progress: Callable[[float], None] | None = None
+        self._on_complete: Callable[[bool, str, Path | None], None] | None = None
 
     def set_callbacks(
         self,
         on_progress: Callable[[float], None],
-        on_complete: Callable[[bool, str, Optional[Path]], None],
+        on_complete: Callable[[bool, str, Path | None], None],
     ) -> None:
         self._on_progress = on_progress
         self._on_complete = on_complete
@@ -39,7 +39,7 @@ class ConsolidationViewModel:
             if self._on_progress:
                 self._on_progress(p)
 
-        def on_complete(ok: bool, msg: str, path: Optional[Path]) -> None:
+        def on_complete(ok: bool, msg: str, path: Path | None) -> None:
             with self._lock:
                 self._is_running = False
                 self._progress = 100.0 if ok else self._progress
@@ -52,7 +52,7 @@ class ConsolidationViewModel:
         return missing_count == 0
 
     def run_consolidation(
-        self, app_controller=None, selected_date: datetime = None, curator=None,
+        self, app_controller=None, selected_date: datetime | None = None, curator=None,
     ) -> None:
         ctl = app_controller or self._app_controller
         self._execute(
@@ -74,8 +74,8 @@ class ConsolidationViewModel:
     def run_consolidation_month(
         self,
         app_controller=None,
-        start_date: datetime = None,
-        end_date: datetime = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         curator=None,
     ) -> None:
         ctl = app_controller or self._app_controller

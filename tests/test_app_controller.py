@@ -186,6 +186,50 @@ def test_run_curator_consolidation_filters_employees_and_uses_curator_output(
     assert write_args.kwargs["curator"] == "boris"
 
 
+def test_run_general_consolidation_excludes_enabled_curator_employees(
+    app_controller, mock_deps, mocker
+):
+    app_controller._cached_employees = {
+        "Борис Ж": [{"path": "boris.xlsx"}],
+        "Иван П": [{"path": "ivan.xlsx"}],
+        "Амалия": [{"path": "amalia.xlsx"}],
+    }
+    mock_deps["config_controller"].config = {
+        "curators": {
+            "boris": {"enabled": True, "employees_key": "борис"},
+            "ivan": {"enabled": True, "employees_key": "иван"},
+        }
+    }
+    mocker.patch("os.path.exists", return_value=True)
+
+    mock_deps["persistence"].save_file_metadata.return_value = [1]
+    mock_deps["ingestion"].read_file.return_value = [
+        {"date": "01.01.2023", "amount": 100}
+    ]
+    mock_deps["validator"].validate_row.return_value = True
+    mock_deps["logic_service"].consolidate.return_value = [{"consolidated": True}]
+    mock_deps["persistence"].get_template_errors.return_value = []
+    mock_deps["writer"].write_report.return_value = True
+
+    on_progress = MagicMock()
+    on_complete = MagicMock()
+
+    with (
+        patch("core.app_controller.check_master_lock", return_value=True),
+        patch("threading.Thread") as mock_thread,
+    ):
+        app_controller.run_consolidation(
+            datetime(2023, 1, 1), on_progress, on_complete
+        )
+        task = mock_thread.call_args[1]["target"]
+        task()
+
+    mock_deps["ingestion"].read_file.assert_called_once()
+    assert mock_deps["ingestion"].read_file.call_args.args[0] == Path("amalia.xlsx")
+    assert mock_deps["logic_service"].consolidate.call_args.kwargs["curator"] is None
+    assert "curator" not in mock_deps["writer"].write_report.call_args.kwargs
+
+
 def test_run_consolidation_no_files(app_controller, mock_deps, mocker):
     app_controller._cached_employees = {}
 

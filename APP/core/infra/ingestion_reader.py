@@ -237,11 +237,15 @@ class CalamineReader:
             return None, None
 
         normalized_headers = [_normalize_header_text(v) for v in header_row]
-        mapped_by_index = {
-            col_idx: key
-            for key, col_idx in col_map.items()
-            if key in _STRICT_TEMPLATE_ORDER and col_idx < len(normalized_headers)
-        }
+        mapped_by_index = {}
+        for key in _STRICT_TEMPLATE_ORDER:
+            col_idx = col_map.get(key)
+            if (
+                col_idx is not None
+                and col_idx < len(normalized_headers)
+                and col_idx not in mapped_by_index
+            ):
+                mapped_by_index[col_idx] = key
         if not mapped_by_index:
             return None, None
 
@@ -256,20 +260,20 @@ class CalamineReader:
                 + ", ".join(self._preferred_header_name(key) for key in hard_missing),
             )
 
-        unexpected_headers = [
-            str(header_row[idx]).strip()
+        unexpected_header_items = [
+            (idx, str(header_row[idx]).strip())
             for idx, value in enumerate(normalized_headers)
             if value and idx not in mapped_by_index
         ]
         helper_headers = [
             header
-            for header in unexpected_headers
-            if _normalize_header_text(header) in _STRICT_HELPER_HEADERS
+            for idx, header in unexpected_header_items
+            if self._is_soft_extra_header(idx, header, mapped_by_index)
         ]
         real_unexpected_headers = [
             header
-            for header in unexpected_headers
-            if _normalize_header_text(header) not in _STRICT_HELPER_HEADERS
+            for idx, header in unexpected_header_items
+            if not self._is_soft_extra_header(idx, header, mapped_by_index)
         ]
         if real_unexpected_headers:
             return (
@@ -332,6 +336,44 @@ class CalamineReader:
     def _should_skip_commission_match(key: str, value: str) -> bool:
         return key == "commission" and "посредник" in value
 
+    @staticmethod
+    def _should_skip_currency_amount_match(key: str, value: str) -> bool:
+        return key == "currency_amount" and "сумма платеж" in value
+
+    @staticmethod
+    def _is_boris_second_percent_header(
+        idx: int,
+        normalized_header: str,
+        mapped_by_index: Dict[int, str],
+    ) -> bool:
+        if normalized_header != "%":
+            return False
+
+        positions = {key: col_idx for col_idx, key in mapped_by_index.items()}
+        percent_idx = positions.get("percent_broker")
+        broker1_idx = positions.get("broker1")
+        broker2_idx = positions.get("broker2")
+        if percent_idx is None or broker1_idx is None or broker2_idx is None:
+            return False
+
+        return percent_idx < broker1_idx < idx < broker2_idx
+
+    def _is_soft_extra_header(
+        self,
+        idx: int,
+        header: str,
+        mapped_by_index: Dict[int, str],
+    ) -> bool:
+        normalized_header = _normalize_header_text(header)
+        return (
+            normalized_header in _STRICT_HELPER_HEADERS
+            or self._is_boris_second_percent_header(
+                idx,
+                normalized_header,
+                mapped_by_index,
+            )
+        )
+
     def _find_header_index(
         self,
         header_values: List[str],
@@ -342,6 +384,8 @@ class CalamineReader:
     ) -> Optional[int]:
         for idx, value in enumerate(header_values):
             if self._should_skip_commission_match(key, value):
+                continue
+            if self._should_skip_currency_amount_match(key, value):
                 continue
             if exact and value in tokens:
                 return idx
@@ -365,6 +409,8 @@ class CalamineReader:
             for idx, value in enumerate(header_values):
                 if self._should_skip_commission_match(key, value):
                     continue
+                if self._should_skip_currency_amount_match(key, value):
+                    continue
                 if alias in value or (
                     key == "broker1"
                     and value == "посредник"
@@ -383,7 +429,7 @@ class CalamineReader:
         used_aliases = False
         header_values = [_normalize_header_text(val) for val in header_row]
 
-        for key, marker in self.markers.items():
+        for key in self.markers:
             marker_lowers = self._normalized_markers.get(key, [])
             found_idx = self._find_header_index(
                 header_values, marker_lowers, key, exact=True

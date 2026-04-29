@@ -1,7 +1,8 @@
 from tkinter import ttk
+from typing import ClassVar
 
 class ThemeManager:
-    COLORS = {
+    COLORS: ClassVar[dict[str, str]] = {
         'primary': '#1f4e79',
         'success': '#28a745',
         'danger': '#dc3545',

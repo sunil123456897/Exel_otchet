@@ -93,6 +93,13 @@ class TestAddEmployee:
         config_controller.add_employee("Алексей")
         assert "Алексей" in config_controller.get_employees()
 
+    def test_add_employee_invalidates_discovery_cache(self, config_controller):
+        config_controller.config["discovery_cache"] = {"files": ["stale"]}
+
+        config_controller.add_employee("Алексей")
+
+        assert "discovery_cache" not in config_controller.config
+
     def test_add_duplicate_employee(self, config_controller):
         """Повторное добавление не должно дублировать."""
         config_controller.add_employee("Иван П")
@@ -130,6 +137,13 @@ class TestDeleteEmployee:
         config_controller.delete_employee("Иван П")
         assert "Иван П" not in config_controller.get_employees()
 
+    def test_delete_employee_invalidates_discovery_cache(self, config_controller):
+        config_controller.config["discovery_cache"] = {"files": ["stale"]}
+
+        config_controller.delete_employee("Иван П")
+
+        assert "discovery_cache" not in config_controller.config
+
     def test_delete_removes_custom_paths(self, config_controller):
         """Удаление сотрудника должно удалить его пути."""
         config_controller.delete_employee("Иван П")
@@ -161,6 +175,15 @@ class TestAttachFiles:
         assert paths[0]["path"] == str(f.absolute())
         assert "id" in paths[0]
         assert "fp" in paths[0]
+
+    def test_attach_files_invalidates_discovery_cache(self, config_controller, tmp_path):
+        f = tmp_path / "report.xlsx"
+        f.write_bytes(b"test content")
+        config_controller.config["discovery_cache"] = {"files": ["stale"]}
+
+        config_controller.attach_files("Марго", [str(f)])
+
+        assert "discovery_cache" not in config_controller.config
 
     def test_attach_multiple_files(self, config_controller, tmp_path):
         f1 = tmp_path / "report1.xlsx"

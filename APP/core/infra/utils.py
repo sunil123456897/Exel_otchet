@@ -12,9 +12,9 @@ def open_path(path: str):
     if platform.system() == "Windows":
         os.startfile(path)
     elif platform.system() == "Darwin":
-        subprocess.run(["open", path])
+        subprocess.run(["open", path], check=False)
     else:
-        subprocess.run(["xdg-open", path])
+        subprocess.run(["xdg-open", path], check=False)
 
 
 def is_file_writable(path: str) -> bool:
@@ -32,6 +32,22 @@ def is_file_writable(path: str) -> bool:
 _CACHE_DIR = Path(tempfile.gettempdir()) / "master_report_cache"
 
 
+def _is_configured_drive_path(path: str, drive_letters: tuple) -> bool:
+    if len(path) < 2 or path[1] != ":":
+        return False
+
+    configured_drives = {
+        str(letter).strip().upper().rstrip(":\\/")
+        for letter in drive_letters
+        if str(letter).strip()
+    }
+    return path[0].upper() in configured_drives
+
+
+def _is_network_path(path: str, drive_letters: tuple) -> bool:
+    return path.startswith("\\\\") or _is_configured_drive_path(path, drive_letters)
+
+
 def get_local_copy(
     network_path: str,
     drive_letters: tuple = ("Q", "Z"),
@@ -45,9 +61,7 @@ def get_local_copy(
     """
     if not network_path:
         return network_path, None
-    is_network = (
-        network_path.startswith("\\\\") or network_path[0].upper() in drive_letters
-    )
+    is_network = _is_network_path(network_path, drive_letters)
     if not is_network:
         return network_path, None
 

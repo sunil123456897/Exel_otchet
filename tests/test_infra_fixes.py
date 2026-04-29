@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch, DEFAULT
 from core.infra.ingestion_reader import CalamineReader
 from core.infra.config_controller import ConfigController
 from core.bootstrap import Bootstrap
-from core.infra.utils_logging import TextHandler
+from core.infra.utils_logging import TextHandler, safe_file_label, scrub_path
 from core.app_controller import AppController
 from core.infra.session_repo import SQLiteManager
 from core.infra.export_writer import MasterWriter
@@ -82,6 +82,23 @@ def test_logging_handler_batch_processing():
     assert mock_widget.insert.call_count == 50
     assert mock_widget.after_idle.call_count == 1  # From initial emit
     assert mock_widget.after.call_count == 1  # From _process_queue rescheduling
+
+
+def test_log_scrubber_masks_windows_user_and_smb_share():
+    raw = r"C:\Users\Monica82.WIN-LAVS7U1SPLC\Desktop\APP"
+    assert "Monica82" not in scrub_path(raw)
+
+    smb = r"\\server-q\q\Отчет кураторов 1\Иван\Иван отчет новый.xlsx"
+    scrubbed = scrub_path(smb)
+    assert "server-q" not in scrubbed
+    assert r"\\<server>\<share>" in scrubbed
+
+
+def test_safe_file_label_hides_parent_directories():
+    label = safe_file_label(r"\\server-q\q\Иван\secret.xlsx")
+    assert "server-q" not in label
+    assert "Иван" not in label
+    assert label.startswith("secret.xlsx#")
 
 
 # 4. Test Pre-flight Lock Check

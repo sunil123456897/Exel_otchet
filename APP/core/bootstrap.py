@@ -34,6 +34,7 @@ class DatabaseConfig(BaseModel):
     path: str = "cache.db"
     schema_path: str = "db_schema.sql"
     timeout: float = 30.0
+    allow_local_fallback: bool = False
 
 
 class LockingConfig(BaseModel):
@@ -231,6 +232,12 @@ class Bootstrap:
 
         db_ok, db_error = _can_open_sqlite_path(Path(db_path), db_timeout)
         if not db_ok:
+            if not bool(db_cfg.get("allow_local_fallback", False)):
+                raise RuntimeError(
+                    f"Configured DB path is not writable: {db_path} ({db_error}). "
+                    "Refusing local fallback in production. Set "
+                    "database.allow_local_fallback: true for dev/test fallback."
+                )
             logging.warning(
                 "Configured DB path is not writable (%s). Falling back to local app DB.",
                 db_error,

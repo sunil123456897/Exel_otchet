@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Callable, Optional
 
 from core.infra import is_file_writable
+from core.infra.utils_logging import safe_file_label, scrub_path
 
 
 logger = logging.getLogger(__name__)
@@ -158,7 +159,7 @@ def check_master_lock(config_controller) -> bool:
             logging.warning(
                 "Master path unavailable (%s). Using fallback: %s",
                 e,
-                fallback,
+                scrub_path(str(fallback)),
             )
         except OSError:
             return False
@@ -180,7 +181,7 @@ def process_file_task(
     if not os.path.exists(path_str):
         return 0
 
-    logging.info(f"Processing file {path_str}")
+    logging.info("Processing file %s", safe_file_label(path_str))
     file_ids = persistence.save_file_metadata(session_id, [meta])
     file_id = file_ids[0]
     try:
@@ -327,7 +328,7 @@ def run_engine(
                 meta = future_to_file.get(future)
                 file_path = meta.get("path") if isinstance(meta, dict) else str(meta)
                 file_errors.append({"path": str(file_path), "error": str(e)})
-                logging.error(f"Failed to process file {file_path}: {e}")
+                logging.error("Failed to process file %s: %s", safe_file_label(file_path), e)
 
             processed_files += 1
             on_progress((processed_files / total_files) * 50)

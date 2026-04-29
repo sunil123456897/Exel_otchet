@@ -58,8 +58,8 @@ def to_decimal(val: Any) -> Decimal:
         return -abs(res) if "(" in s_raw and ")" in s_raw else res
     except Exception as e:
         if isinstance(e, NumericParsingError):
-            raise e
-        raise NumericParsingError(f"Could not parse numeric value {val}: {str(e)}")
+            raise
+        raise NumericParsingError(f"Could not parse numeric value {val}: {e!s}") from e
 
 
 def to_decimal_percent(val: Any) -> Any:

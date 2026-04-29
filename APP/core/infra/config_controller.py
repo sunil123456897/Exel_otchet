@@ -55,16 +55,22 @@ class ConfigController:
         except Exception as e:
             logging.error(f"Error saving config: {e}")
 
+    def _invalidate_discovery_cache(self):
+        if isinstance(self.config, dict):
+            self.config.pop("discovery_cache", None)
+
     def add_employee(self, name: str):
         name = name.strip()
         if not name:
             return
         self.employees.setdefault(name, [])
+        self._invalidate_discovery_cache()
         self._save_employees()
 
     def delete_employee(self, name: str):
         if name in self.employees:
             del self.employees[name]
+            self._invalidate_discovery_cache()
             self._save_employees()
 
     def attach_files(self, emp_name: str, files: List[str], append: bool = True):
@@ -101,6 +107,7 @@ class ConfigController:
                 seen.add(p)
 
         self.employees[emp_name] = final
+        self._invalidate_discovery_cache()
         self._save_employees()
 
     def get_employees(self) -> List[str]:

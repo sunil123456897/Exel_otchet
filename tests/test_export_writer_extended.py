@@ -9,7 +9,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch, mock_open
-from core.infra.export_writer import MasterWriter
+from core.infra.export_writer import ExportPreflightError, MasterWriter, preflight_output_path
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 
@@ -96,6 +96,12 @@ class TestWriteReport:
         output_path = temp_output_dir / "report_empty.xlsx"
         result = master_writer.write_report([], output_path)
         assert result is False
+
+    def test_preflight_rejects_missing_output_dir(self, tmp_path):
+        path = tmp_path / "missing" / "report.xlsx"
+
+        with pytest.raises(ExportPreflightError, match="does not exist"):
+            preflight_output_path(path)
 
     def test_write_report_multiple_dates(self, master_writer, temp_output_dir):
         data = [

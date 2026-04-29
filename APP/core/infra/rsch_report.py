@@ -16,7 +16,6 @@ from openpyxl.worksheet.worksheet import Worksheet
 logger = logging.getLogger(__name__)
 
 RSCH_HEADERS = [
-    "Дата",
     "ИСПОЛНИТЕЛЬ",
     "ЗАКАЗЧИК",
     "Контрагент",
@@ -26,7 +25,7 @@ RSCH_HEADERS = [
     "р/с",
     "Источник",
 ]
-RSCH_TEMPLATE_HEADERS = RSCH_HEADERS[:-1]
+RSCH_TEMPLATE_HEADERS = RSCH_HEADERS
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RSCH_TEMPLATE_PATH = _REPO_ROOT / "РСЧ" / "шаблон отчета.xlsx"
@@ -444,29 +443,27 @@ def _find_blank_total_col(
 
 def _build_header_style_columns(cols: Dict[str, int]) -> Dict[int, int]:
     return {
-        1: cols["date"],
-        2: cols["executor"],
-        3: cols["customer"],
-        4: cols["contractor"],
-        5: cols["comment_style"],
-        6: cols["income"],
-        7: cols["expense"],
-        8: cols["account"],
-        9: cols["comment_style"],
+        1: cols["executor"],
+        2: cols["customer"],
+        3: cols["contractor"],
+        4: cols["comment_style"],
+        5: cols["income"],
+        6: cols["expense"],
+        7: cols["account"],
+        8: cols["comment_style"],
     }
 
 
 def _build_data_style_columns(cols: Dict[str, int], blank_total_col: int) -> Dict[int, int]:
     return {
-        1: cols["date"],
-        2: cols["executor"],
-        3: cols["customer"],
-        4: cols["contractor"],
-        5: cols["comment_style"],
-        6: cols["income"] or blank_total_col,
-        7: cols["expense"] or blank_total_col,
-        8: cols["account"],
-        9: cols["comment_style"],
+        1: cols["executor"],
+        2: cols["customer"],
+        3: cols["contractor"],
+        4: cols["comment_style"],
+        5: cols["income"] or blank_total_col,
+        6: cols["expense"] or blank_total_col,
+        7: cols["account"],
+        8: cols["comment_style"],
     }
 
 
@@ -476,17 +473,21 @@ def _build_total_style_columns(cols: Dict[str, int], blank_total_col: int) -> Di
         2: blank_total_col,
         3: blank_total_col,
         4: blank_total_col,
-        5: blank_total_col,
-        6: cols["income"] or blank_total_col,
-        7: cols["expense"] or blank_total_col,
+        5: cols["income"] or blank_total_col,
+        6: cols["expense"] or blank_total_col,
+        7: blank_total_col,
         8: blank_total_col,
-        9: blank_total_col,
     }
 
 
 def _is_legacy_template(header_values: Sequence[str]) -> bool:
     expected = [_normalize_text(value) for value in RSCH_TEMPLATE_HEADERS]
-    return list(header_values[: len(expected)]) != expected
+    expected_with_date = ["дата", *expected]
+    prefix = list(header_values)
+    return not (
+        prefix[: len(expected)] == expected
+        or prefix[: len(expected_with_date)] == expected_with_date
+    )
 
 
 def _resolve_template_style_layout(template_ws: Worksheet) -> Dict[str, Any]:
@@ -505,12 +506,12 @@ def _resolve_template_style_layout(template_ws: Worksheet) -> Dict[str, Any]:
         "total_cols": total_cols,
         "legacy_template": _is_legacy_template(header_values),
         "detail_amount_formats": {
+            5: _resolve_amount_number_format(template_ws, data_cols[5], 2, total_row_idx, 1),
             6: _resolve_amount_number_format(template_ws, data_cols[6], 2, total_row_idx, 1),
-            7: _resolve_amount_number_format(template_ws, data_cols[7], 2, total_row_idx, 1),
         },
         "total_amount_formats": {
+            5: _resolve_amount_number_format(template_ws, total_cols[5], total_row_idx, 2, 1),
             6: _resolve_amount_number_format(template_ws, total_cols[6], total_row_idx, 2, 1),
-            7: _resolve_amount_number_format(template_ws, total_cols[7], total_row_idx, 2, 1),
         },
     }
 
@@ -564,12 +565,11 @@ def _ensure_date_cell_style(cell) -> None:
 def _normalize_legacy_data_row(
     ws_out: Worksheet, row_idx: int, amount_formats: Dict[int, str]
 ) -> None:
-    _ensure_date_cell_style(ws_out.cell(row_idx, 1))
-    _ensure_comment_cell_style(ws_out.cell(row_idx, 5))
+    _ensure_comment_cell_style(ws_out.cell(row_idx, 4))
+    _ensure_amount_cell_style(ws_out.cell(row_idx, 5), amount_formats[5])
     _ensure_amount_cell_style(ws_out.cell(row_idx, 6), amount_formats[6])
-    _ensure_amount_cell_style(ws_out.cell(row_idx, 7), amount_formats[7])
-    _ensure_account_cell_style(ws_out.cell(row_idx, 8))
-    _ensure_comment_cell_style(ws_out.cell(row_idx, 9))
+    _ensure_account_cell_style(ws_out.cell(row_idx, 7))
+    _ensure_comment_cell_style(ws_out.cell(row_idx, 8))
 
 
 def _ensure_total_row_style(
@@ -587,14 +587,14 @@ def _ensure_total_row_style(
     label.font = Font(bold=True)
     label.border = copy(_TOTAL_BORDER)
 
-    for col_idx in (2, 3, 4, 5, 8, 9):
+    for col_idx in (2, 3, 4, 7, 8):
         cell = ws_out.cell(row_idx, col_idx)
         cell.fill = copy(_TOTAL_FILL)
         cell.font = Font(bold=True)
         cell.border = copy(_TOTAL_BORDER)
         cell.number_format = "General"
 
-    for col_idx in (6, 7):
+    for col_idx in (5, 6):
         cell = ws_out.cell(row_idx, col_idx)
         cell.fill = copy(_TOTAL_FILL)
         cell.font = Font(bold=True)
@@ -622,7 +622,7 @@ def _autosize_all_columns(
         for row_idx in range(1, ws_out.max_row + 1):
             max_len = max(max_len, _display_len(ws_out.cell(row_idx, col_idx).value))
 
-        if col_idx in (6, 7):
+        if col_idx in (5, 6):
             max_len = max(max_len, 14)
 
         ws_out.column_dimensions[col_letter].width = max(
@@ -637,8 +637,8 @@ def _apply_amount_highlighting(
     income: Decimal,
     expense: Decimal,
 ) -> None:
-    income_cell = ws_out.cell(row_idx, 6)
-    expense_cell = ws_out.cell(row_idx, 7)
+    income_cell = ws_out.cell(row_idx, 5)
+    expense_cell = ws_out.cell(row_idx, 6)
 
     if income != 0:
         income_cell.fill = _INCOME_FILL
@@ -716,10 +716,8 @@ def _create_builtin_template_workbook() -> Workbook:
     ws = wb.active
     ws.title = "РСЧ"
     ws.append(RSCH_HEADERS)
-    ws.append([datetime.now(), "", "", "", "", 0, 0, "", ""])
-    ws.append(
-        ["ИТОГО:", None, None, None, None, "=SUM(F2:F2)", "=SUM(G2:G2)", None, None]
-    )
+    ws.append(["", "", "", "", 0, 0, "", ""])
+    ws.append(["ИТОГО:", None, None, None, "=SUM(E2:E2)", "=SUM(F2:F2)", None, None])
 
     for col_idx in range(1, len(RSCH_HEADERS) + 1):
         cell = ws.cell(1, col_idx)
@@ -728,17 +726,14 @@ def _create_builtin_template_workbook() -> Workbook:
         cell.alignment = copy(_HEADER_ALIGNMENT)
         cell.border = copy(_THIN_BORDER)
 
-    ws["A2"].number_format = "mm-dd-yy"
-    ws["A2"].alignment = copy(_DATE_ALIGNMENT)
-    ws["A2"].border = copy(_THIN_BORDER)
-    for ref in ("B2", "C2", "D2", "E2", "I2"):
+    for ref in ("A2", "B2", "C2", "D2", "H2"):
         ws[ref].alignment = copy(_TEXT_ALIGNMENT)
         ws[ref].border = copy(_THIN_BORDER)
         ws[ref].number_format = "General"
-    ws["H2"].alignment = copy(_ACCOUNT_ALIGNMENT)
-    ws["H2"].border = copy(_THIN_BORDER)
-    ws["H2"].number_format = "General"
-    for ref in ("F2", "G2"):
+    ws["G2"].alignment = copy(_ACCOUNT_ALIGNMENT)
+    ws["G2"].border = copy(_THIN_BORDER)
+    ws["G2"].number_format = "General"
+    for ref in ("E2", "F2"):
         ws[ref].number_format = _DEFAULT_AMOUNT_NUMBER_FORMAT
         ws[ref].alignment = copy(_AMOUNT_ALIGNMENT)
         ws[ref].border = copy(_THIN_BORDER)
@@ -748,16 +743,12 @@ def _create_builtin_template_workbook() -> Workbook:
         cell.fill = copy(_TOTAL_FILL)
         cell.font = Font(bold=True)
         cell.border = copy(_TOTAL_BORDER)
-    ws["B3"].number_format = "General"
-    ws["C3"].number_format = "General"
-    ws["D3"].number_format = "General"
-    ws["E3"].number_format = "General"
-    ws["H3"].number_format = "General"
-    ws["I3"].number_format = "General"
+    for ref in ("B3", "C3", "D3", "G3", "H3"):
+        ws[ref].number_format = "General"
+    ws["E3"].number_format = _DEFAULT_AMOUNT_NUMBER_FORMAT
     ws["F3"].number_format = _DEFAULT_AMOUNT_NUMBER_FORMAT
-    ws["G3"].number_format = _DEFAULT_AMOUNT_NUMBER_FORMAT
+    ws["E3"].alignment = copy(_AMOUNT_ALIGNMENT)
     ws["F3"].alignment = copy(_AMOUNT_ALIGNMENT)
-    ws["G3"].alignment = copy(_AMOUNT_ALIGNMENT)
     ws.freeze_panes = "A2"
     return wb
 
@@ -799,7 +790,6 @@ def _write_rsch_sheet(
     for row in rows:
         ws_out.append(
             [
-                datetime.combine(row["date"], datetime.min.time()),
                 row["executor"],
                 row["customer"],
                 row["contractor"],
@@ -829,11 +819,11 @@ def _write_rsch_sheet(
     total_row_idx = ws_out.max_row + 1
     ws_out.cell(total_row_idx, 1, "ИТОГО:")
     if total_row_idx > 2:
+        ws_out.cell(total_row_idx, 5, f"=SUM(E2:E{total_row_idx - 1})")
         ws_out.cell(total_row_idx, 6, f"=SUM(F2:F{total_row_idx - 1})")
-        ws_out.cell(total_row_idx, 7, f"=SUM(G2:G{total_row_idx - 1})")
     else:
+        ws_out.cell(total_row_idx, 5, Decimal("0"))
         ws_out.cell(total_row_idx, 6, Decimal("0"))
-        ws_out.cell(total_row_idx, 7, Decimal("0"))
 
     template_total_row_idx = _find_total_row(template_ws)
     if template_total_row_idx:

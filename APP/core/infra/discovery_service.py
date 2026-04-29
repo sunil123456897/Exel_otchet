@@ -1,10 +1,12 @@
 import logging
+import time
 from pathlib import Path
 from typing import List, Dict, Any
 
 from core.infra.config_controller import ConfigController
 from core.infra.ingestion_engine import IngestionEngine
 from core.infra.path_resolver import resolve_employee_path
+from core.infra.utils_logging import scrub_path
 
 
 class DiscoveryService:
@@ -20,6 +22,7 @@ class DiscoveryService:
         self.config_controller = config_controller
         self.ingestion = ingestion
         self.rename_detected = False
+        self.last_discovered_count = 0
 
     @staticmethod
     def _copy_config_entry(entry):
@@ -79,7 +82,7 @@ class DiscoveryService:
                 roots_to_scan = auto_roots
                 logging.info(
                     "[NET] source_roots не заданы, использую автодетект: %s",
-                    ", ".join(str(r) for r in roots_to_scan),
+                    ", ".join(scrub_path(str(r)) for r in roots_to_scan),
                 )
             return roots_to_scan
 
@@ -98,9 +101,59 @@ class DiscoveryService:
             roots_to_scan = auto_roots
             logging.info(
                 "[NET] Локальный source_root недоступен, переключаюсь на: %s",
-                ", ".join(str(r) for r in roots_to_scan),
+                ", ".join(scrub_path(str(r)) for r in roots_to_scan),
             )
         return roots_to_scan
+
+    @staticmethod
+    def _roots_key(roots_to_scan: List[Path]) -> List[str]:
+        return [str(root) for root in roots_to_scan]
+
+    @staticmethod
+    def _discovery_cache_ttl(config: Dict[str, Any]) -> float:
+        network_cfg = config.get("network", {}) if hasattr(config, "get") else {}
+        raw_ttl = network_cfg.get("discovery_cache_ttl_seconds", 12 * 60 * 60)
+        try:
+            return max(0.0, float(raw_ttl))
+        except (TypeError, ValueError):
+            return 12 * 60 * 60
+
+    def _load_discovery_cache(
+        self, config: Dict[str, Any], roots_to_scan: List[Path]
+    ) -> List[Dict[str, Any]] | None:
+        cache = config.get("discovery_cache") if hasattr(config, "get") else None
+        if not isinstance(cache, dict):
+            return None
+        if cache.get("roots_key") != self._roots_key(roots_to_scan):
+            return None
+
+        scanned_at = cache.get("scanned_at")
+        try:
+            age = time.time() - float(scanned_at)
+        except (TypeError, ValueError):
+            return None
+        if age > self._discovery_cache_ttl(config):
+            return None
+
+        files = cache.get("files")
+        if not isinstance(files, list):
+            return None
+        return [dict(item) for item in files if isinstance(item, dict)]
+
+    def _save_discovery_cache(
+        self,
+        config: Dict[str, Any],
+        roots_to_scan: List[Path],
+        discovered_files: List[Dict[str, Any]],
+    ) -> None:
+        config["discovery_cache"] = {
+            "roots_key": self._roots_key(roots_to_scan),
+            "scanned_at": time.time(),
+            "files": [dict(item) for item in discovered_files],
+        }
+        save_config = getattr(self.config_controller, "save_config", None)
+        if callable(save_config):
+            save_config()
 
     def _all_custom_paths_available(
         self, config_list: List[str], custom_paths: Dict[str, Any]
@@ -137,12 +190,12 @@ class DiscoveryService:
 
         for root in roots_to_scan:
             try:
-                logging.info(f"[NET] Сканирую сетевой путь: {root}")
+                logging.info("[NET] Сканирую сетевой путь: %s", scrub_path(str(root)))
                 files = self.ingestion.scan_directory(root)
                 discovered_files.extend(files)
-                logging.info(f"[NET] Найдено файлов в {root.name}: {len(files)}")
+                logging.info("[NET] Найдено файлов в %s: %s", root.name, len(files))
             except Exception as e:
-                logging.error(f"[NET] Ошибка доступа к {root}: {e}")
+                logging.error("[NET] Ошибка доступа к %s: %s", scrub_path(str(root)), e)
         return discovered_files
 
     def _resolve_custom_paths_for_employee(
@@ -212,7 +265,12 @@ class DiscoveryService:
 
         roots_to_scan = self._resolve_roots_to_scan(config)
         all_have_custom = self._all_custom_paths_available(config_list, custom_paths)
-        discovered_files = self._scan_discovered_files(roots_to_scan, all_have_custom)
+        discovered_files = None if all_have_custom else self._load_discovery_cache(config, roots_to_scan)
+        if discovered_files is None:
+            discovered_files = self._scan_discovered_files(roots_to_scan, all_have_custom)
+            if roots_to_scan and not all_have_custom:
+                self._save_discovery_cache(config, roots_to_scan, discovered_files)
+        self.last_discovered_count = len(discovered_files or [])
 
         self.rename_detected = False
 

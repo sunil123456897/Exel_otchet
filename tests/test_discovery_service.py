@@ -47,6 +47,29 @@ def test_get_employees_map_with_source_root(tmp_path):
     result = service.get_employees_map()
 
     assert result == {}
+    assert service.last_discovered_count == 1
+
+
+def test_get_employees_map_records_discovered_files_when_none_are_configured(tmp_path):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    file1 = source_root / "Alice.xlsx"
+    file1.write_text("content")
+
+    config_controller = MagicMock()
+    config_controller.config = {"paths": {"source_root": str(source_root)}}
+    config_controller.employees = {}
+
+    ingestion = MagicMock()
+    ingestion.scan_directory.return_value = [
+        {"path": str(file1), "id": 1, "fp": "hash1"}
+    ]
+
+    service = DiscoveryService(config_controller, ingestion)
+    result = service.get_employees_map()
+
+    assert result == {}
+    assert service.last_discovered_count == 1
 
 
 def test_get_employees_map_rename_detection(tmp_path):

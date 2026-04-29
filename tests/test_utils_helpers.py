@@ -3,6 +3,7 @@
 import pytest
 import os
 import subprocess
+import traceback
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 from core.domain.utils_helpers import to_decimal, to_decimal_percent
@@ -72,6 +73,23 @@ class TestToDecimal:
     def test_invalid_string_raises(self):
         with pytest.raises(ValueError):
             to_decimal("not_a_number")
+
+    def test_internal_numeric_error_preserves_original_traceback(self):
+        with pytest.raises(ValueError) as exc_info:
+            to_decimal("abc")
+
+        to_decimal_frames = [
+            frame.name
+            for frame in traceback.extract_tb(exc_info.value.__traceback__)
+            if frame.name == "to_decimal"
+        ]
+        assert to_decimal_frames == ["to_decimal"]
+
+    def test_internal_decimal_error_chains_original_exception(self):
+        with pytest.raises(ValueError) as exc_info:
+            to_decimal("1e")
+
+        assert exc_info.value.__cause__ is not None
 
     def test_nan_string_raises(self):
         with pytest.raises(ValueError):
@@ -185,11 +203,11 @@ class TestOpenPath:
         mock_platform.system.return_value = "Darwin"
         with patch("subprocess.run") as mock_run:
             open_path("/Users/test")
-            mock_run.assert_called_once_with(["open", "/Users/test"])
+            mock_run.assert_called_once_with(["open", "/Users/test"], check=False)
 
     @patch("core.infra.utils.platform")
     def test_linux_opens_xdg(self, mock_platform):
         mock_platform.system.return_value = "Linux"
         with patch("subprocess.run") as mock_run:
             open_path("/home/test")
-            mock_run.assert_called_once_with(["xdg-open", "/home/test"])
+            mock_run.assert_called_once_with(["xdg-open", "/home/test"], check=False)

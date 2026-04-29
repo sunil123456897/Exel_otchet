@@ -11,6 +11,20 @@ if str(app_root) not in sys.path:
 from core.bootstrap import Bootstrap
 
 
+def _count_eligible_files(app_ctl):
+    get_map = getattr(app_ctl, "_get_employees_map", None)
+    if not callable(get_map):
+        return None
+    try:
+        employees_map = get_map()
+    except Exception as exc:
+        logging.warning("Could not preflight eligible files: %s", exc)
+        return None
+    if not isinstance(employees_map, dict):
+        return None
+    return sum(len(files) for files in employees_map.values() if isinstance(files, list))
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -29,6 +43,9 @@ def main():
             )
             sys.exit(1)
         _, app_ctl, db = Bootstrap.setup(app_root, config_path)
+        eligible_files = _count_eligible_files(app_ctl)
+        if eligible_files is not None:
+            logger.info("eligible files: %s", eligible_files)
         done = threading.Event()
 
         def on_comp(ok, msg, path):

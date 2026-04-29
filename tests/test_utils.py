@@ -27,6 +27,15 @@ def test_get_local_copy_returns_input_for_non_network_path(tmp_path):
     assert get_local_copy(path) == (path, None)
 
 
+def test_get_local_copy_treats_relative_q_prefixed_file_as_local(tmp_path, monkeypatch):
+    local = tmp_path / "Q_local_report.xlsx"
+    local.write_text("x", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+
+    assert get_local_copy(local.name) == (local.name, None)
+
+
 def test_get_local_copy_returns_original_when_remote_stat_fails():
     network_path = r"\\server\share\report.xlsx"
     with patch("core.infra.utils.os.stat", side_effect=OSError("offline")):

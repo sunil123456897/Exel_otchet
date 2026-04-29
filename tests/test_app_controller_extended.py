@@ -1216,6 +1216,27 @@ class TestRunConsolidationMonth:
 
         on_complete.assert_called_with(False, "Нет файлов", None)
 
+    def test_discovered_files_without_employee_bindings_reports_diagnostic(
+        self, app_controller, mock_deps
+    ):
+        app_controller._cached_employees = {}
+        app_controller.discovery.last_discovered_count = 11
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with patch("threading.Thread") as mock_thread:
+            app_controller.run_consolidation_month(
+                datetime(2026, 3, 1), datetime(2026, 3, 31), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        success, message, path = on_complete.call_args.args
+        assert success is False
+        assert path is None
+        assert "Найдено 11 файл" in message
+        assert "0 привязано" in message
+
     def test_session_type_is_monthly(self, app_controller, mock_deps):
         """Session должен иметь type='monthly'."""
         app_controller._cached_employees = {
@@ -1545,6 +1566,38 @@ class TestRunRschReportBatch:
         assert path is None
         assert "Ошибка пакетной сборки РСЧ:" in msg
         assert "Duplicate output paths" in msg
+
+
+class TestRunRschReportPeriodBatch:
+    def test_success_writes_only_dates_with_rows(self, app_controller):
+        on_complete = MagicMock()
+        sources = [Path("/tmp/source.xlsx")]
+        output_dir = Path("/tmp/out")
+
+        with (
+            patch("core.app_controller.build_rsch_report", side_effect=[0, 4, 0]) as build_report,
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.run_rsch_report_period_batch(
+                sources,
+                output_dir,
+                datetime(2026, 4, 1),
+                datetime(2026, 4, 3),
+                on_complete,
+            )
+            run_thread_task(mock_thread)
+
+        assert build_report.call_count == 3
+        assert build_report.call_args_list[1].args[:2] == (
+            sources,
+            output_dir / "РСЧ_отчет_02.04.2026.xlsx",
+        )
+        assert build_report.call_args_list[1].kwargs["target_date"].isoformat() == "2026-04-02"
+        on_complete.assert_called_once_with(
+            True,
+            "РСЧ отчеты за период собраны: 1 файлов, 4 строк",
+            output_dir,
+        )
 
 
 class TestMasterPathFallback:

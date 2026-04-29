@@ -118,7 +118,6 @@ def _create_template_book(path: Path) -> None:
     ws.title = "13.04"
     ws.append(
         [
-            "Дата",
             "ИСПОЛНИТЕЛЬ",
             "ЗАКАЗЧИК",
             "Контрагент",
@@ -147,7 +146,6 @@ def _create_styled_modern_template_book(path: Path) -> None:
 
     ws.append(
         [
-            "Дата",
             "ИСПОЛНИТЕЛЬ",
             "ЗАКАЗЧИК",
             "Контрагент",
@@ -158,28 +156,26 @@ def _create_styled_modern_template_book(path: Path) -> None:
             "Источник",
         ]
     )
-    ws.append([datetime(2026, 4, 13), "", "", "", "", 0, 0, "", ""])
-    ws.append(
-        ["ИТОГО:", None, None, None, None, "=SUM(F2:F2)", "=SUM(G2:G2)", None, None]
-    )
+    ws.append(["", "", "", "", 0, 0, "", ""])
+    ws.append(["ИТОГО:", None, None, None, "=SUM(E2:E2)", "=SUM(F2:F2)", None, None])
 
-    for col_idx in range(1, 10):
+    for col_idx in range(1, 9):
         cell = ws.cell(1, col_idx)
         cell.fill = PatternFill(fill_type="solid", fgColor=purple)
         cell.font = Font(color="FFFFFFFF", bold=True)
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    for ref in ("A3", "F3", "G3"):
+    for ref in ("A3", "E3", "F3"):
         ws[ref].fill = PatternFill(fill_type="solid", fgColor=peach)
         ws[ref].font = Font(bold=True)
 
-    ws["E2"].alignment = Alignment(horizontal="center", vertical="center")
-    ws["H2"].alignment = Alignment(horizontal="center", vertical="center")
+    ws["D2"].alignment = Alignment(horizontal="center", vertical="center")
+    ws["G2"].alignment = Alignment(horizontal="center", vertical="center")
 
+    ws["E2"].number_format = "#,##0.0000"
     ws["F2"].number_format = "#,##0.0000"
-    ws["G2"].number_format = "#,##0.0000"
+    ws["E3"].number_format = "0.0"
     ws["F3"].number_format = "0.0"
-    ws["G3"].number_format = "0.0"
     ws.freeze_panes = "A2"
     wb.save(path)
 
@@ -301,8 +297,7 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     wb = load_workbook(output, data_only=False)
     ws = wb["13.04"]
 
-    assert [ws.cell(1, c).value for c in range(1, 10)] == [
-        "Дата",
+    assert [ws.cell(1, c).value for c in range(1, 9)] == [
         "ИСПОЛНИТЕЛЬ",
         "ЗАКАЗЧИК",
         "Контрагент",
@@ -314,44 +309,44 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     ]
 
     # income leg from left D/E, expense comment is ignored
-    assert ws.cell(2, 2).value == "СТИ"
-    assert ws.cell(2, 3).value == "Проект Приход 1"
-    assert ws.cell(2, 4).value == "Контрагент Приход 1"
-    assert ws.cell(2, 5).value in (None, "")
-    assert ws.cell(2, 6).value == 100
-    assert ws.cell(2, 7).value == 0
-    assert ws.cell(2, 8).value == "40702810"
-    assert ws.cell(2, 9).value == "source.xlsx | сти рсч | строка 3"
+    assert ws.cell(2, 1).value == "СТИ"
+    assert ws.cell(2, 2).value == "Проект Приход 1"
+    assert ws.cell(2, 3).value == "Контрагент Приход 1"
+    assert ws.cell(2, 4).value in (None, "")
+    assert ws.cell(2, 5).value == 100
+    assert ws.cell(2, 6).value == 0
+    assert ws.cell(2, 7).value == "40702810"
+    assert ws.cell(2, 8).value == "source.xlsx | сти рсч | строка 3"
 
     # expense leg from right H/I and comment from J
-    assert ws.cell(3, 2).value == "СТИ"
-    assert ws.cell(3, 3).value == "Проект Расход 2"
-    assert ws.cell(3, 4).value == "Контрагент Расход 2"
-    assert ws.cell(3, 5).value == "Комментарий расход 2"
-    assert ws.cell(3, 6).value == 0
-    assert ws.cell(3, 7).value == 200
-    assert ws.cell(3, 8).value == "40702811"
-    assert ws.cell(3, 9).value == "source.xlsx | сти рсч | строка 4"
+    assert ws.cell(3, 1).value == "СТИ"
+    assert ws.cell(3, 2).value == "Проект Расход 2"
+    assert ws.cell(3, 3).value == "Контрагент Расход 2"
+    assert ws.cell(3, 4).value == "Комментарий расход 2"
+    assert ws.cell(3, 5).value == 0
+    assert ws.cell(3, 6).value == 200
+    assert ws.cell(3, 7).value == "40702811"
+    assert ws.cell(3, 8).value == "source.xlsx | сти рсч | строка 4"
 
     # both-leg row stays as one operation, keeps both signs, and takes comment from J
-    assert ws.cell(4, 2).value == "СТИ"
-    assert ws.cell(4, 3).value == "Проект Приход 3"
-    assert ws.cell(4, 4).value == "Контрагент Приход 3"
-    assert ws.cell(4, 5).value == "Комментарий оба 3"
-    assert ws.cell(4, 6).value == -30
-    assert ws.cell(4, 7).value == -40
-    assert ws.cell(4, 8).value == "40702812"
-    assert ws.cell(4, 9).value == "source.xlsx | сти рсч | строка 5"
+    assert ws.cell(4, 1).value == "СТИ"
+    assert ws.cell(4, 2).value == "Проект Приход 3"
+    assert ws.cell(4, 3).value == "Контрагент Приход 3"
+    assert ws.cell(4, 4).value == "Комментарий оба 3"
+    assert ws.cell(4, 5).value == -30
+    assert ws.cell(4, 6).value == -40
+    assert ws.cell(4, 7).value == "40702812"
+    assert ws.cell(4, 8).value == "source.xlsx | сти рсч | строка 5"
 
     assert ws.cell(5, 1).value == "ИТОГО:"
+    assert ws.cell(5, 5).value == "=SUM(E2:E4)"
     assert ws.cell(5, 6).value == "=SUM(F2:F4)"
-    assert ws.cell(5, 7).value == "=SUM(G2:G4)"
 
     # highlight colors for non-zero amounts
-    assert ws.cell(2, 6).fill.fgColor.rgb == "FFC6EFCE"
-    assert ws.cell(3, 7).fill.fgColor.rgb == "FFFFC7CE"
-    assert ws.cell(4, 6).fill.fgColor.rgb == "FFC6EFCE"
-    assert ws.cell(4, 7).fill.fgColor.rgb == "FFFFC7CE"
+    assert ws.cell(2, 5).fill.fgColor.rgb == "FFC6EFCE"
+    assert ws.cell(3, 6).fill.fgColor.rgb == "FFFFC7CE"
+    assert ws.cell(4, 5).fill.fgColor.rgb == "FFC6EFCE"
+    assert ws.cell(4, 6).fill.fgColor.rgb == "FFFFC7CE"
 
 
 def test_build_rsch_report_real_fixture_for_13_04(tmp_path: Path) -> None:
@@ -394,8 +389,8 @@ def test_build_rsch_report_combines_multiple_sources(tmp_path: Path) -> None:
     wb = load_workbook(output, data_only=False)
     ws = wb["13.04"]
     assert ws.cell(8, 1).value == "ИТОГО:"
+    assert ws.cell(8, 5).value == "=SUM(E2:E7)"
     assert ws.cell(8, 6).value == "=SUM(F2:F7)"
-    assert ws.cell(8, 7).value == "=SUM(G2:G7)"
 
 
 def test_build_rsch_report_period_creates_one_sheet_per_row_date(tmp_path: Path) -> None:
@@ -494,16 +489,16 @@ def test_build_rsch_report_period_creates_one_sheet_per_row_date(tmp_path: Path)
     assert wb.sheetnames == ["13.04", "14.04"]
 
     ws_13 = wb["13.04"]
-    assert ws_13.cell(2, 3).value == "Project 13"
-    assert ws_13.cell(2, 9).value == "source.xlsx | сти рсч | строка 4"
+    assert ws_13.cell(2, 2).value == "Project 13"
+    assert ws_13.cell(2, 8).value == "source.xlsx | сти рсч | строка 4"
     assert ws_13.cell(3, 1).value == "ИТОГО:"
-    assert ws_13.cell(3, 6).value == "=SUM(F2:F2)"
+    assert ws_13.cell(3, 5).value == "=SUM(E2:E2)"
 
     ws_14 = wb["14.04"]
-    assert ws_14.cell(2, 3).value == "Project 14 expense"
-    assert ws_14.cell(2, 5).value == "Комментарий 14"
-    assert ws_14.cell(2, 7).value == 200
-    assert ws_14.cell(3, 7).value == "=SUM(G2:G2)"
+    assert ws_14.cell(2, 2).value == "Project 14 expense"
+    assert ws_14.cell(2, 4).value == "Комментарий 14"
+    assert ws_14.cell(2, 6).value == 200
+    assert ws_14.cell(3, 6).value == "=SUM(F2:F2)"
 
 
 def test_build_rsch_report_normalizes_formatting_from_legacy_template(
@@ -529,7 +524,7 @@ def test_build_rsch_report_normalizes_formatting_from_legacy_template(
     ws = wb["13.04"]
 
     assert ws.freeze_panes == "A2"
-    assert ws.auto_filter.ref == "A1:I4"
+    assert ws.auto_filter.ref == "A1:H4"
 
     for col_idx in range(1, 9):
         cell = ws.cell(1, col_idx)
@@ -539,23 +534,23 @@ def test_build_rsch_report_normalizes_formatting_from_legacy_template(
         assert cell.alignment.horizontal == "center"
         assert cell.alignment.vertical == "center"
 
-    assert ws.cell(2, 5).number_format == "General"
-    assert ws.cell(2, 5).fill.fill_type is None
-    assert ws.cell(3, 5).alignment.wrap_text is True
+    assert ws.cell(2, 4).number_format == "General"
+    assert ws.cell(2, 4).fill.fill_type is None
+    assert ws.cell(3, 4).alignment.wrap_text is True
 
-    assert ws.cell(2, 6).number_format == "#,##0.00"
-    assert ws.cell(3, 7).number_format == "#,##0.00"
+    assert ws.cell(2, 5).number_format == "#,##0.00"
+    assert ws.cell(3, 6).number_format == "#,##0.00"
+    assert ws.cell(5, 5).number_format == "#,##0.00"
     assert ws.cell(5, 6).number_format == "#,##0.00"
-    assert ws.cell(5, 7).number_format == "#,##0.00"
 
-    assert ws.cell(2, 8).border.left.style == "thin"
-    assert ws.cell(2, 8).border.right.style == "thin"
+    assert ws.cell(2, 7).border.left.style == "thin"
+    assert ws.cell(2, 7).border.right.style == "thin"
 
     assert ws.cell(5, 1).fill.fgColor.rgb == "FFD9E1F2"
+    assert ws.cell(5, 5).fill.fgColor.rgb == "FFD9E1F2"
     assert ws.cell(5, 6).fill.fgColor.rgb == "FFD9E1F2"
-    assert ws.cell(5, 7).fill.fgColor.rgb == "FFD9E1F2"
-    assert ws.cell(5, 5).number_format == "General"
-    assert ws.cell(5, 9).number_format == "General"
+    assert ws.cell(5, 4).number_format == "General"
+    assert ws.cell(5, 8).number_format == "General"
 
 
 def test_build_rsch_report_preserves_modern_template_palette_and_data_formats(
@@ -580,17 +575,17 @@ def test_build_rsch_report_preserves_modern_template_palette_and_data_formats(
     wb = load_workbook(output, data_only=False)
     ws = wb["13.04"]
 
-    for col_idx in range(1, 10):
+    for col_idx in range(1, 9):
         assert ws.cell(1, col_idx).fill.fgColor.rgb == "FF7030A0"
 
-    assert ws.cell(2, 6).number_format == "#,##0.0000"
-    assert ws.cell(3, 7).number_format == "#,##0.0000"
-    assert ws.cell(2, 5).alignment.horizontal == "center"
-    assert ws.cell(2, 8).alignment.horizontal == "center"
-    assert ws.cell(2, 8).border.left.style is None
+    assert ws.cell(2, 5).number_format == "#,##0.0000"
+    assert ws.cell(3, 6).number_format == "#,##0.0000"
+    assert ws.cell(2, 4).alignment.horizontal == "center"
+    assert ws.cell(2, 7).alignment.horizontal == "center"
+    assert ws.cell(2, 7).border.left.style is None
     assert ws.cell(5, 1).fill.fgColor.rgb == "FFFCE4D6"
+    assert ws.cell(5, 5).fill.fgColor.rgb == "FFFCE4D6"
     assert ws.cell(5, 6).fill.fgColor.rgb == "FFFCE4D6"
-    assert ws.cell(5, 7).fill.fgColor.rgb == "FFFCE4D6"
 
 
 def test_combined_income_and_expense_row_is_marked_yellow_but_keeps_amount_colors(
@@ -631,13 +626,13 @@ def test_combined_income_and_expense_row_is_marked_yellow_but_keeps_amount_color
 
     wb = load_workbook(output, data_only=False)
     ws = wb["13.04"]
-    assert ws.cell(2, 2).value == "СТИ"
-    assert ws.cell(2, 3).value == "Конструктор"
-    assert ws.cell(2, 4).value == "ООО СПК-ГРУПП"
-    assert ws.cell(2, 5).value == "Комментарий расход"
-    _assert_warning_fill(ws, 2, (1, 2, 3, 4, 5, 8))
-    assert ws.cell(2, 6).fill.fgColor.rgb == "FFC6EFCE"
-    assert ws.cell(2, 7).fill.fgColor.rgb == "FFFFC7CE"
+    assert ws.cell(2, 1).value == "СТИ"
+    assert ws.cell(2, 2).value == "Конструктор"
+    assert ws.cell(2, 3).value == "ООО СПК-ГРУПП"
+    assert ws.cell(2, 4).value == "Комментарий расход"
+    _assert_warning_fill(ws, 2, (1, 2, 3, 4, 8))
+    assert ws.cell(2, 5).fill.fgColor.rgb == "FFC6EFCE"
+    assert ws.cell(2, 6).fill.fgColor.rgb == "FFFFC7CE"
 
 
 def test_build_rsch_report_combines_five_sources_with_expected_warning_rows(
@@ -767,13 +762,13 @@ def test_build_rsch_report_combines_five_sources_with_expected_warning_rows(
     ws = wb["13.04"]
 
     assert "FFFF00" not in _cell_fill_rgb(ws, 2, 2)
-    assert ws.cell(3, 5).value == "Комментарий расход 2"
-    _assert_warning_fill(ws, 3, (1, 2, 3, 4, 5, 8))
-    assert ws.cell(4, 5).value in (None, "")
+    assert ws.cell(3, 4).value == "Комментарий расход 2"
+    _assert_warning_fill(ws, 3, (1, 2, 3, 4, 8))
+    assert ws.cell(4, 4).value in (None, "")
     assert "FFFF00" not in _cell_fill_rgb(ws, 4, 2)
-    assert ws.cell(5, 5).value == "Комментарий расход 4"
-    _assert_warning_fill(ws, 5, (1, 2, 3, 4, 5, 8))
-    _assert_warning_fill(ws, 6, (1, 2, 3, 4, 5, 8))
+    assert ws.cell(5, 4).value == "Комментарий расход 4"
+    _assert_warning_fill(ws, 5, (1, 2, 3, 4, 8))
+    _assert_warning_fill(ws, 6, (1, 2, 3, 4, 8))
     assert ws.cell(7, 1).value == "ИТОГО:"
+    assert ws.cell(7, 5).value == "=SUM(E2:E6)"
     assert ws.cell(7, 6).value == "=SUM(F2:F6)"
-    assert ws.cell(7, 7).value == "=SUM(G2:G6)"

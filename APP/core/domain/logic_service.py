@@ -293,6 +293,7 @@ class LogicService(ILogicService):
         """Apply commissions, returns, and other business rules to raw rows."""
         res = []
         strategy = self._get_curator_strategy(curator)
+        template_warning_count = 0
 
         for r in raw_rows:
             f_val = str(r.get("filters", "")).lower()
@@ -365,7 +366,7 @@ class LogicService(ILogicService):
 
             is_warn = r.get("is_template_warning", False) or is_warn
             if is_warn:
-                logger.warning(f"Template warning: {r.get('_source_info')}")
+                template_warning_count += 1
             b1_val = abs(raw_b1)
             b2_val = abs(raw_b2)
 
@@ -385,6 +386,8 @@ class LogicService(ILogicService):
                     is_warn=is_warn,
                 )
             )
+        if template_warning_count:
+            logger.warning("Template warnings: %s row(s) affected", template_warning_count)
         return res
 
     def consolidate(

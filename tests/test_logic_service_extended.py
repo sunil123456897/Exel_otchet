@@ -205,7 +205,19 @@ def test_template_warning_logging(logic_service):
     with patch("core.domain.logic_service.logger") as mock_logger:
         res = logic_service.apply_financial_rules(raw_rows)
         assert res[0]["is_template_warning"] is True
-        mock_logger.warning.assert_called()
+        mock_logger.warning.assert_called_once()
+
+
+def test_template_warning_logging_is_aggregated(logic_service):
+    raw_rows = [
+        {"amount": "100", "is_template_warning": True, "_source_info": "Warning source 1"},
+        {"amount": "200", "is_template_warning": True, "_source_info": "Warning source 2"},
+    ]
+    with patch("core.domain.logic_service.logger") as mock_logger:
+        res = logic_service.apply_financial_rules(raw_rows)
+        assert [row["is_template_warning"] for row in res] == [True, True]
+        mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args.args[1] == 2
 
 
 def test_invalid_commission_becomes_template_warning_not_silent_zero(logic_service):

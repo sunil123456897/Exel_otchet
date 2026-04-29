@@ -183,6 +183,10 @@ def test_run_rsch_report_per_file_mode(commands_fixture):
             "core.ui.gui_commands.filedialog.askdirectory",
             return_value="C:/outdir",
         ),
+        patch(
+            "core.ui.gui_commands.filedialog.asksaveasfilename",
+            return_value="C:/wrong.xlsx",
+        ),
     ):
         cmd.run_rsch_report()
 
@@ -244,6 +248,39 @@ def test_run_rsch_report_month_uses_selected_period(commands_fixture):
     assert args[2] == start
     assert args[3] == end
     assert callable(args[4])
+
+
+def test_run_rsch_report_month_per_file_mode_exports_one_file_per_date(
+    commands_fixture,
+):
+    cmd, _root, sidebar = commands_fixture
+    start = datetime(2026, 4, 1)
+    end = datetime(2026, 4, 30)
+    sidebar.get_month_range.return_value = (start, end)
+    sidebar.get_rsch_mode.return_value = "per_file"
+
+    with (
+        patch("core.ui.gui_commands.messagebox.askyesno", return_value=False),
+        patch(
+            "core.ui.gui_commands.filedialog.askopenfilenames",
+            return_value=("C:/in.xlsx",),
+        ),
+        patch(
+            "core.ui.gui_commands.filedialog.askdirectory",
+            return_value="C:/outdir",
+        ),
+    ):
+        cmd.run_rsch_report_month()
+
+    sidebar.set_rsch_state.assert_called_once_with("disabled")
+    cmd.app_controller.run_rsch_report_period_batch.assert_called_once()
+    args = cmd.app_controller.run_rsch_report_period_batch.call_args[0]
+    assert args[0] == [Path("C:/in.xlsx")]
+    assert args[1] == Path("C:/outdir")
+    assert args[2] == start
+    assert args[3] == end
+    assert callable(args[4])
+    assert cmd.config_controller.config["rsch"]["mode"] == "per_file"
 
 
 def test_apply_saved_rsch_mode_on_init(commands_fixture):

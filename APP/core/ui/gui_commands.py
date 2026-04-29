@@ -213,6 +213,32 @@ class GuiCommands:
 
         start_suffix = start_date.strftime("%d.%m.%Y")
         end_suffix = end_date.strftime("%d.%m.%Y")
+        mode = self.sidebar.get_rsch_mode()
+        if mode == "per_file":
+            output_dir = filedialog.askdirectory(
+                title="Выберите папку для сохранения ШО отчетов за период",
+                initialdir=self._suggest_rsch_output_dir(source_paths),
+                mustexist=True,
+            )
+            if not output_dir:
+                return
+
+            output_dir_path = Path(output_dir)
+            self._save_rsch_preferences(
+                source_paths,
+                output_dir_path / f"РСЧ_отчет_{start_suffix}-{end_suffix}.xlsx",
+                mode,
+            )
+            self.sidebar.set_rsch_state("disabled")
+            self.app_controller.run_rsch_report_period_batch(
+                source_paths,
+                output_dir_path,
+                start_date,
+                end_date,
+                self._on_rsch_complete_batch,
+            )
+            return
+
         default_name = f"РСЧ_отчет_{start_suffix}-{end_suffix}.xlsx"
         output = filedialog.asksaveasfilename(
             title="Сохранить ШО отчет за период",

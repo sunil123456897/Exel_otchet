@@ -3,16 +3,24 @@ import logging
 import os
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections.abc import Sequence
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 
 from core.infra import DiscoveryService, is_file_writable
+from core.infra.utils_logging import scrub_path
 from core.app.file_processor import (
     check_master_lock,
     run_engine,
     date_matches_target,
+)
+from core.app.controller_messages import (
+    build_empty_data_message as build_controller_empty_data_message,
+    build_issue_preview,
+    build_success_message as build_controller_success_message,
+    format_file_error_note as format_controller_file_error_note,
+    normalize_consolidation_dates as normalize_controller_consolidation_dates,
 )
 from core.infra.rsch_report import build_rsch_report
 
@@ -71,7 +79,7 @@ class AppController:
             logging.warning(
                 "Master path unavailable (%s). Using fallback: %s",
                 e,
-                fallback,
+                scrub_path(str(fallback)),
             )
             if Path(paths_cfg.get("master_file", "")) != fallback:
                 paths_cfg["master_file"] = str(fallback)
@@ -106,21 +114,51 @@ class AppController:
             return False
         return is_file_writable(str(path))
 
+    def _get_enabled_curator_employee_keys(self) -> set[str]:
+        curators = self.config_controller.config.get("curators", {})
+        if not isinstance(curators, dict):
+            return set()
+
+        keys = set()
+        for cfg in curators.values():
+            if not isinstance(cfg, dict) or not cfg.get("enabled", True):
+                continue
+            key = str(cfg.get("employees_key") or "").strip().lower()
+            if key:
+                keys.add(key)
+        return keys
+
+    @staticmethod
+    def _employee_name_matches_any_key(name: str, keys: set[str]) -> bool:
+        lowered_name = str(name).lower()
+        return any(key in lowered_name for key in keys)
+
     @staticmethod
     def _filter_employees_for_curator(
-        employees_map: Dict[str, List[Dict[str, Any]]], curator_config: Optional[Dict[str, Any]]
+        employees_map: Dict[str, List[Dict[str, Any]]],
+        curator_config: Optional[Dict[str, Any]],
+        general_excluded_keys: Optional[set[str]] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         if not curator_config:
-            return employees_map
+            excluded_keys = general_excluded_keys or set()
+            if not excluded_keys:
+                return employees_map
+            return {
+                name: metas
+                for name, metas in employees_map.items()
+                if not AppController._employee_name_matches_any_key(name, excluded_keys)
+            }
 
         key = str(curator_config.get("employees_key") or "").strip().lower()
         if not key:
             return employees_map
 
+        included_keys = {key}
+
         return {
             name: metas
             for name, metas in employees_map.items()
-            if key in str(name).lower()
+            if AppController._employee_name_matches_any_key(name, included_keys)
         }
 
     def _start_thread(self, target: Callable) -> None:
@@ -305,18 +343,7 @@ class AppController:
 
     @staticmethod
     def _format_file_error_note(file_errors: List[Dict[str, str]]) -> Optional[str]:
-        if not file_errors:
-            return None
-
-        sample = ", ".join(
-            os.path.basename(err.get("path", ""))
-            for err in file_errors[:3]
-            if err.get("path")
-        )
-        suffix = "" if len(file_errors) <= 3 else " ..."
-        if sample:
-            return f"Не удалось обработать {len(file_errors)} файл(ов): {sample}{suffix}."
-        return f"Не удалось обработать {len(file_errors)} файл(ов)."
+        return format_controller_file_error_note(file_errors)
 
     @staticmethod
     def _build_empty_data_message(
@@ -326,17 +353,23 @@ class AppController:
         range_note: Optional[str],
         file_error_note: Optional[str],
     ) -> str:
-        if start_date_str and end_date_str:
-            msg = f"Нет данных за период {start_date_str} — {end_date_str}"
-        elif target_date_str:
-            msg = "Нет данных за дату"
-        else:
-            msg = "Нет данных"
+        return build_controller_empty_data_message(
+            target_date_str,
+            start_date_str,
+            end_date_str,
+            range_note,
+            file_error_note,
+        )
 
-        notes = [note for note in (range_note, file_error_note) if note]
-        if notes:
-            return f"{msg}. {' '.join(notes)}"
-        return msg
+    def _build_no_files_message(self) -> str:
+        raw_count = getattr(self.discovery, "last_discovered_count", 0)
+        discovered_count = raw_count if isinstance(raw_count, int) else 0
+        if discovered_count:
+            return (
+                f"Найдено {discovered_count} файл(ов), но 0 привязано к сотрудникам. "
+                "Проверьте employees.yaml или привязки файлов."
+            )
+        return "Нет файлов"
 
     @staticmethod
     def _build_success_message(
@@ -346,17 +379,13 @@ class AppController:
         range_note: Optional[str],
         file_error_note: Optional[str],
     ) -> str:
-        if start_date_str and end_date_str:
-            msg = f"Готово! ({start_date_str} — {end_date_str})"
-        elif session_type == "all_dates":
-            msg = "Готово!"
-        else:
-            msg = "Успешно!"
-
-        notes = [note for note in (range_note, file_error_note) if note]
-        if notes:
-            return f"{msg} {' '.join(notes)}"
-        return msg
+        return build_controller_success_message(
+            session_type,
+            start_date_str,
+            end_date_str,
+            range_note,
+            file_error_note,
+        )
 
     @staticmethod
     def _normalize_consolidation_dates(
@@ -364,34 +393,11 @@ class AppController:
         start_date_str: Optional[str],
         end_date_str: Optional[str],
     ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
-        today = datetime.now().date()
-        range_note: Optional[str] = None
-        effective_target_date = target_date_str
-        effective_start_date = start_date_str
-        effective_end_date = end_date_str
-
-        if target_date_str:
-            td = datetime.strptime(target_date_str, "%d.%m.%Y").date()
-            if td > today:
-                msg = f"Дата {target_date_str} в будущем. Будущие даты исключаются из сборки."
-                return None, None, None, msg, None
-
-        if start_date_str and end_date_str:
-            sd = datetime.strptime(start_date_str, "%d.%m.%Y").date()
-            ed = datetime.strptime(end_date_str, "%d.%m.%Y").date()
-            if sd > today:
-                msg = (
-                    f"Период {start_date_str} — {end_date_str} полностью в будущем. "
-                    "Будущие даты исключаются из сборки."
-                )
-                return None, None, None, msg, None
-            if ed > today:
-                effective_end_date = today.strftime("%d.%m.%Y")
-                range_note = (
-                    f"Даты после {effective_end_date} исключены (будущие даты не учитываются)."
-                )
-
-        return effective_target_date, effective_start_date, effective_end_date, None, range_note
+        return normalize_controller_consolidation_dates(
+            target_date_str,
+            start_date_str,
+            end_date_str,
+        )
 
     def _execute_consolidation(
         self,
@@ -427,10 +433,14 @@ class AppController:
             self.persistence.save_session(session_id, meta)
 
             employees_map = self._resolve_employees_for_run(use_fresh_employees)
-            employees_map = self._filter_employees_for_curator(employees_map, curator_config)
+            employees_map = self._filter_employees_for_curator(
+                employees_map,
+                curator_config,
+                self._get_enabled_curator_employee_keys(),
+            )
             if not employees_map:
                 self.persistence.update_session_status(session_id, "failed")
-                on_complete(False, "Нет файлов", None)
+                on_complete(False, self._build_no_files_message(), None)
                 return
 
             file_errors: List[Dict[str, str]] = []
@@ -451,7 +461,7 @@ class AppController:
                 on_file_error=collect_file_errors,
             ):
                 self.persistence.update_session_status(session_id, "failed")
-                on_complete(False, "Нет файлов", None)
+                on_complete(False, self._build_no_files_message(), None)
                 return
 
             consolidated_data = self.logic_service.consolidate(
@@ -490,7 +500,7 @@ class AppController:
                 on_complete(False, "Ошибка записи основного отчёта", None)
                 return
 
-            logging.info("[MAIN] Основной отчёт собран: %s", master_path)
+            logging.info("[MAIN] Основной отчёт собран: %s", scrub_path(str(master_path)))
             on_progress(100)
             has_actionable_warnings = any(
                 error.get("error_type") not in {"soft_structure"} for error in errors
@@ -672,20 +682,9 @@ class AppController:
                 )
 
                 if issues:
-                    unique_issues = []
-                    seen = set()
-                    for issue in issues:
-                        if issue in seen:
-                            continue
-                        seen.add(issue)
-                        unique_issues.append(issue)
-
-                    preview = "; ".join(unique_issues[:3])
-                    if len(unique_issues) > 3:
-                        preview += f"; и еще {len(unique_issues) - 3}"
                     msg = (
                         f"РСЧ отчет собран: {written_rows} строк из {len(normalized_sources)} файлов. "
-                        f"Есть проблемы с листами: {preview}"
+                        f"Есть проблемы с листами: {build_issue_preview(issues)}"
                     )
                 else:
                     msg = (
@@ -733,20 +732,9 @@ class AppController:
                 )
 
                 if issues:
-                    unique_issues = []
-                    seen = set()
-                    for issue in issues:
-                        if issue in seen:
-                            continue
-                        seen.add(issue)
-                        unique_issues.append(issue)
-
-                    preview = "; ".join(unique_issues[:3])
-                    if len(unique_issues) > 3:
-                        preview += f"; и еще {len(unique_issues) - 3}"
                     msg = (
                         f"РСЧ отчет за период собран: {written_rows} строк из {len(normalized_sources)} файлов. "
-                        f"Есть проблемы с листами: {preview}"
+                        f"Есть проблемы с листами: {build_issue_preview(issues)}"
                     )
                 else:
                     msg = (
@@ -758,6 +746,66 @@ class AppController:
             except Exception as e:
                 logging.error("RSC period build error: %s", e)
                 on_complete(False, f"Ошибка сборки РСЧ за период: {e}", None)
+
+        self._start_thread(task)
+
+    def run_rsch_report_period_batch(
+        self,
+        source_paths: Path | Sequence[Path],
+        output_dir: Path,
+        start_date,
+        end_date,
+        on_complete: Callable[[bool, str, Optional[Path]], None],
+    ) -> None:
+        """Build separate RSC workbooks for each date in the selected range."""
+
+        def task() -> None:
+            try:
+                start = start_date.date() if hasattr(start_date, "date") else start_date
+                end = end_date.date() if hasattr(end_date, "date") else end_date
+
+                if isinstance(source_paths, (str, Path)):
+                    normalized_sources = [Path(source_paths)]
+                else:
+                    normalized_sources = [Path(p) for p in source_paths]
+
+                output_dir_path = Path(output_dir)
+                output_dir_path.mkdir(parents=True, exist_ok=True)
+
+                current = start
+                total_rows = 0
+                files_written = 0
+                issues: List[str] = []
+                while current <= end:
+                    output_path = output_dir_path / f"РСЧ_отчет_{current.strftime('%d.%m.%Y')}.xlsx"
+                    written_rows = build_rsch_report(
+                        normalized_sources,
+                        output_path,
+                        target_date=current,
+                        issues_sink=issues,
+                    )
+                    if written_rows:
+                        total_rows += written_rows
+                        files_written += 1
+                    elif output_path.exists():
+                        output_path.unlink()
+                    current += timedelta(days=1)
+
+                if issues:
+                    msg = (
+                        f"РСЧ отчеты за период собраны: {files_written} файлов, {total_rows} строк. "
+                        f"Есть проблемы с листами: {build_issue_preview(issues)}"
+                    )
+                else:
+                    msg = (
+                        f"РСЧ отчеты за период собраны: {files_written} файлов, "
+                        f"{total_rows} строк"
+                    )
+
+                on_complete(True, msg, output_dir_path)
+            except Exception as e:
+                logging.error("RSC period batch build error: %s", e)
+                on_complete(False, f"Ошибка пакетной сборки РСЧ за период: {e}", None)
 
         self._start_thread(task)
 
@@ -800,20 +848,9 @@ class AppController:
                 )
 
                 if issues:
-                    unique_issues = []
-                    seen = set()
-                    for issue in issues:
-                        if issue in seen:
-                            continue
-                        seen.add(issue)
-                        unique_issues.append(issue)
-
-                    preview = "; ".join(unique_issues[:3])
-                    if len(unique_issues) > 3:
-                        preview += f"; и еще {len(unique_issues) - 3}"
                     msg = (
                         f"РСЧ отчеты собраны: {len(normalized_outputs)} файлов, {total_rows} строк. "
-                        f"Есть проблемы с листами: {preview}"
+                        f"Есть проблемы с листами: {build_issue_preview(issues)}"
                     )
                 else:
                     msg = (

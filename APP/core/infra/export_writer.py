@@ -16,6 +16,18 @@ from core.infra.export_formatting import (
 
 logger = logging.getLogger(__name__)
 
+
+class ExportPreflightError(RuntimeError):
+    pass
+
+
+def preflight_output_path(path: Path) -> None:
+    output_path = Path(path)
+    if not output_path.parent.exists():
+        raise ExportPreflightError(f"Output directory does not exist: {output_path.parent}")
+    if not os.access(output_path.parent, os.W_OK):
+        raise ExportPreflightError(f"Output directory is not writable: {output_path.parent}")
+
 DEFAULT_HEADERS = [
     "Источник",
     "ЗАКАЗЧИК",
@@ -98,6 +110,7 @@ class MasterWriter(IExporter):
 
         path_abs = os.path.abspath(path or self.master_path)
         Path(path_abs).parent.mkdir(parents=True, exist_ok=True)
+        preflight_output_path(Path(path_abs))
         tmp = path_abs + ".tmp"
 
         if os.name == "nt" and len(tmp) > 250:

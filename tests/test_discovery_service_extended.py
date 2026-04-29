@@ -6,6 +6,7 @@ deduplication, multiple source_roots, edge cases.
 
 import pytest
 import os
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from core.infra.discovery_service import DiscoveryService
@@ -258,6 +259,73 @@ class TestMultipleSourceRoots:
         # Не должно выбрасывать
         result = ds.get_employees_map()
         assert isinstance(result, dict)
+
+    def test_uses_fresh_discovery_cache_instead_of_network_scan(self, tmp_path):
+        old_file = tmp_path / "Alice_old.xlsx"
+        new_file = tmp_path / "Alice_new.xlsx"
+        new_file.touch()
+        root = tmp_path / "reports"
+        root.mkdir()
+
+        config_controller = MagicMock()
+        config_controller.config = {
+            "employees": ["Alice"],
+            "paths": {"source_roots": [str(root)]},
+            "discovery_cache": {
+                "roots_key": [str(root)],
+                "scanned_at": time.time(),
+                "files": [{"path": str(new_file), "id": 42, "fp": "hash42"}],
+            },
+        }
+        config_controller.config_path = str(tmp_path / "APP" / "config.yaml")
+        config_controller.employees = {
+            "Alice": [{"path": str(old_file), "id": 42, "fp": "hash42"}]
+        }
+
+        ingestion = MagicMock()
+        ingestion.scan_directory.side_effect = AssertionError("network scan should be skipped")
+
+        ds = DiscoveryService(config_controller, ingestion)
+        result = ds.get_employees_map()
+
+        assert result["Alice"][0]["path"] == str(new_file)
+        ingestion.scan_directory.assert_not_called()
+
+    def test_expired_discovery_cache_refreshes_from_network_scan(self, tmp_path):
+        root = tmp_path / "reports"
+        root.mkdir()
+        fresh_file = root / "Alice.xlsx"
+        fresh_file.touch()
+
+        config_controller = MagicMock()
+        config_controller.config = {
+            "employees": ["Alice"],
+            "paths": {"source_roots": [str(root)]},
+            "network": {"discovery_cache_ttl_seconds": 1},
+            "discovery_cache": {
+                "roots_key": [str(root)],
+                "scanned_at": time.time() - 10,
+                "files": [],
+            },
+        }
+        config_controller.config_path = str(tmp_path / "APP" / "config.yaml")
+        config_controller.employees = {
+            "Alice": [{"path": str(tmp_path / "missing.xlsx"), "id": 7, "fp": None}]
+        }
+
+        ingestion = MagicMock()
+        ingestion.scan_directory.return_value = [
+            {"path": str(fresh_file), "id": 7, "fp": None}
+        ]
+
+        ds = DiscoveryService(config_controller, ingestion)
+        result = ds.get_employees_map()
+
+        assert result["Alice"][0]["path"] == str(fresh_file)
+        ingestion.scan_directory.assert_called_once_with(root)
+        assert config_controller.config["discovery_cache"]["files"] == [
+            {"path": str(fresh_file), "id": 7, "fp": None}
+        ]
 
 
 class TestAutoDetectQRoots:

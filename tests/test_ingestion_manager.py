@@ -522,6 +522,138 @@ def test_calamine_reader_cosmetic_header_variations_do_not_warn(
     assert res[0].get("_template_warning_kind") is None
 
 
+def test_calamine_reader_currency_amount_does_not_shadow_payment_amount(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "currency_amount": "сумма",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа", "приход", "расход"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника"],
+        "broker1": ["посредник 1(кэш)"],
+        "broker2": ["посредник 2"],
+        "currency_amount": ["сумма"],
+        "filters": ["фильтры"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "Заказчик",
+            "Исполнитель",
+            "Сумма платежа",
+            "Комиссия",
+            "Итог",
+            "% посредника",
+            "посредник 1(кэш)",
+            "посредник 2",
+            "Фильтры",
+        ],
+        [
+            "ООО Ромашка",
+            "ИП Иванов",
+            1000,
+            0,
+            1000,
+            0,
+            0,
+            0,
+            "",
+        ],
+    ]
+    file_path = tmp_path / "currency_amount_shadow.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="01.01.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["amount"] == Decimal("1000.00")
+    assert "currency_amount" not in res[0]
+    assert res[0]["is_template_warning"] is False
+    assert res[0].get("_template_warning_kind") is None
+
+
+def test_calamine_reader_boris_second_percent_is_soft_structure(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника", "%"],
+        "broker1": ["посредник 1(кэш)", "комиссия посредника 1"],
+        "broker2": ["посредник 2", "комиссия посредника 2"],
+        "filters": ["фильтры"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "Заказчик",
+            "Исполнитель",
+            "Сумма платежа",
+            "Комиссия",
+            "Итог",
+            "Оплата постащику, выплата зарплатного реестра",
+            "",
+            "%",
+            "Комиссия посредника 1",
+            "%",
+            "Комиссия посредника 2",
+        ],
+        [
+            "ООО Ромашка",
+            "ИП Иванов",
+            1000,
+            0,
+            1000,
+            "",
+            "",
+            0.05,
+            50,
+            0.05,
+            50,
+        ],
+    ]
+    file_path = tmp_path / "boris_second_percent.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="01.01.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["amount"] == Decimal("1000.00")
+    assert res[0]["is_template_warning"] is False
+    assert res[0]["_template_warning_kind"] == "soft_structure"
+    assert "unexpected columns" not in res[0]["_template_warning_reason"].lower()
+
+
 def test_calamine_reader_same_structure_alias_name_becomes_soft_warning(
     tmp_path, create_temp_xlsx
 ):

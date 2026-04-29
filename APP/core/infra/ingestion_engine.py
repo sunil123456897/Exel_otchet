@@ -124,6 +124,7 @@ else:
             json.dumps(end_date_str),
         ],
         capture_output=True,
+        check=False,
         text=True,
         encoding="utf-8",
         errors="replace",

@@ -123,3 +123,13 @@ def test_toxic_run_respects_timeout_env_override(monkeypatch):
 
     event.wait.assert_called_once_with()
     app_ctl.shutdown.assert_called_once()
+
+
+def test_toxic_run_counts_eligible_files():
+    app_ctl = MagicMock()
+    app_ctl._get_employees_map.return_value = {
+        "ToxicTester": [{"path": "one.xlsx"}, {"path": "two.xlsx"}],
+        "Empty": [],
+    }
+
+    assert toxic_run._count_eligible_files(app_ctl) == 2

@@ -225,7 +225,41 @@ class TestPathResolution:
             cfg = mock_cfg.return_value.config
             assert cfg["database"]["path"] == str(app_root / "cache.db")
 
-    def test_unwritable_db_path_falls_back_to_local(
+    def test_unwritable_db_path_falls_back_to_local_when_explicitly_allowed(
+        self, app_root, valid_config_content
+    ):
+        config_file = app_root / "config.yaml"
+        config_file.write_text(valid_config_content, encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap._can_open_sqlite_path", return_value=(False, "boom")),
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {"master_file": "M.xlsx", "source_root": "REPORTS"},
+                "sh1": {"markers": {}},
+                "database": {
+                    "path": "Q:/broken/cache.db",
+                    "schema_path": "db_schema.sql",
+                    "timeout": 30.0,
+                    "allow_local_fallback": True,
+                },
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
+
+            cfg = mock_cfg.return_value.config
+            assert cfg["database"]["path"] == str(app_root / "cache.db")
+            mock_cfg.return_value.save_config.assert_called_once()
+
+    def test_unwritable_db_path_fails_closed_by_default(
         self, app_root, valid_config_content
     ):
         config_file = app_root / "config.yaml"
@@ -252,11 +286,8 @@ class TestPathResolution:
                 "locking": {},
             }
 
-            Bootstrap.setup(app_root, str(config_file))
-
-            cfg = mock_cfg.return_value.config
-            assert cfg["database"]["path"] == str(app_root / "cache.db")
-            mock_cfg.return_value.save_config.assert_called_once()
+            with pytest.raises(RuntimeError, match="Refusing local fallback"):
+                Bootstrap.setup(app_root, str(config_file))
 
     def test_missing_schema_path_falls_back_and_persists(self, app_root):
         config_file = app_root / "config.yaml"
