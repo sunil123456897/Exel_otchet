@@ -5,7 +5,7 @@ import logging.handlers
 import importlib.util
 import re
 import sqlite3
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Tuple, Optional, Dict, Any, List
 
 from pydantic import BaseModel
@@ -113,6 +113,21 @@ def _can_open_sqlite_path(db_path: Path, timeout: float) -> tuple[bool, str | No
     finally:
         if conn is not None:
             conn.close()
+
+
+def _is_stale_app_local_path(
+    path_str: str, app_root: Path, default_filename: str
+) -> bool:
+    """Detect app-local paths persisted from another installation directory."""
+    if not _is_effectively_absolute(path_str):
+        return False
+
+    for parsed_path in (Path(path_str), PureWindowsPath(path_str)):
+        if parsed_path.name.lower() != default_filename.lower():
+            continue
+        if parsed_path.parent.name.lower() == app_root.name.lower():
+            return True
+    return False
 
 
 class Bootstrap:
@@ -224,9 +239,20 @@ class Bootstrap:
     ) -> tuple[str, str, float, bool]:
         persist_recovered_paths = False
         db_cfg = cfg.setdefault("database", {})
-        db_path = db_cfg["path"] = resolve_rel(db_cfg.get("path", "cache.db"), "cache.db")
+        raw_db_path = db_cfg.get("path", "cache.db")
+        if raw_db_path and _is_stale_app_local_path(str(raw_db_path), app_root, "cache.db"):
+            raw_db_path = "cache.db"
+            persist_recovered_paths = True
+        db_path = db_cfg["path"] = resolve_rel(raw_db_path, "cache.db")
+
+        raw_schema_path = db_cfg.get("schema_path", "db_schema.sql")
+        if raw_schema_path and _is_stale_app_local_path(
+            str(raw_schema_path), app_root, "db_schema.sql"
+        ):
+            raw_schema_path = "db_schema.sql"
+            persist_recovered_paths = True
         schema_path = db_cfg["schema_path"] = resolve_rel(
-            db_cfg.get("schema_path", "db_schema.sql"), "db_schema.sql"
+            raw_schema_path, "db_schema.sql"
         )
         db_timeout = float(db_cfg.get("timeout", 30.0))
 

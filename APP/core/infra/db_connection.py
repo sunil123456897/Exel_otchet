@@ -77,7 +77,8 @@ class SQLiteConnectionManager:
     def execute_with_retry(self, func, *args, **kwargs):
         """Execute a function with exponential backoff on transient SQLite errors."""
         last_err = None
-        for attempt in range(self.retry_count):
+        attempt_count = max(1, int(self.retry_count))
+        for attempt in range(attempt_count):
             try:
                 return func(*args, **kwargs)
             except sqlite3.OperationalError as e:
@@ -85,10 +86,13 @@ class SQLiteConnectionManager:
                     last_err = e
                     delay = self.retry_backoff * (2**attempt)
                     self.logger.warning(
-                        f"SQLite retry {attempt + 1}/{self.retry_count}: {e}, "
+                        f"SQLite retry {attempt + 1}/{attempt_count}: {e}, "
                         f"waiting {delay:.1f}s"
                     )
-                    time.sleep(delay)
+                    if attempt < attempt_count - 1:
+                        time.sleep(delay)
                 else:
                     raise
+        if last_err is None:
+            raise sqlite3.OperationalError("SQLite operation failed before execution")
         raise last_err

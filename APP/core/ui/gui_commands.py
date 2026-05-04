@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, List
 
 from core.infra import open_path
+from core.infra.reconciliation_report import build_reconciliation_report
 
 
 class GuiCommands:
@@ -98,7 +99,7 @@ class GuiCommands:
         )
 
     def run_rsch_report(self):
-        mode = self.sidebar.get_rsch_mode()
+        mode = "combined"
         source_paths: List[Path] = []
         saved_sources = self._get_saved_rsch_sources()
         if saved_sources:
@@ -126,44 +127,11 @@ class GuiCommands:
         selected_date = self.sidebar.get_date()
         date_suffix = selected_date.strftime("%d.%m.%Y")
         default_name = f"РСЧ_отчет_{date_suffix}.xlsx"
-        output_initial_dir = self._suggest_rsch_output_dir(source_paths)
-        if mode == "per_file":
-            output_dir = filedialog.askdirectory(
-                title="Выберите папку для сохранения ШО отчетов",
-                initialdir=output_initial_dir,
-                mustexist=True,
-            )
-            if not output_dir:
-                return
-
-            output_dir_path = Path(output_dir)
-            duplicate_stems = self._get_duplicate_source_stems(source_paths)
-            output_paths = [
-                output_dir_path
-                / self._build_per_file_output_name(
-                    src_path,
-                    selected_date,
-                    idx,
-                    duplicate_stems,
-                )
-                for idx, src_path in enumerate(source_paths, start=1)
-            ]
-
-            self._save_rsch_preferences(source_paths, output_paths[0], mode)
-            self.sidebar.set_rsch_state("disabled")
-            self.app_controller.run_rsch_report_batch(
-                source_paths,
-                output_paths,
-                selected_date,
-                self._on_rsch_complete_batch,
-            )
-            return
-
         output = filedialog.asksaveasfilename(
             title="Сохранить ШО отчет",
             defaultextension=".xlsx",
             initialfile=default_name,
-            initialdir=output_initial_dir,
+            initialdir=self._suggest_rsch_output_dir(source_paths),
             filetypes=[("Excel files", "*.xlsx")],
         )
         if not output:
@@ -213,31 +181,6 @@ class GuiCommands:
 
         start_suffix = start_date.strftime("%d.%m.%Y")
         end_suffix = end_date.strftime("%d.%m.%Y")
-        mode = self.sidebar.get_rsch_mode()
-        if mode == "per_file":
-            output_dir = filedialog.askdirectory(
-                title="Выберите папку для сохранения ШО отчетов за период",
-                initialdir=self._suggest_rsch_output_dir(source_paths),
-                mustexist=True,
-            )
-            if not output_dir:
-                return
-
-            output_dir_path = Path(output_dir)
-            self._save_rsch_preferences(
-                source_paths,
-                output_dir_path / f"РСЧ_отчет_{start_suffix}-{end_suffix}.xlsx",
-                mode,
-            )
-            self.sidebar.set_rsch_state("disabled")
-            self.app_controller.run_rsch_report_period_batch(
-                source_paths,
-                output_dir_path,
-                start_date,
-                end_date,
-                self._on_rsch_complete_batch,
-            )
-            return
 
         default_name = f"РСЧ_отчет_{start_suffix}-{end_suffix}.xlsx"
         output = filedialog.asksaveasfilename(
@@ -259,6 +202,58 @@ class GuiCommands:
             end_date,
             self._on_rsch_complete,
         )
+
+    def run_reconciliation_report(self):
+        default_master_path = self.employee_vm.get_master_path(self.config_controller)
+        master_dialog_kwargs = {
+            "title": "Выберите мастер-отчет",
+            "filetypes": [("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")],
+        }
+        if default_master_path:
+            master_dialog_kwargs["initialdir"] = str(Path(default_master_path).parent)
+        master_path = filedialog.askopenfilename(
+            **master_dialog_kwargs,
+        )
+        if not master_path:
+            return
+
+        selected_date = self.sidebar.get_date()
+        rsch_path = filedialog.askopenfilename(
+            title="Выберите готовый РСЧ отчет",
+            filetypes=[("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")],
+            initialdir=self._suggest_rsch_output_dir([]),
+        )
+        if not rsch_path:
+            return
+
+        date_suffix = selected_date.strftime("%d.%m.%Y")
+        output = filedialog.asksaveasfilename(
+            title="Сохранить отчет расхождений",
+            defaultextension=".xlsx",
+            initialfile=f"Отчет_расхождений_{date_suffix}.xlsx",
+            initialdir=str(Path(rsch_path).parent),
+            filetypes=[("Excel files", "*.xlsx")],
+        )
+        if not output:
+            return
+
+        self.sidebar.set_reconciliation_state("disabled")
+        try:
+            rows_count = build_reconciliation_report(
+                Path(master_path),
+                Path(rsch_path),
+                Path(output),
+                target_date=selected_date,
+            )
+        except Exception as exc:
+            logging.exception("Ошибка сверки отчетов")
+            messagebox.showerror("Ошибка", str(exc))
+        else:
+            logging.info("Отчет расхождений собран: %s строк", rows_count)
+            if messagebox.askyesno("Успех", "Отчет расхождений собран. Открыть файл?"):
+                open_path(str(output))
+        finally:
+            self.sidebar.set_reconciliation_state("normal")
 
     def _get_rsch_config(self) -> dict:
         cfg = getattr(self.config_controller, "config", None)
@@ -397,15 +392,16 @@ class GuiCommands:
         rsch_cfg = self._get_rsch_config()
         rsch_cfg["recent_sources"] = [str(p) for p in source_paths]
         rsch_cfg["last_output_dir"] = str(output_path.parent)
-        rsch_cfg["mode"] = mode
+        rsch_cfg["mode"] = "combined"
         save_config = getattr(self.config_controller, "save_config", None)
         if callable(save_config):
             save_config()
 
     def _apply_saved_rsch_mode(self) -> None:
         rsch_cfg = self._get_rsch_config()
-        mode = rsch_cfg.get("mode", "combined")
-        self.sidebar.set_rsch_mode(mode)
+        if rsch_cfg.get("mode") != "combined":
+            rsch_cfg["mode"] = "combined"
+        self.sidebar.set_rsch_mode("combined")
 
     def add_employee_dialog(self):
         from core.ui.ui_dialogs import ask_employee_name

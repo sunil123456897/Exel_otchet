@@ -263,8 +263,8 @@ class TestGetters:
         cfg_file = tmp_path / "empty.yaml"
         cfg_file.write_text("", encoding="utf-8")
         cc = ConfigController(str(cfg_file))
-        if cc.config is not None:
-            assert cc.get_employees() == []
+        assert cc.config == {}
+        assert cc.get_employees() == []
 
     def test_get_paths(self, config_controller):
         paths = config_controller.get_paths()
@@ -277,8 +277,8 @@ class TestGetters:
         cfg_file = tmp_path / "empty.yaml"
         cfg_file.write_text("", encoding="utf-8")
         cc = ConfigController(str(cfg_file))
-        if cc.config is not None:
-            assert cc.get_paths() == {}
+        assert cc.config == {}
+        assert cc.get_paths() == {}
 
 
 class TestPathResolution:

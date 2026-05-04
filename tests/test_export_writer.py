@@ -1,7 +1,9 @@
 import pytest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from core.infra.export_writer import MasterWriter
+from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 
 
@@ -131,3 +133,35 @@ def test_math_error_detection_logic(master_writer):
     for cell in first_data_row_cells:
         if hasattr(cell.fill, "fgColor"):
             assert "FFFF00" not in str(cell.fill.fgColor.rgb)
+
+
+def test_write_daily_data_adds_source_hyperlink(tmp_path: Path):
+    source = tmp_path / "source.xlsx"
+    source.touch()
+    wb = Workbook()
+    if "Sheet" in wb.sheetnames:
+        del wb["Sheet"]
+    writer = MasterWriter({"paths": {"master_file": str(tmp_path / "master.xlsx")}})
+
+    writer.write_daily_data(
+        datetime(2026, 4, 13),
+        [
+            {
+                "Источник": "source.xlsx | Лист1 | Row 7",
+                "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": "Карат",
+                "ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)": "СТИ",
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 100,
+                "_source_file_path": str(source),
+                "_source_sheet_name": "Лист1",
+                "_source_row_index": 7,
+            }
+        ],
+        wb=wb,
+    )
+
+    ws = wb["13.04.2026"]
+    assert ws.cell(2, 1).value == "source.xlsx | Лист1 | Row 7"
+    assert ws.cell(2, 1).hyperlink.target.endswith("source.xlsx")

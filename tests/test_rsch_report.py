@@ -317,6 +317,7 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     assert ws.cell(2, 6).value == 0
     assert ws.cell(2, 7).value == "40702810"
     assert ws.cell(2, 8).value == "source.xlsx | сти рсч | строка 3"
+    assert ws.cell(2, 8).hyperlink.target.endswith("source.xlsx")
 
     # expense leg from right H/I and comment from J
     assert ws.cell(3, 1).value == "СТИ"
@@ -327,6 +328,7 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     assert ws.cell(3, 6).value == 200
     assert ws.cell(3, 7).value == "40702811"
     assert ws.cell(3, 8).value == "source.xlsx | сти рсч | строка 4"
+    assert ws.cell(3, 8).hyperlink.target.endswith("source.xlsx")
 
     # both-leg row stays as one operation, keeps both signs, and takes comment from J
     assert ws.cell(4, 1).value == "СТИ"
@@ -337,6 +339,7 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     assert ws.cell(4, 6).value == -40
     assert ws.cell(4, 7).value == "40702812"
     assert ws.cell(4, 8).value == "source.xlsx | сти рсч | строка 5"
+    assert ws.cell(4, 8).hyperlink.target.endswith("source.xlsx")
 
     assert ws.cell(5, 1).value == "ИТОГО:"
     assert ws.cell(5, 5).value == "=SUM(E2:E4)"

@@ -186,6 +186,16 @@ class TestScanDirectory:
         results = engine.scan_directory(tmp_path)
         assert Path(results[0]['path']).is_absolute()
 
+    def test_scan_does_not_require_path_resolve(self, engine, tmp_path):
+        f = tmp_path / "test.xlsx"
+        f.touch()
+
+        with patch.object(Path, "resolve", side_effect=OSError("slow network resolve")):
+            results = engine.scan_directory(tmp_path)
+
+        assert len(results) == 1
+        assert Path(results[0]["path"]).is_absolute()
+
 
 class TestReadFile:
     """Тесты read_file."""

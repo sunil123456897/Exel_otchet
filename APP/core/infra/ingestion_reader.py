@@ -41,6 +41,7 @@ _NUMERIC_FIELDS = frozenset(
         "transit_obligation",
         "commission",
         "percent_broker",
+        "percent_broker2",
         "broker1",
         "broker2",
         "exchange_rate",
@@ -58,6 +59,7 @@ _PREFERRED_HEADER_ORDER = (
     "transit_obligation",
     "percent_broker",
     "broker1",
+    "percent_broker2",
     "broker2",
     "exchange_rate",
     "currency_amount",
@@ -73,6 +75,7 @@ _STRICT_TEMPLATE_ORDER = (
     "transit_obligation",
     "percent_broker",
     "broker1",
+    "percent_broker2",
     "broker2",
     "exchange_rate",
     "currency_amount",
@@ -80,7 +83,14 @@ _STRICT_TEMPLATE_ORDER = (
     "filters",
 )
 _STRICT_OPTIONAL_KEYS = frozenset(
-    {"filters", "transit_obligation", "exchange_rate", "currency_amount", "currency"}
+    {
+        "filters",
+        "transit_obligation",
+        "percent_broker2",
+        "exchange_rate",
+        "currency_amount",
+        "currency",
+    }
 )
 _STRICT_SOFT_MISSING_KEYS = frozenset({"filters"})
 _STRICT_HELPER_HEADERS = frozenset(
@@ -448,7 +458,23 @@ class CalamineReader:
             if found_idx is not None:
                 col_map[key] = found_idx
 
+        second_percent_idx = self._find_boris_second_percent_index(header_values, col_map)
+        if second_percent_idx is not None:
+            col_map["percent_broker2"] = second_percent_idx
+
         return col_map, used_aliases
+
+    @classmethod
+    def _find_boris_second_percent_index(
+        cls,
+        header_values: List[str],
+        col_map: Dict[str, int],
+    ) -> Optional[int]:
+        mapped_by_index = {col_idx: key for key, col_idx in col_map.items()}
+        for idx, value in enumerate(header_values):
+            if cls._is_boris_second_percent_header(idx, value, mapped_by_index):
+                return idx
+        return None
 
     @staticmethod
     def _row_has_values(row: List[Any]) -> bool:
@@ -605,7 +631,11 @@ class CalamineReader:
             return d_val, d_val != 0, False
 
         try:
-            d_val = to_decimal(val) if key != "percent_broker" else to_decimal_percent(val)
+            d_val = (
+                to_decimal_percent(val)
+                if key in {"percent_broker", "percent_broker2"}
+                else to_decimal(val)
+            )
             return d_val, d_val != 0, False
         except Exception:
             if key == "amount":

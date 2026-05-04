@@ -710,6 +710,191 @@ def test_empty_contractor_is_allowed_for_special_customer_labels(
     assert _is_warning(out_ws, 2, 3) is False
 
 
+def test_empty_contractor_is_allowed_for_getwork_customer(tmp_path: Path) -> None:
+    source = tmp_path / "getwork_empty_contractor.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "out_getwork_empty_contractor.xlsx"
+    _make_template(template)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Моника рсч"
+    ws.append(["x"])
+    ws.append(
+        [
+            "дата",
+            "b",
+            "c",
+            "проект",
+            "контрагент",
+            "приход на рсч, су",
+            "расход с рсч, су",
+            "проект",
+            "контрагент",
+            "j",
+            "k",
+            "р/с",
+        ]
+    )
+    ws.append(
+        [
+            datetime(2026, 4, 13),
+            None,
+            None,
+            "ООО Гетворк",
+            "",
+            100,
+            0,
+            "",
+            "",
+            None,
+            None,
+            "4070",
+        ]
+    )
+    wb.save(source)
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+    )
+
+    assert written == 1
+
+    out_wb = load_workbook(output)
+    out_ws = out_wb[out_wb.sheetnames[0]]
+    assert out_ws.cell(2, 3).value is None
+    assert _is_warning(out_ws, 2, 3) is False
+
+
+@pytest.mark.parametrize("customer", ["ООО ГЕТВОРК комиссия", "ООО ГЕТВОРК налог", "ООО ГЕТВОРК % по депозиту"])
+def test_empty_account_is_allowed_for_getwork_special_customer_rows(
+    tmp_path: Path,
+    customer: str,
+) -> None:
+    source = tmp_path / "getwork_without_account.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "out_getwork_without_account.xlsx"
+    _make_template(template)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Моника рсч"
+    ws.append(["x"])
+    ws.append(
+        [
+            "дата",
+            "b",
+            "c",
+            "проект",
+            "контрагент",
+            "приход на рсч, су",
+            "расход с рсч, су",
+            "проект",
+            "контрагент",
+            "j",
+            "k",
+            "р/с",
+        ]
+    )
+    ws.append(
+        [
+            datetime(2026, 4, 13),
+            None,
+            None,
+            customer,
+            "ООО ГЕТВОРК",
+            0,
+            115000,
+            "",
+            "",
+            None,
+            None,
+            "",
+        ]
+    )
+    wb.save(source)
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+    )
+
+    assert written == 1
+
+    out_wb = load_workbook(output)
+    out_ws = out_wb[out_wb.sheetnames[0]]
+    assert _is_warning(out_ws, 2, 7) is False
+    assert out_ws.cell(2, 6).fill.fgColor.rgb == "FFFFC7CE"
+
+
+@pytest.mark.parametrize("executor", ["Факторинг рсч", "ВФ рсч", "Вафт Фокс рсч"])
+def test_empty_account_is_allowed_for_known_no_account_executors(
+    tmp_path: Path,
+    executor: str,
+) -> None:
+    source = tmp_path / "known_executor_without_account.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "out_known_executor_without_account.xlsx"
+    _make_template(template)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = executor
+    ws.append(["x"])
+    ws.append(
+        [
+            "дата",
+            "b",
+            "c",
+            "проект",
+            "контрагент",
+            "приход на рсч, су",
+            "расход с рсч, су",
+            "проект",
+            "контрагент",
+            "j",
+            "k",
+            "р/с",
+        ]
+    )
+    ws.append(
+        [
+            datetime(2026, 4, 13),
+            None,
+            None,
+            "Карат",
+            "Розетта",
+            5000,
+            0,
+            "",
+            "",
+            None,
+            None,
+            "",
+        ]
+    )
+    wb.save(source)
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+    )
+
+    assert written == 1
+
+    out_wb = load_workbook(output)
+    out_ws = out_wb[out_wb.sheetnames[0]]
+    assert _is_warning(out_ws, 2, 7) is False
+    assert out_ws.cell(2, 5).fill.fgColor.rgb == "FFC6EFCE"
+
+
 def test_empty_contractor_is_marked_for_regular_customer(tmp_path: Path) -> None:
     source = tmp_path / "regular_customer.xlsx"
     template = tmp_path / "template.xlsx"

@@ -649,9 +649,64 @@ def test_calamine_reader_boris_second_percent_is_soft_structure(
 
     assert len(res) == 1
     assert res[0]["amount"] == Decimal("1000.00")
+    assert res[0]["percent_broker2"] == Decimal("0.05")
     assert res[0]["is_template_warning"] is False
     assert res[0]["_template_warning_kind"] == "soft_structure"
     assert "unexpected columns" not in res[0]["_template_warning_reason"].lower()
+
+
+def test_calamine_reader_boris_second_percent_keeps_negative_value(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника", "%"],
+        "broker1": ["посредник 1(кэш)", "комиссия посредника 1"],
+        "broker2": ["посредник 2", "комиссия посредника 2"],
+        "filters": ["фильтры"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "Заказчик",
+            "Исполнитель",
+            "Сумма платежа",
+            "Комиссия",
+            "Итог",
+            "Оплата постащику, выплата зарплатного реестра",
+            "",
+            "%",
+            "Комиссия посредника 1",
+            "%",
+            "Комиссия посредника 2",
+        ],
+        ["СИБ Сбер", "СТИ, Альфа", 0, 24, -31237.17, "", "", -0.04, 2178.01, -0.02, 624.74],
+    ]
+    file_path = tmp_path / "boris_second_percent_negative.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="10.04.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["percent_broker"] == Decimal("-0.04")
+    assert res[0]["percent_broker2"] == Decimal("-0.02")
+    assert res[0]["broker2"] == Decimal("624.74")
 
 
 def test_calamine_reader_same_structure_alias_name_becomes_soft_warning(

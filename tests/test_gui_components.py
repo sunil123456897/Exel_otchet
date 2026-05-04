@@ -1,8 +1,9 @@
 import pytest
 import tkinter as tk
 from tkinter import ttk
+from datetime import datetime
 from unittest.mock import MagicMock, patch
-from core.ui.ui_sidebar import Sidebar
+from core.ui.ui_sidebar import Sidebar, get_default_period_range
 from core.ui.ui_stats_panel import StatsPanel
 from core.ui.ui_log_panel import LogPanel
 from core.ui.ui_employee_table import EmployeeTable
@@ -23,12 +24,34 @@ def test_sidebar(root, mock_controller):
     with patch('core.ui.ui_sidebar.DateEntry'):
         sidebar = Sidebar(root, mock_controller)
         sidebar.pack()
+        assert sidebar.canvas is not None
+        assert sidebar.scrollbar is not None
+        assert sidebar.content is not None
         assert sidebar.refresh_btn is not None
         sidebar.set_refresh_state('disabled')
         assert str(sidebar.refresh_btn['state']) == 'disabled'
         sidebar.get_date()
         sidebar.set_consolidate_state('disabled')
         sidebar.set_consolidate_all_state('disabled')
+        sidebar.set_reconciliation_state('disabled')
+        assert str(sidebar.reconciliation_btn['state']) == 'disabled'
+        assert tuple(sidebar.rsch_mode_combo["values"]) == ("Общий файл",)
+        sidebar.set_rsch_mode("per_file")
+        assert sidebar.get_rsch_mode() == "combined"
+
+
+def test_default_period_range_uses_previous_month_on_first_day():
+    start, end = get_default_period_range(datetime(2026, 5, 1))
+
+    assert start.strftime("%d.%m.%Y") == "01.04.2026"
+    assert end.strftime("%d.%m.%Y") == "30.04.2026"
+
+
+def test_default_period_range_uses_current_month_after_first_day():
+    start, end = get_default_period_range(datetime(2026, 5, 2))
+
+    assert start.strftime("%d.%m.%Y") == "01.05.2026"
+    assert end.strftime("%d.%m.%Y") == "02.05.2026"
 
 def test_stats_panel(root, mock_controller):
     stats = StatsPanel(root, mock_controller)

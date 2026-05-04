@@ -1,5 +1,6 @@
 import logging
 import time
+import concurrent.futures
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -178,6 +179,81 @@ class DiscoveryService:
                     return False
         return True
 
+    @staticmethod
+    def _path_parts(path_str: str) -> List[str]:
+        return [
+            part.lower()
+            for part in path_str.replace("\\", "/").split("/")
+            if part not in ("", ".", "..")
+        ]
+
+    @classmethod
+    def _matching_roots_for_path(
+        cls, path_str: str, roots_to_scan: List[Path]
+    ) -> List[Path]:
+        normalized_path = path_str.replace("\\", "/").lower()
+        path_parts = cls._path_parts(path_str)
+        matches: List[Path] = []
+        for root in roots_to_scan:
+            normalized_root = str(root).replace("\\", "/").lower().rstrip("/")
+            if normalized_path.startswith(normalized_root + "/"):
+                matches.append(root)
+                continue
+            if root.name.lower() in path_parts:
+                matches.append(root)
+        return matches
+
+    def _roots_requiring_scan(
+        self,
+        config_list: List[str],
+        custom_paths: Dict[str, Any],
+        roots_to_scan: List[Path],
+        *,
+        allow_network_scan: bool = True,
+    ) -> List[Path]:
+        if not allow_network_scan:
+            return []
+        if not config_list:
+            return roots_to_scan
+        if not roots_to_scan:
+            return []
+        if not all(name in custom_paths for name in config_list):
+            return roots_to_scan
+
+        missing_roots: List[Path] = []
+        seen = set()
+        for name in config_list:
+            p_val = custom_paths[name]
+            p_list = p_val if isinstance(p_val, list) else [p_val]
+            for entry in p_list:
+                path_str = entry["path"] if isinstance(entry, dict) else entry
+                file_id = entry.get("id") if isinstance(entry, dict) else None
+                file_hash = entry.get("fp") if isinstance(entry, dict) else None
+                resolved, _, _ = resolve_employee_path(
+                    path_str,
+                    file_id=file_id,
+                    file_hash=file_hash,
+                    discovered_files=[],
+                    config_controller=self.config_controller,
+                )
+                p_abs = Path(resolved)
+                if p_abs.is_absolute() and p_abs.exists():
+                    continue
+                if file_id or file_hash:
+                    return roots_to_scan
+
+                matching_roots = self._matching_roots_for_path(
+                    str(path_str), roots_to_scan
+                )
+                if not matching_roots:
+                    return roots_to_scan
+                for root in matching_roots:
+                    key = str(root)
+                    if key not in seen:
+                        missing_roots.append(root)
+                        seen.add(key)
+        return missing_roots
+
     def _scan_discovered_files(
         self, roots_to_scan: List[Path], all_have_custom: bool
     ) -> List[Dict[str, Any]]:
@@ -188,14 +264,23 @@ class DiscoveryService:
             )
             return discovered_files
 
-        for root in roots_to_scan:
+        def scan_root(root: Path) -> List[Dict[str, Any]]:
             try:
                 logging.info("[NET] Сканирую сетевой путь: %s", scrub_path(str(root)))
                 files = self.ingestion.scan_directory(root)
-                discovered_files.extend(files)
                 logging.info("[NET] Найдено файлов в %s: %s", root.name, len(files))
+                return files
             except Exception as e:
                 logging.error("[NET] Ошибка доступа к %s: %s", scrub_path(str(root)), e)
+                return []
+
+        if len(roots_to_scan) == 1:
+            return scan_root(roots_to_scan[0])
+
+        max_workers = min(3, len(roots_to_scan))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for files in executor.map(scan_root, roots_to_scan):
+                discovered_files.extend(files)
         return discovered_files
 
     def _resolve_custom_paths_for_employee(
@@ -258,18 +343,36 @@ class DiscoveryService:
 
         return paths_for_emp
 
-    def get_employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
+    def get_employees_map(
+        self, *, allow_network_scan: bool = True
+    ) -> Dict[str, List[Dict[str, Any]]]:
         config = self.config_controller.config
         custom_paths = self.config_controller.employees
         config_list = sorted(custom_paths.keys())
 
         roots_to_scan = self._resolve_roots_to_scan(config)
-        all_have_custom = self._all_custom_paths_available(config_list, custom_paths)
-        discovered_files = None if all_have_custom else self._load_discovery_cache(config, roots_to_scan)
+        roots_requiring_scan = self._roots_requiring_scan(
+            config_list,
+            custom_paths,
+            roots_to_scan,
+            allow_network_scan=allow_network_scan,
+        )
+        all_have_custom = not roots_requiring_scan
+        discovered_files = (
+            None
+            if roots_requiring_scan
+            else []
+        )
+        if roots_requiring_scan:
+            discovered_files = self._load_discovery_cache(config, roots_requiring_scan)
         if discovered_files is None:
-            discovered_files = self._scan_discovered_files(roots_to_scan, all_have_custom)
-            if roots_to_scan and not all_have_custom:
-                self._save_discovery_cache(config, roots_to_scan, discovered_files)
+            discovered_files = self._scan_discovered_files(
+                roots_requiring_scan, all_have_custom
+            )
+            if roots_requiring_scan:
+                self._save_discovery_cache(
+                    config, roots_requiring_scan, discovered_files
+                )
         self.last_discovered_count = len(discovered_files or [])
 
         self.rename_detected = False

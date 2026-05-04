@@ -250,11 +250,12 @@ class IngestionEngine(IDataSource):
             logger.warning(f"[SCAN] Папка не найдена: {root_path}")
             return res
         logger.info(f"[SCAN] Сканирую папку: {root_path}...")
-        for root, _, files in os.walk(root_path):
+        scan_root = os.path.abspath(os.fspath(root_path))
+        for root, _, files in os.walk(scan_root):
             for f in files:
                 if f.startswith("~$") or not f.lower().endswith((".xlsx", ".xlsb")):
                     continue
-                p = (Path(root) / f).resolve()
+                p = Path(root) / f
                 try:
                     stat = os.stat(p)
                     # СКИПИРУЕМ хэширование при сканировании (это ОЧЕНЬ медленно по сети)

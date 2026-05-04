@@ -13,6 +13,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from core.infra.excel_hyperlinks import apply_cell_hyperlink
+
 logger = logging.getLogger(__name__)
 
 RSCH_HEADERS = [
@@ -68,6 +70,13 @@ _SPECIAL_CUSTOMER_MARKERS = (
     "% по депозиту",
     "комиссия",
     "налог",
+)
+_NO_ACCOUNT_MARKERS = (
+    "факторинг",
+    "факторнинг",
+    "вф",
+    "вафт фокс",
+    "гетворк",
 )
 
 
@@ -209,6 +218,16 @@ def _is_special_customer_label(customer: str) -> bool:
     return any(marker in normalized for marker in _SPECIAL_CUSTOMER_MARKERS)
 
 
+def _is_account_optional_row(row: Dict[str, Any]) -> bool:
+    searchable = " ".join(
+        _normalize_text(row.get(key))
+        for key in ("executor", "customer", "contractor", "comment")
+    )
+    return _is_special_customer_label(str(row.get("customer") or "")) or any(
+        marker in searchable for marker in _NO_ACCOUNT_MARKERS
+    )
+
+
 def _is_problem_row(row: Dict[str, Any]) -> bool:
     income = row["income"]
     expense = row["expense"]
@@ -220,10 +239,19 @@ def _is_problem_row(row: Dict[str, Any]) -> bool:
     if income != 0 and expense != 0:
         return True
 
-    if not contractor and customer and not _is_special_customer_label(customer):
+    is_getwork_customer = "гетворк" in _normalize_text(customer)
+    if (
+        not contractor
+        and customer
+        and not _is_special_customer_label(customer)
+        and not is_getwork_customer
+    ):
         return True
 
-    if not customer or not executor or not account:
+    if not customer or not executor:
+        return True
+
+    if not account and not _is_account_optional_row(row):
         return True
 
     return income == 0 and expense == 0
@@ -234,6 +262,9 @@ def _build_row(
     executor: str,
     account: str,
     source: str,
+    source_path: Path,
+    source_sheet: str,
+    source_row: int,
     customer_primary: str,
     customer_secondary: str,
     contractor_primary: str,
@@ -252,6 +283,9 @@ def _build_row(
         "expense": expense,
         "account": account,
         "source": source,
+        "source_path": str(source_path),
+        "source_sheet": source_sheet,
+        "source_row": source_row,
     }
 
 
@@ -263,6 +297,7 @@ def _collect_rows_from_sheet(
     ws: Worksheet,
     target_date: Optional[date],
     source_name: str,
+    source_path: Path,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
 ) -> List[Dict[str, Any]]:
@@ -303,6 +338,9 @@ def _collect_rows_from_sheet(
                     executor,
                     account,
                     source,
+                    source_path,
+                    ws.title,
+                    row_idx,
                     customer_left,
                     customer_right,
                     contractor_left,
@@ -319,6 +357,9 @@ def _collect_rows_from_sheet(
                     executor,
                     account,
                     source,
+                    source_path,
+                    ws.title,
+                    row_idx,
                     customer_left,
                     customer_right,
                     contractor_left,
@@ -335,6 +376,9 @@ def _collect_rows_from_sheet(
                     executor,
                     account,
                     source,
+                    source_path,
+                    ws.title,
+                    row_idx,
                     customer_right,
                     customer_left,
                     contractor_right,
@@ -695,6 +739,7 @@ def _collect_rows_from_workbook(
                         ws,
                         target_date,
                         source_path.name,
+                        source_path,
                         start_date=start_date,
                         end_date=end_date,
                     )
@@ -813,6 +858,12 @@ def _write_rsch_sheet(
         if _is_problem_row(row):
             _apply_warning_row_highlighting(ws_out, curr_idx)
         _apply_amount_highlighting(ws_out, curr_idx, row["income"], row["expense"])
+        apply_cell_hyperlink(
+            ws_out.cell(curr_idx, 8),
+            row.get("source_path"),
+            row.get("source_sheet"),
+            row.get("source_row"),
+        )
 
     _autosize_all_columns(ws_out)
 

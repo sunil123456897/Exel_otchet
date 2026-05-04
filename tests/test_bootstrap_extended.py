@@ -289,6 +289,45 @@ class TestPathResolution:
             with pytest.raises(RuntimeError, match="Refusing local fallback"):
                 Bootstrap.setup(app_root, str(config_file))
 
+    def test_stale_app_local_database_paths_recover_without_dev_fallback(
+        self, app_root, valid_config_content
+    ):
+        app_root = app_root / "APP"
+        app_root.mkdir()
+        config_file = app_root / "config.yaml"
+        config_file.write_text(valid_config_content, encoding="utf-8")
+        (app_root / "db_schema.sql").write_text("-- schema", encoding="utf-8")
+
+        with (
+            patch("core.bootstrap.ConfigController") as mock_cfg,
+            patch("core.bootstrap._can_open_sqlite_path", return_value=(True, None)) as can_open,
+            patch("core.bootstrap.IngestionEngine"),
+            patch("core.bootstrap.SQLiteManager"),
+            patch("core.bootstrap.Validator"),
+            patch("core.bootstrap.LogicService"),
+            patch("core.bootstrap.MasterWriter"),
+            patch("core.bootstrap.AppController"),
+        ):
+            mock_cfg.return_value.config = {
+                "paths": {"master_file": "M.xlsx", "source_root": "REPORTS"},
+                "sh1": {"markers": {}},
+                "database": {
+                    "path": "E:/old/install/APP/cache.db",
+                    "schema_path": "E:/old/install/APP/db_schema.sql",
+                    "timeout": 30.0,
+                    "allow_local_fallback": False,
+                },
+                "locking": {},
+            }
+
+            Bootstrap.setup(app_root, str(config_file))
+
+            cfg = mock_cfg.return_value.config
+            assert cfg["database"]["path"] == str(app_root / "cache.db")
+            assert cfg["database"]["schema_path"] == str(app_root / "db_schema.sql")
+            can_open.assert_called_once_with(app_root / "cache.db", 30.0)
+            mock_cfg.return_value.save_config.assert_called_once()
+
     def test_missing_schema_path_falls_back_and_persists(self, app_root):
         config_file = app_root / "config.yaml"
         config_file.write_text("paths: {}\nsh1: {}\n", encoding="utf-8")

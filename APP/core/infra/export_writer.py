@@ -13,6 +13,7 @@ from core.infra.export_formatting import (
     apply_cell_styling,
     build_total_row,
 )
+from core.infra.excel_hyperlinks import apply_cell_hyperlink
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,15 @@ class MasterWriter(IExporter):
                     pass
 
     def _auto_adjust(self, ws):
-        numeric_keywords = ["приход", "расход", "комиссия", "итог", "посредник"]
+        numeric_keywords = [
+            "приход",
+            "расход",
+            "комиссия",
+            "итог",
+            "посредник",
+            "транзит",
+            "сумма",
+        ]
         for i in range(1, ws.max_column + 1):
             max_len = 0
             for row in ws.iter_rows(
@@ -228,6 +237,12 @@ class MasterWriter(IExporter):
                         r.get("фильтры", ""),
                     ]
                 )
+            apply_cell_hyperlink(
+                ws.cell(ws.max_row, 1),
+                r.get("_source_file_path"),
+                r.get("_source_sheet_name"),
+                r.get("_source_row_index"),
+            )
         return warning_rows
 
     def _write_template_errors_sheet(self, wb, template_errors: List[Dict[str, Any]]):

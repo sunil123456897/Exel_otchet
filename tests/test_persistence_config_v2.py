@@ -68,6 +68,24 @@ def test_connection_manager_execute_with_retry_custom(temp_db, db_config, mocker
     assert mock_func.call_count == 2
 
 
+def test_connection_manager_execute_with_retry_zero_retry_count_attempts_once(
+    temp_db, db_config, mocker
+):
+    config = {
+        **db_config,
+        "locking": {**db_config["locking"], "retry_count": 0},
+    }
+    mgr = SQLiteConnectionManager(temp_db, config)
+    mock_func = MagicMock(side_effect=sqlite3.OperationalError("database is locked"))
+    mock_sleep = mocker.patch("time.sleep")
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        mgr.execute_with_retry(mock_func)
+
+    assert mock_func.call_count == 1
+    mock_sleep.assert_not_called()
+
+
 # --- SourceFileRepository Tests ---
 def test_source_file_repo_save_metadata(temp_db, db_config, schema_path):
     mgr = SQLiteConnectionManager(temp_db, db_config)

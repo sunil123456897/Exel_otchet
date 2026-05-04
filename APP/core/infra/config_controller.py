@@ -39,7 +39,7 @@ class ConfigController:
         try:
             if os.path.exists(self.config_path):
                 with open(self.config_path, "r", encoding="utf-8") as f:
-                    return self.yaml.load(f)
+                    return self.yaml.load(f) or {}
             else:
                 logging.warning(f"Config file not found: {self.config_path}")
                 return {}

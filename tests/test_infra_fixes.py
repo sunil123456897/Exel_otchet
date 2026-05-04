@@ -5,6 +5,7 @@ import logging
 import sqlite3
 import shutil
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 from decimal import Decimal
 from unittest.mock import MagicMock, patch, DEFAULT
@@ -22,10 +23,8 @@ from core.infra.export_writer import MasterWriter
 def temp_dir():
     d = tempfile.mkdtemp()
     yield Path(d)
-    try:
+    with suppress(OSError):
         shutil.rmtree(d)
-    except OSError:
-        pass
 
 
 # 1. Test CalamineReader iterator usage
@@ -172,7 +171,8 @@ def test_max_path_save_force_long(temp_dir, mocker):
     # But we can also just verify that it uses the \\?\ prefix on Windows if path is long.
 
     # Let's mock os.replace and openpyxl.Workbook.save to see what paths they get.
-    long_path_str = "C:\\" + "a" * 250 + "\\Master.xlsx"
+    long_parent = temp_dir.joinpath(*(["a" * 50] * 5))
+    long_path_str = str(long_parent / "Master.xlsx")
     config = {"paths": {"master_file": long_path_str}}
     writer = MasterWriter(config)
 

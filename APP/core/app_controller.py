@@ -55,9 +55,11 @@ class AppController:
     def rename_detected(self):
         return self.discovery.rename_detected
 
-    def _get_employees_map(self) -> Dict[str, List[Dict[str, Any]]]:
+    def _get_employees_map(
+        self, *, allow_network_scan: bool = True
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """Discover and return employee-to-file mapping."""
-        return self.discovery.get_employees_map()
+        return self.discovery.get_employees_map(allow_network_scan=allow_network_scan)
 
     def _resolve_master_path(self) -> Path:
         """Resolve the output master report path."""
@@ -271,8 +273,8 @@ class AppController:
         on_error: Optional[Callable[[str], None]] = None,
     ) -> None:
         try:
-            logging.info("[NET] Начинаю поиск файлов в сети...")
-            employees_map = self._get_employees_map()
+            logging.info("[NET] Загружаю статусы файлов...")
+            employees_map = self._get_employees_map(allow_network_scan=False)
             unique_names = sorted(employees_map.keys())
             if not unique_names:
                 on_complete([], {}, False)
@@ -835,7 +837,7 @@ class AppController:
 
                 total_rows = 0
                 issues: List[str] = []
-                for src, out in zip(normalized_sources, normalized_outputs):
+                for src, out in zip(normalized_sources, normalized_outputs, strict=True):
                     total_rows += build_rsch_report(
                         src,
                         out,

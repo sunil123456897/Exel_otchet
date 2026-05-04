@@ -97,25 +97,32 @@ class CuratorStrategy:
         pb_val: Any,
         amt: Decimal,
         tot: Decimal,
+        raw_b2: Decimal,
+        pb2_raw: Any,
     ) -> tuple:
         """Return (pb_val, pb2_val, broker2_calc)."""
         return pb_val, Decimal("0.00"), Decimal("0.00")
 
 
 class BorisCuratorStrategy(CuratorStrategy):
-    """Boris-specific: calculates intermediary2 broker commission."""
+    """Boris-specific: keeps intermediary2 values from the source report."""
 
-    def apply(self, curator_config, pb_val, amt, tot):
-        rate2 = Decimal(str(curator_config.get("intermediary2_rate", 0.05)))
-        base = tot if tot != 0 else amt
-        broker2_calc = (base * rate2).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        return pb_val, rate2, broker2_calc
+    def apply(self, curator_config, pb_val, amt, tot, raw_b2, pb2_raw):
+        if raw_b2 == 0:
+            return pb_val, Decimal("0.00"), Decimal("0.00")
+
+        pb2_val = to_decimal_percent(pb2_raw or 0)
+        if isinstance(pb2_val, Decimal):
+            pb2_val = abs(pb2_val)
+        else:
+            pb2_val = abs(to_decimal(pb2_val))
+        return pb_val, pb2_val, abs(raw_b2)
 
 
 class IvanCuratorStrategy(CuratorStrategy):
     """Ivan-specific layout keeps manually entered intermediary values."""
 
-    def apply(self, curator_config, pb_val, amt, tot):
+    def apply(self, curator_config, pb_val, amt, tot, raw_b2, pb2_raw):
         return pb_val, Decimal("0.00"), Decimal("0.00")
 
 
@@ -285,6 +292,9 @@ class LogicService(ILogicService):
             "is_template_warning": is_warn,
             "_template_warning_kind": r.get("_template_warning_kind"),
             "_template_warning_reason": r.get("_template_warning_reason"),
+            "_source_file_path": r.get("_file_path"),
+            "_source_sheet_name": r.get("_sheet_name"),
+            "_source_row_index": r.get("_row_index"),
         }
 
     def apply_financial_rules(
@@ -354,8 +364,9 @@ class LogicService(ILogicService):
 
             # Apply curator-specific broker logic via strategy
             if curator_config:
+                pb2_raw = r.get("percent_broker2")
                 pb_val, pb2_val, broker2_calc = strategy.apply(
-                    curator_config, pb_val, amt, tot
+                    curator_config, pb_val, amt, tot, raw_b2, pb2_raw
                 )
             else:
                 pb2_val = Decimal("0.00")

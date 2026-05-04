@@ -186,6 +186,74 @@ def test_run_curator_consolidation_filters_employees_and_uses_curator_output(
     assert write_args.kwargs["curator"] == "boris"
 
 
+@pytest.mark.parametrize(
+    ("curator", "employee_name", "source_path", "output_path"),
+    [
+        ("boris", "Борис Ж", "boris.xlsx", "output/boris_report.xlsx"),
+        ("ivan", "Иван П", "ivan.xlsx", "output/ivan_report.xlsx"),
+    ],
+)
+def test_daily_curator_consolidation_uses_selected_curator_config(
+    app_controller,
+    mock_deps,
+    mocker,
+    curator,
+    employee_name,
+    source_path,
+    output_path,
+):
+    app_controller._cached_employees = {
+        employee_name: [{"path": source_path}],
+        "Амалия": [{"path": "amalia.xlsx"}],
+    }
+    mock_deps["config_controller"].config = {
+        "curators": {
+            "boris": {
+                "enabled": True,
+                "employees_key": "борис",
+                "output_path": "output/boris_report.xlsx",
+                "headers": ["Источник", "ЗАКАЗЧИК"],
+            },
+            "ivan": {
+                "enabled": True,
+                "employees_key": "иван",
+                "output_path": "output/ivan_report.xlsx",
+                "headers": ["Сотрудник", "ЗАКАЗЧИК"],
+            },
+        }
+    }
+    mock_deps["config_controller"].resolve_path.side_effect = lambda p: Path(p)
+    mocker.patch("os.path.exists", return_value=True)
+
+    mock_deps["persistence"].save_file_metadata.return_value = [1]
+    mock_deps["ingestion"].read_file.return_value = [
+        {"date": "01.01.2023", "amount": 100}
+    ]
+    mock_deps["validator"].validate_row.return_value = True
+    mock_deps["logic_service"].consolidate.return_value = [{"consolidated": True}]
+    mock_deps["persistence"].get_template_errors.return_value = []
+    mock_deps["writer"].write_report.return_value = True
+
+    on_progress = MagicMock()
+    on_complete = MagicMock()
+
+    with patch("threading.Thread") as mock_thread:
+        app_controller.run_consolidation(
+            datetime(2023, 1, 1), on_progress, on_complete, curator=curator
+        )
+        task = mock_thread.call_args[1]["target"]
+        task()
+
+    mock_deps["ingestion"].read_file.assert_called_once()
+    assert mock_deps["ingestion"].read_file.call_args.args[0] == Path(source_path)
+    assert mock_deps["logic_service"].consolidate.call_args.kwargs["curator"] == curator
+    assert (
+        mock_deps["writer"].write_report.call_args.args[1]
+        == Path(output_path)
+    )
+    assert mock_deps["writer"].write_report.call_args.kwargs["curator"] == curator
+
+
 def test_run_general_consolidation_excludes_enabled_curator_employees(
     app_controller, mock_deps, mocker
 ):

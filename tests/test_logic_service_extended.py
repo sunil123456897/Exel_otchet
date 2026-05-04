@@ -298,6 +298,85 @@ def test_broker_only_row_with_broker2_is_not_dropped(logic_service):
     assert res[0]["ИТОГ"] == Decimal("0.00")
 
 
+def test_boris_does_not_autofill_intermediary2_rate(logic_service):
+    raw_rows = [
+        {
+            "customer": "СИБ Сбер",
+            "contractor": "СТИ, Альфа",
+            "amount": "0",
+            "total": "-31237.17",
+            "commission": "24",
+            "percent_broker": "-4",
+            "broker1": "2178.01",
+            "broker2": "0",
+            "filters": "ЗП",
+        }
+    ]
+
+    res = logic_service.apply_financial_rules(
+        raw_rows,
+        curator="boris",
+        curator_config={"intermediary2_rate": 0.05},
+    )
+
+    assert res[0]["% посредник 2"] == Decimal("0.00")
+    assert res[0]["Посредник 2 (сумма)"] == Decimal("0.00")
+    assert res[0]["посредник 2"] == Decimal("0.00")
+
+
+def test_boris_keeps_explicit_intermediary2_value(logic_service):
+    raw_rows = [
+        {
+            "customer": "СИБ Сбер",
+            "contractor": "СТИ, Альфа",
+            "amount": "0",
+            "total": "-31237.17",
+            "commission": "24",
+            "percent_broker": "-4",
+            "broker1": "2178.01",
+            "percent_broker2": "0.02",
+            "broker2": "624.74",
+            "filters": "ЗП",
+        }
+    ]
+
+    res = logic_service.apply_financial_rules(
+        raw_rows,
+        curator="boris",
+        curator_config={"intermediary2_rate": 0.05},
+    )
+
+    assert res[0]["% посредник 2"] == Decimal("0.02")
+    assert res[0]["Посредник 2 (сумма)"] == Decimal("624.74")
+    assert res[0]["посредник 2"] == Decimal("624.74")
+
+
+def test_boris_intermediary2_rate_keeps_source_precision(logic_service):
+    raw_rows = [
+        {
+            "customer": "СИБ Сбер",
+            "contractor": "СТИ, Альфа",
+            "amount": "0",
+            "total": "-31237.17",
+            "commission": "24",
+            "percent_broker": Decimal("-0.04"),
+            "broker1": "2178.01",
+            "percent_broker2": Decimal("-0.015"),
+            "broker2": "624.74",
+            "filters": "ЗП",
+        }
+    ]
+
+    res = logic_service.apply_financial_rules(
+        raw_rows,
+        curator="boris",
+        curator_config={"intermediary2_rate": 0.05},
+    )
+
+    assert res[0]["% посредник 2"] == Decimal("0.015")
+    assert res[0]["Посредник 2 (сумма)"] == Decimal("624.74")
+
+
 def test_transit_only_row_is_not_dropped_for_ivan_layout(logic_service):
     raw_rows = [
         {

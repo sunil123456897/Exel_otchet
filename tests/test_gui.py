@@ -1,7 +1,7 @@
 import pytest
 import tkinter as tk
 from unittest.mock import MagicMock, patch
-from core.ui.gui_master import GuiMaster
+from core.ui.gui_master import GuiMaster, _fit_window_geometry
 from core.view_models.employee_list_viewmodel import EmployeeStatus
 
 
@@ -33,6 +33,14 @@ def test_gui_init(gui_app):
     assert "Master-Report" in gui_app.root.title()
     assert gui_app.employee_vm is not None
     assert gui_app.consolidation_vm is not None
+
+
+def test_fit_window_geometry_caps_size_to_screen():
+    assert _fit_window_geometry(1100, 840, 1366, 768) == "1100x675+133+46"
+
+
+def test_fit_window_geometry_centers_default_on_large_screen():
+    assert _fit_window_geometry(1100, 840, 1920, 1080) == "1100x840+410+120"
 
 
 def test_refresh_status(gui_app, mock_controllers):
@@ -183,3 +191,9 @@ def test_run_rsch_report(gui_app):
     gui_app.commands.run_rsch_report = MagicMock()
     gui_app.run_rsch_report()
     gui_app.commands.run_rsch_report.assert_called_once()
+
+
+def test_run_reconciliation_report(gui_app):
+    gui_app.commands.run_reconciliation_report = MagicMock()
+    gui_app.run_reconciliation_report()
+    gui_app.commands.run_reconciliation_report.assert_called_once()

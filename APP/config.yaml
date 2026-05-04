@@ -100,10 +100,4 @@ rsch:
     - E:\Dlia Dashi\Version5\рсч всех\РСЧ Моника.xlsx
   last_output_dir: E:\Dlia Dashi\Version5\РСЧ
   mode: combined
-discovery_cache:
-  roots_key:
-    - Q:\Отчет кураторов 1
-    - Q:\Отчет кураторов 2
-    - Q:\Отчет кураторов 3
-  scanned_at: 1777392086.2604558
-  files: []
+discovery_cache: {}

@@ -7,6 +7,7 @@ import pytest
 import os
 import tempfile
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch, mock_open
 from core.infra.export_writer import ExportPreflightError, MasterWriter, preflight_output_path
@@ -432,6 +433,52 @@ class TestWriteDailyData:
         pct_cell = ws.cell(2, pct_col)
         assert pct_cell.value == 0.05
 
+    def test_boris_percent_broker2_keeps_fractional_percent_display(
+        self, master_writer
+    ):
+        """% посредник 2 у Бориса не должен округляться до целого процента."""
+        headers = [
+            "Источник",
+            "ЗАКАЗЧИК (название проекта, наименование ЮЛ)",
+            "ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)",
+            "сумма платежа ПРИХОД",
+            "сумма платежа РАСХОД",
+            "комиссия",
+            "ИТОГ",
+            "% посредника",
+            "посредник 1(кэш)",
+            "% посредник 2",
+            "посредник 2",
+            "фильтры",
+        ]
+        rows = [
+            {
+                "Источник": "boris.xlsx : Строка 10",
+                "сумма платежа ПРИХОД": 0,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 24,
+                "ИТОГ": -31237.17,
+                "% посредника": Decimal("0.04"),
+                "посредник 1(кэш)": 2178.01,
+                "% посредник 2": Decimal("0.015"),
+                "посредник 2": 624.74,
+                "фильтры": "ЗП",
+            }
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(
+            datetime(2026, 4, 10),
+            rows,
+            wb=wb,
+            curator="boris",
+            headers=headers,
+        )
+        ws = wb["10.04.2026"]
+
+        pct2_cell = ws.cell(2, 10)
+        assert pct2_cell.value == 0.015
+        assert pct2_cell.number_format == "0.##%"
+
     def test_template_warning_colors(self, master_writer):
         """Template warning — ячейка Источник должна быть жёлтой."""
         rows = [
@@ -721,6 +768,127 @@ class TestWriteDailyData:
             commission_cell.fill.start_color.rgb
             == master_writer.st.fill_warning.start_color.rgb
         )
+
+    def test_ivan_transit_obligation_uses_money_format(self, master_writer):
+        rows = [
+            {
+                "Сотрудник": "Иван",
+                "сумма платежа ПРИХОД": 0,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 24,
+                "ИТОГ": 0,
+                "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ": 1600950,
+            }
+        ]
+        headers = [
+            "Сотрудник",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
+            "Комиссия",
+            "ИТОГ",
+            "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ",
+            "% посредника 1",
+            "посредник 1(кэш)",
+            "посредник 2",
+            "курс",
+            "сумма",
+            "валюта",
+            "фильтры",
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(
+            datetime(2026, 4, 1),
+            rows,
+            wb=wb,
+            curator="ivan",
+            headers=headers,
+        )
+        ws = wb["01.04.2026"]
+
+        transit_col = next(
+            cell.column
+            for cell in ws[1]
+            if cell.value == "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ"
+        )
+        transit_cell = ws.cell(2, transit_col)
+
+        assert transit_cell.value == 1600950.0
+        assert transit_cell.number_format == "#,##0"
+
+    def test_ivan_currency_amount_uses_grouped_money_format(self, master_writer):
+        rows = [
+            {
+                "Сотрудник": "Иван",
+                "сумма платежа ПРИХОД": 0,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 0,
+                "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ": 0,
+                "сумма": Decimal("1600950"),
+            }
+        ]
+        headers = [
+            "Сотрудник",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
+            "Комиссия",
+            "ИТОГ",
+            "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ",
+            "% посредника 1",
+            "посредник 1(кэш)",
+            "посредник 2",
+            "курс",
+            "сумма",
+            "валюта",
+            "фильтры",
+        ]
+        wb = Workbook()
+
+        master_writer.write_daily_data(
+            datetime(2026, 4, 1),
+            rows,
+            wb=wb,
+            curator="ivan",
+            headers=headers,
+        )
+        ws = wb["01.04.2026"]
+
+        amount_col = next(cell.column for cell in ws[1] if cell.value == "сумма")
+        amount_cell = ws.cell(2, amount_col)
+
+        assert amount_cell.value == Decimal("1600950")
+        assert amount_cell.number_format == "#,##0.00"
+        assert ws.column_dimensions[amount_cell.column_letter].width >= 18
+
+    def test_integer_commission_percent_has_no_decimal_separator(
+        self, master_writer
+    ):
+        rows = [
+            {
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 24,
+                "ИТОГ": 100,
+            },
+            {
+                "сумма платежа ПРИХОД": 100,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 21.5,
+                "ИТОГ": 100,
+            },
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        ws = wb["01.04.2026"]
+
+        commission_col = next(cell.column for cell in ws[1] if cell.value == "Комиссия")
+
+        assert ws.cell(2, commission_col).number_format == '0"%"'
+        assert ws.cell(3, commission_col).number_format == '0.##"%"'
 
 
 class TestAutoAdjust:

@@ -5,6 +5,31 @@ import pandas as pd
 from pathlib import Path
 from unittest.mock import patch
 
+_MkdirPath = str | bytes | os.PathLike[str] | os.PathLike[bytes]
+
+
+def _install_codex_windows_mkdir_compat() -> None:
+    """Keep pytest temp directories readable in the Codex Windows sandbox."""
+    if os.name != "nt" or not os.environ.get("CODEX_THREAD_ID"):
+        return
+
+    original_mkdir = os.mkdir
+    if getattr(original_mkdir, "_codex_windows_mode_compat", False):
+        return
+
+    def mkdir_compat(path: _MkdirPath, mode: int = 0o777, *, dir_fd: int | None = None) -> None:
+        effective_mode = 0o777 if mode == 0o700 else mode
+        if dir_fd is None:
+            original_mkdir(path, effective_mode)
+            return
+        original_mkdir(path, effective_mode, dir_fd=dir_fd)
+
+    mkdir_compat._codex_windows_mode_compat = True
+    os.mkdir = mkdir_compat
+
+
+_install_codex_windows_mkdir_compat()
+
 # Add APP directory to sys.path
 app_root = Path(__file__).parent.parent / "APP"
 if str(app_root) not in sys.path:

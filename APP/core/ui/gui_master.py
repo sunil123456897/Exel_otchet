@@ -17,6 +17,21 @@ from core.view_models.consolidation_viewmodel import ConsolidationViewModel
 from core.ui.gui_commands import GuiCommands
 
 
+def _fit_window_geometry(
+    preferred_width: int,
+    preferred_height: int,
+    screen_width: int,
+    screen_height: int,
+) -> str:
+    max_width = max(800, int(screen_width * 0.82))
+    max_height = max(560, int(screen_height * 0.88))
+    width = min(preferred_width, max_width)
+    height = min(preferred_height, max_height)
+    x = max(0, (screen_width - width) // 2)
+    y = max(0, (screen_height - height) // 2)
+    return f"{width}x{height}+{x}+{y}"
+
+
 class GuiMaster:
     def __init__(
         self,
@@ -30,7 +45,14 @@ class GuiMaster:
             app_controller,
         )
         self.root.title("🚀 Master-Report v5.5 | Financial Consolidator")
-        self.root.geometry("1200x900")
+        self.root.geometry(
+            _fit_window_geometry(
+                1100,
+                840,
+                self.root.winfo_screenwidth(),
+                self.root.winfo_screenheight(),
+            )
+        )
         self.root.configure(bg="#f0f2f5")
 
         self.employee_vm = EmployeeListViewModel()
@@ -118,6 +140,9 @@ class GuiMaster:
 
     def run_rsch_report_month(self):
         self.commands.run_rsch_report_month()
+
+    def run_reconciliation_report(self):
+        self.commands.run_reconciliation_report()
 
     def add_employee_dialog(self):
         self.commands.add_employee_dialog()

@@ -517,6 +517,56 @@ class TestPathResolution:
         assert result["Alice"] == []
         assert ds.rename_detected is False
 
+    def test_missing_plain_path_scans_only_matching_source_root(self, tmp_path):
+        root1 = tmp_path / "Отчет кураторов 1"
+        root2 = tmp_path / "Отчет кураторов 2"
+        root1.mkdir()
+        root2.mkdir()
+        found_file = root1 / "Alice" / "report.xlsx"
+        found_file.parent.mkdir()
+        found_file.touch()
+
+        config_controller = MagicMock()
+        config_controller.config = {
+            "employees": ["Alice"],
+            "paths": {"source_roots": [str(root1), str(root2)]},
+        }
+        config_controller.config_path = str(tmp_path / "APP" / "config.yaml")
+        config_controller.employees = {
+            "Alice": ["../REPORTS/Отчет кураторов 1/Alice/missing.xlsx"]
+        }
+
+        ingestion = MagicMock()
+        ingestion.scan_directory.return_value = [
+            {"path": str(found_file), "id": 1, "fp": None}
+        ]
+
+        ds = DiscoveryService(config_controller, ingestion)
+        ds.get_employees_map()
+
+        ingestion.scan_directory.assert_called_once_with(root1)
+        assert config_controller.config["discovery_cache"]["roots_key"] == [str(root1)]
+
+    def test_no_network_scan_mode_skips_rename_lookup_for_missing_id_path(
+        self, tmp_path
+    ):
+        root = tmp_path / "Отчет кураторов 3"
+        root.mkdir()
+        config_controller = MagicMock()
+        config_controller.config = {"paths": {"source_roots": [str(root)]}}
+        config_controller.config_path = str(tmp_path / "APP" / "config.yaml")
+        config_controller.employees = {
+            "Alice": [{"path": str(root / "Alice" / "missing.xlsx"), "id": 7}]
+        }
+        ingestion = MagicMock()
+        ingestion.scan_directory.return_value = []
+        ds = DiscoveryService(config_controller, ingestion)
+
+        result = ds.get_employees_map(allow_network_scan=False)
+
+        assert result["Alice"] == []
+        ingestion.scan_directory.assert_not_called()
+
 
 class TestEmployeeDiscovery:
     """Автоматическое обнаружение сотрудников."""

@@ -187,14 +187,14 @@ def _get_warning_target_column(ws, warning_info):
 
 
 def detect_header_columns(ws) -> tuple:
-    num_kw = ["приход", "расход", "комиссия", "итог", "посредник"]
+    num_kw = ["приход", "расход", "комиссия", "итог", "посредник", "транзит"]
     cols = {kw: -1 for kw in num_kw}
     num_indices = set()
     percent_broker_cols = set()
 
     for i, cell in enumerate(ws[1], 1):
         val = str(cell.value or "").lower()
-        if any(kw in val for kw in num_kw):
+        if any(kw in val for kw in num_kw) or val == "сумма":
             num_indices.add(i)
         for kw in num_kw:
             if kw in val:
@@ -218,14 +218,24 @@ def apply_cell_styling(
     return_keywords=None,
 ):
     return_keywords = [str(v).lower() for v in (return_keywords or ["возврат"])]
+    _, source_col = _get_header_and_source_col(ws)
+    warning_target_cache = {}
 
     for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row)):
         warning_info = warning_rows.get(r_idx + 2)
         is_warning = warning_info is not None
         fill_row = st.fill_odd if (r_idx + 1) % 2 == 1 else st.fill_even
         is_return = _is_return_row(rows_data, r_idx, return_keywords)
-        warning_target_col = _get_warning_target_column(ws, warning_info)
-        _source_header, source_col = _get_header_and_source_col(ws)
+        warning_target_col = None
+        if warning_info:
+            warning_cache_key = (
+                str(warning_info.get("kind") or ""),
+                str(warning_info.get("reason") or ""),
+            )
+            warning_target_col = warning_target_cache.get(warning_cache_key)
+            if warning_cache_key not in warning_target_cache:
+                warning_target_col = _get_warning_target_column(ws, warning_info)
+                warning_target_cache[warning_cache_key] = warning_target_col
 
         i_val, e_val, t_val, c_val = _extract_money_snapshot(row_cells, cols)
 
@@ -307,9 +317,11 @@ def format_numeric_cell(
             "General" if is_percent_err and isinstance(cell.value, str) else "#,##0.00"
         )
         if not is_percent_err:
-            fmt = "0.00%"
+            fmt = "0.##%" if "посредник 2" in h else "0.00%"
     elif "комиссия" in h:
-        fmt = '0.##"%"'
+        fmt = _commission_percent_format(cell.value)
+    elif "транзит" in h:
+        fmt = "#,##0"
     else:
         fmt = "#,##0.00"
 
@@ -317,6 +329,16 @@ def format_numeric_cell(
 
     if is_warning and not is_critical and warning_target_col == c_idx:
         cell.fill = st.fill_warning
+
+
+def _commission_percent_format(value) -> str:
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return '0.##"%"'
+    if abs(numeric_value - round(numeric_value)) < 0.0000001:
+        return '0"%"'
+    return '0.##"%"'
 
 
 def build_total_row(ws, num_indices, st: ExcelStyles):
