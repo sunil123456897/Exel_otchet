@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from core.infra.rsch_report import build_rsch_report
+from core.infra.rsch_report import _collect_rows_from_workbook, build_rsch_report
 
 
 def _fill_rgb(ws, row_idx: int, col_idx: int) -> str:
@@ -102,6 +102,58 @@ def test_missing_template_file_raises(tmp_path: Path) -> None:
             target_date=date(2026, 4, 13),
             template_path=tmp_path / "missing_template.xlsx",
         )
+
+
+def test_collect_rows_from_workbook_uses_local_copy_and_preserves_source_link(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "network_source.xlsx"
+    local_copy = tmp_path / "local_copy.xlsx"
+    temp_copy = tmp_path / "temp_copy.xlsx"
+    _make_source(source)
+    wb = load_workbook(source)
+    wb.active.cell(3, 6).value = 100
+    wb.save(source)
+    local_copy.write_bytes(source.read_bytes())
+    temp_copy.write_bytes(source.read_bytes())
+
+    with (
+        patch(
+            "core.infra.rsch_report.get_local_copy",
+            return_value=(str(local_copy), str(temp_copy)),
+        ) as copy_file,
+        patch("core.infra.rsch_report.Path.unlink") as unlink,
+    ):
+        rows = _collect_rows_from_workbook(source, date(2026, 4, 13))
+
+    assert len(rows) == 1
+    assert {row["source_path"] for row in rows} == {str(source)}
+    assert rows[0]["source"].startswith(f"{source.name} | ")
+    copy_file.assert_called_once_with(str(source), ("Q", "Z"))
+    unlink.assert_called_once_with(missing_ok=True)
+
+
+def test_collect_rows_from_workbook_passes_custom_drive_letters(tmp_path: Path) -> None:
+    source = tmp_path / "network_source.xlsx"
+    local_copy = tmp_path / "local_copy.xlsx"
+    _make_source(source)
+    wb = load_workbook(source)
+    wb.active.cell(3, 6).value = 100
+    wb.save(source)
+    local_copy.write_bytes(source.read_bytes())
+
+    with patch(
+        "core.infra.rsch_report.get_local_copy",
+        return_value=(str(local_copy), None),
+    ) as copy_file:
+        rows = _collect_rows_from_workbook(
+            source,
+            date(2026, 4, 13),
+            drive_letters=("R",),
+        )
+
+    assert len(rows) == 1
+    copy_file.assert_called_once_with(str(source), ("R",))
 
 
 def test_non_rsch_invalid_sheet_is_ignored_without_issue(tmp_path: Path) -> None:
@@ -829,6 +881,69 @@ def test_empty_account_is_allowed_for_getwork_special_customer_rows(
     out_wb = load_workbook(output)
     out_ws = out_wb[out_wb.sheetnames[0]]
     assert _is_warning(out_ws, 2, 7) is False
+    assert out_ws.cell(2, 6).fill.fgColor.rgb == "FFFFC7CE"
+
+
+@pytest.mark.parametrize("customer", ["% по депозиту", "комиссия", "налог"])
+def test_empty_account_is_marked_for_regular_special_customer_rows(
+    tmp_path: Path,
+    customer: str,
+) -> None:
+    source = tmp_path / "regular_special_without_account.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "out_regular_special_without_account.xlsx"
+    _make_template(template)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "СБИ рсч"
+    ws.append(["x"])
+    ws.append(
+        [
+            "дата",
+            "b",
+            "c",
+            "проект",
+            "контрагент",
+            "приход на рсч, су",
+            "расход с рсч, су",
+            "проект",
+            "контрагент",
+            "j",
+            "k",
+            "р/с",
+        ]
+    )
+    ws.append(
+        [
+            datetime(2026, 5, 5),
+            None,
+            None,
+            customer,
+            "служебный платеж",
+            0,
+            21950.87,
+            "",
+            "",
+            None,
+            None,
+            "",
+        ]
+    )
+    wb.save(source)
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 5, 5),
+        template_path=template,
+    )
+
+    assert written == 1
+
+    out_wb = load_workbook(output)
+    out_ws = out_wb[out_wb.sheetnames[0]]
+    assert _is_warning(out_ws, 2, 7) is True
     assert out_ws.cell(2, 6).fill.fgColor.rgb == "FFFFC7CE"
 
 

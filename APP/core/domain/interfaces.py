@@ -67,6 +67,15 @@ class IPersistence(ABC):
         """Saves a template violation or warning."""
         pass
 
+    def save_template_errors_batch(
+        self, session_id: str, errors: List[Dict[str, Any]]
+    ) -> None:
+        """Saves a batch of template violations or warnings."""
+        for error_info in errors:
+            self.save_template_error(session_id, error_info)
+
+
+
     @abstractmethod
     def get_template_errors(self, session_id: str) -> List[Dict[str, Any]]:
         """Retrieves all template errors for a session."""

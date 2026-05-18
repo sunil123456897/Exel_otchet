@@ -2,8 +2,11 @@ import os
 import subprocess
 import platform
 import hashlib
+import logging
 import shutil
 import tempfile
+import threading
+import time
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -30,6 +33,10 @@ def is_file_writable(path: str) -> bool:
 
 
 _CACHE_DIR = Path(tempfile.gettempdir()) / "master_report_cache"
+_CACHE_CLEANUP_LOCK = threading.Lock()
+_CACHE_CLEANUP_DONE = False
+_CACHE_COPY_LOCK = threading.Lock()
+_CACHE_MIN_DELETE_AGE_SECONDS = 30 * 60
 
 
 def _is_configured_drive_path(path: str, drive_letters: tuple) -> bool:
@@ -46,6 +53,67 @@ def _is_configured_drive_path(path: str, drive_letters: tuple) -> bool:
 
 def _is_network_path(path: str, drive_letters: tuple) -> bool:
     return path.startswith("\\\\") or _is_configured_drive_path(path, drive_letters)
+
+
+def cleanup_local_copy_cache(
+    max_age_days: int = 14,
+    max_total_mb: int = 512,
+    min_delete_age_seconds: int = _CACHE_MIN_DELETE_AGE_SECONDS,
+) -> None:
+    """Remove old local network-file cache entries without touching fresh files."""
+    try:
+        if not _CACHE_DIR.exists():
+            return
+
+        now = time.time()
+        max_age_seconds = max(0, max_age_days) * 24 * 60 * 60
+        max_total_bytes = max(0, max_total_mb) * 1024 * 1024
+        entries: list[tuple[float, int, Path]] = []
+
+        for entry in _CACHE_DIR.iterdir():
+            try:
+                if entry.is_symlink() or not entry.is_file():
+                    continue
+                stat = entry.stat()
+            except OSError:
+                continue
+
+            age = now - stat.st_mtime
+            if age < min_delete_age_seconds:
+                entries.append((stat.st_mtime, stat.st_size, entry))
+                continue
+            if max_age_seconds and age > max_age_seconds:
+                entry.unlink(missing_ok=True)
+                continue
+            entries.append((stat.st_mtime, stat.st_size, entry))
+
+        if max_total_bytes <= 0:
+            return
+
+        total_size = sum(size for _mtime, size, _entry in entries)
+        for mtime, size, entry in sorted(entries, key=lambda item: item[0]):
+            if total_size <= max_total_bytes:
+                break
+            if now - mtime < min_delete_age_seconds:
+                continue
+            try:
+                entry.unlink(missing_ok=True)
+                total_size -= size
+            except OSError:
+                logging.debug("Could not remove cache file %s", entry, exc_info=True)
+    except OSError:
+        logging.debug("Could not cleanup local copy cache %s", _CACHE_DIR, exc_info=True)
+
+
+def _maybe_cleanup_local_copy_cache() -> None:
+    global _CACHE_CLEANUP_DONE
+    if _CACHE_CLEANUP_DONE:
+        return
+    with _CACHE_CLEANUP_LOCK:
+        if _CACHE_CLEANUP_DONE:
+            return
+        cleanup_local_copy_cache()
+        _CACHE_CLEANUP_DONE = True
 
 
 def get_local_copy(
@@ -81,33 +149,39 @@ def get_local_copy(
         except OSError:
             return network_path, None
 
+
     key = hashlib.md5(
         f"{network_path}_{stat.st_mtime}_{stat.st_size}".encode()
     ).hexdigest()
     suffix = Path(network_path).suffix
     local_path = _CACHE_DIR / f"{key}{suffix}"
 
-    if local_path.exists():
-        # Validate cached copy against current remote metadata
-        try:
-            cached_stat = os.stat(local_path)
-            if cached_stat.st_size != stat.st_size or cached_stat.st_mtime < stat.st_mtime:
-                # Size or mtime mismatch — stale cache, remove it
-                os.remove(local_path)
-            else:
-                return str(local_path), None
-        except OSError:
-            pass
+    with _CACHE_COPY_LOCK:
+        if local_path.exists():
+            # Validate cached copy against current remote metadata
+            try:
+                cached_stat = os.stat(local_path)
+                if cached_stat.st_size != stat.st_size or cached_stat.st_mtime < stat.st_mtime:
+                    # Size or mtime mismatch — stale cache, remove it
+                    try:
+                        os.remove(local_path)
+                    except OSError:
+                        pass
+                else:
+                    return str(local_path), None
+            except OSError:
+                pass
 
-    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.copy2(network_path, str(local_path))
-        return str(local_path), None
-    except Exception:
-        fd, temp_file = tempfile.mkstemp(suffix=suffix)
-        os.close(fd)
+        _maybe_cleanup_local_copy_cache()
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         try:
-            shutil.copy2(network_path, temp_file)
-            return temp_file, temp_file
+            shutil.copy2(network_path, str(local_path))
+            return str(local_path), None
         except Exception:
-            return network_path, None
+            fd, temp_file = tempfile.mkstemp(suffix=suffix)
+            os.close(fd)
+            try:
+                shutil.copy2(network_path, temp_file)
+                return temp_file, temp_file
+            except Exception:
+                return network_path, None

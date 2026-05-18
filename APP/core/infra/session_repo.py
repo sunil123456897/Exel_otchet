@@ -85,8 +85,49 @@ class SessionRepository(IPersistence):
 
         self._execute_with_retry(_save)
 
+    def save_template_errors_batch(
+        self, session_id: str, errors: List[Dict[str, Any]]
+    ) -> None:
+        if not errors:
+            return
+
+        def _save():
+            conn = self._get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.executemany(
+                    """INSERT INTO template_errors 
+                       (session_id, file_path, sheet_name, row_index, error_type, details, raw_data) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    [
+                        (
+                            session_id,
+                            error_info.get("file_path"),
+                            error_info.get("sheet_name"),
+                            error_info.get("row_index"),
+                            error_info.get("error_type"),
+                            error_info.get("details"),
+                            json.dumps(
+                                error_info.get("raw_data"),
+                                ensure_ascii=False,
+                                cls=DecimalEncoder,
+                            ),
+                        )
+                        for error_info in errors
+                    ],
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        self._execute_with_retry(_save)
+
     def get_template_errors(self, session_id: str) -> List[Dict[str, Any]]:
-        with self._get_connection() as conn:
+        conn = self._get_connection()
+        try:
             return [
                 dict(r)
                 for r in conn.execute(
@@ -94,9 +135,12 @@ class SessionRepository(IPersistence):
                     (session_id,),
                 )
             ]
+        finally:
+            conn.close()
 
     def get_session_status(self, session_id: str) -> Dict[str, Any]:
-        with self._get_connection() as conn:
+        conn = self._get_connection()
+        try:
             row = conn.execute(
                 "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
             ).fetchone()
@@ -112,6 +156,8 @@ class SessionRepository(IPersistence):
                 "created_at": row["created_at"],
                 "file_stats": {s["status"]: s["cnt"] for s in stats},
             }
+        finally:
+            conn.close()
 
     def update_session_status(self, session_id: str, status: str) -> None:
         def _update():

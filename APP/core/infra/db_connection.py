@@ -70,9 +70,12 @@ class SQLiteConnectionManager:
 
     def init_db(self, schema_path: Path) -> None:
         if schema_path.exists():
-            with self.get_connection() as conn:
+            conn = self.get_connection()
+            try:
                 with open(schema_path, "r", encoding="utf-8") as f:
                     conn.executescript(f.read())
+            finally:
+                conn.close()
 
     def execute_with_retry(self, func, *args, **kwargs):
         """Execute a function with exponential backoff on transient SQLite errors."""

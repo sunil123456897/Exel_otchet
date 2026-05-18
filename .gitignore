@@ -1,9 +1,12 @@
 venv/
+.venv/
 **/__pycache__/
 *.py[cod]
 *$py.class
 .hypothesis/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 APP/DEEP_AUDIT_REPORT.txt
@@ -21,9 +24,26 @@ docs/maestro/.workspace-root
 temp_destructive_env/
 benchmark_*.xlsx
 ultra_large_*.xlsx
+Version5.rar
+.cleanup_quarantine/
 
 
 .gitnexus
+.sentrux/
 .opencode/skills/
+.opencode/node_modules/
 *.db
 *.sqlite
+
+# Temporary test results and scripts
+docs/superpowers/
+tmp_pytest_safe/
+tmp_pytest_baseline_codex/
+APP/output/*_new.xlsx
+APP/output/*_review.xlsx
+APP/output/*_suppressed.xlsx
+**/Отчет_расхождений_*.xlsx
+**/Отчёт_расхождений_*.xlsx
+**/!*.xlsx
+
+

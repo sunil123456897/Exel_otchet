@@ -128,12 +128,13 @@ rsch:
 
 ## Текущий Baseline Проверок
 
-На последней полной проверке проходило:
+Актуальные проверки нужно фиксировать по фактически запущенным командам в текущей среде. Минимальный gate:
 
-- `pytest tests` - 737 passed;
-- `python -m ruff check APP tests` - passed;
-- `python -m mypy APP tests` - passed;
-- `python -m compileall -q APP` - passed;
-- Sentrux rules - passed.
+- `python -m pytest -q -p no:cacheprovider`;
+- `python -m ruff check APP tests -q`;
+- `python -m mypy APP tests --no-error-summary`;
+- `python -m compileall -q APP`.
+
+Sentrux в Codex-сессии считается пройденным только если доступны scan/health инструменты и они реально запускались. Не переносите старые числа `passed` в документацию без нового полного запуска.
 
 Если в Codex/Windows снова проявится ошибка `_overlapped` или `WinError 10106`, это проблема процессного окружения Codex, а не ожидаемая ошибка проекта.

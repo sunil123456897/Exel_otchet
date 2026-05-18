@@ -4,8 +4,10 @@ import time
 import json
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 from typing import List, Dict, Any
+import xml.etree.ElementTree as ET
 from python_calamine import CalamineWorkbook
 
 from core.domain import IDataSource
@@ -17,6 +19,45 @@ logger = logging.getLogger(__name__)
 _FILE_READ_RETRIES = 3
 _FILE_READ_BACKOFF = 1.0
 _APP_ROOT = Path(__file__).resolve().parents[2]
+_IGNORED_DATE_SHEETS = {"АНАЛИТИКА", "СВОД"}
+_WORKBOOK_XML = "xl/workbook.xml"
+_SPREADSHEET_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+
+
+def _extract_dates_from_sheet_names(sheet_names: List[str]) -> List[str]:
+    dates = set()
+    for sheet_name in sheet_names:
+        if sheet_name.startswith("_") or sheet_name in _IGNORED_DATE_SHEETS:
+            continue
+        sheet_date = extract_date_from_sheet(sheet_name)
+        if sheet_date:
+            dates.add(sheet_date)
+    return sorted(dates)
+
+
+def _get_xlsx_sheet_dates_from_metadata(target_path: str | Path) -> List[str]:
+    with zipfile.ZipFile(target_path) as archive:
+        workbook_xml = archive.read(_WORKBOOK_XML)
+    root = ET.fromstring(workbook_xml)
+    sheet_names = [
+        str(sheet.attrib.get("name", ""))
+        for sheet in root.findall(f".//{_SPREADSHEET_NS}sheet")
+    ]
+    return _extract_dates_from_sheet_names(sheet_names)
+
+
+def _try_get_xlsx_sheet_dates_from_metadata(target_path: str | Path) -> List[str] | None:
+    if not str(target_path).lower().endswith(".xlsx"):
+        return None
+    try:
+        return _get_xlsx_sheet_dates_from_metadata(target_path)
+    except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError) as e:
+        logger.debug(
+            "Fast xlsx sheet metadata read failed for %s: %s",
+            target_path,
+            e,
+        )
+        return None
 
 
 def _run_calamine_worker(
@@ -165,6 +206,7 @@ class IngestionEngine(IDataSource):
     ):
         self.markers = config_markers
         self.drive_letters = tuple(d.upper() for d in drive_letters)
+        self.config = {}
         self.aliases = {
             "amount": ["сумма платежа", "бн рф руб", "бн", "приход", "расход"],
             "income": ["приход"],
@@ -189,16 +231,14 @@ class IngestionEngine(IDataSource):
         }
         self.reader = CalamineReader(self.markers, self.aliases, self.drive_letters)
 
+    def _should_isolate_calamine(self, file_path: Path | str) -> bool:
+        if self.config.get("performance", {}).get("isolate_calamine") is False:
+            return False
+        return _should_isolate_calamine(file_path)
+
     def _get_available_dates_direct(self, target_path: str) -> List[str]:
-        dates = set()
         wb = CalamineWorkbook.from_path(target_path)
-        for sheet_name in wb.sheet_names:
-            if sheet_name.startswith("_") or sheet_name in ("АНАЛИТИКА", "СВОД"):
-                continue
-            sheet_date = extract_date_from_sheet(sheet_name)
-            if sheet_date:
-                dates.add(sheet_date)
-        return sorted(dates)
+        return _extract_dates_from_sheet_names(list(wb.sheet_names))
 
     def get_available_dates(
         self,
@@ -208,6 +248,12 @@ class IngestionEngine(IDataSource):
     ) -> List[str]:
         dates = set()
         f_path_abs = os.path.abspath(str(file_path))
+        should_isolate = self._should_isolate_calamine(file_path)
+        if should_isolate:
+            metadata_dates = _try_get_xlsx_sheet_dates_from_metadata(f_path_abs)
+            if metadata_dates is not None:
+                return metadata_dates
+
         target_path, temp_file = get_local_copy(
             f_path_abs,
             self.drive_letters,
@@ -216,7 +262,11 @@ class IngestionEngine(IDataSource):
         )
 
         try:
-            if _should_isolate_calamine(file_path):
+            if should_isolate:
+                metadata_dates = _try_get_xlsx_sheet_dates_from_metadata(target_path)
+                if metadata_dates is not None:
+                    return metadata_dates
+            if should_isolate:
                 payload = _run_calamine_worker(
                     "dates", target_path, self.markers, self.aliases
                 )
@@ -251,25 +301,41 @@ class IngestionEngine(IDataSource):
             return res
         logger.info(f"[SCAN] Сканирую папку: {root_path}...")
         scan_root = os.path.abspath(os.fspath(root_path))
-        for root, _, files in os.walk(scan_root):
-            for f in files:
-                if f.startswith("~$") or not f.lower().endswith((".xlsx", ".xlsb")):
-                    continue
-                p = Path(root) / f
-                try:
-                    stat = os.stat(p)
-                    # СКИПИРУЕМ хэширование при сканировании (это ОЧЕНЬ медленно по сети)
-                    res.append(
-                        {
-                            "path": str(p),
-                            "id": stat.st_ino,
-                            "fp": None,  # Хэш будет вычислен только при необходимости
-                            "size": stat.st_size,
-                            "mtime": stat.st_mtime,
-                        }
-                    )
-                except Exception as e:
-                    logger.error(f"Error scanning file {p}: {e}")
+        roots_to_visit = [scan_root]
+        while roots_to_visit:
+            current_root = roots_to_visit.pop()
+            subdirs = []
+            try:
+                with os.scandir(current_root) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                subdirs.append(entry.path)
+                                continue
+                            if not entry.is_file(follow_symlinks=False):
+                                continue
+                            f = entry.name
+                            if f.startswith("~$") or not f.lower().endswith(
+                                (".xlsx", ".xlsb")
+                            ):
+                                continue
+                            stat = entry.stat(follow_symlinks=False)
+                            # СКИПИРУЕМ хэширование при сканировании (это ОЧЕНЬ медленно по сети)
+                            res.append(
+                                {
+                                    "path": str(entry.path),
+                                    "id": stat.st_ino,
+                                    "fp": None,  # Хэш будет вычислен только при необходимости
+                                    "size": stat.st_size,
+                                    "mtime": stat.st_mtime,
+                                }
+                            )
+                        except Exception as e:
+                            logger.error(f"Error scanning file {entry.path}: {e}")
+                roots_to_visit.extend(reversed(subdirs))
+            except Exception as e:
+                logger.error(f"Error scanning directory {current_root}: {e}")
+                continue
         return res
 
     def read_file(
@@ -286,7 +352,7 @@ class IngestionEngine(IDataSource):
         last_err = None
         for attempt in range(_FILE_READ_RETRIES):
             try:
-                if _should_isolate_calamine(file_path):
+                if self._should_isolate_calamine(file_path):
                     payload = _run_calamine_worker(
                         "rows",
                         str(file_path),

@@ -66,21 +66,28 @@ def test_get_available_dates_exception_logging(engine, tmp_path):
 
 def test_scan_directory_exception_logging(engine, tmp_path):
     """Cover lines 80-81: Exception logging in scan_directory."""
-    f = tmp_path / "unreadable.xlsx"
-    f.touch()
+    class BadEntry:
+        name = "unreadable.xlsx"
+        path = str(tmp_path / "unreadable.xlsx")
 
-    # We want root_path.exists() to succeed, so we need to be careful with patching os.stat
-    # since pathlib.Path.exists() calls os.stat.
-    # We'll use a side_effect function that only raises error for the specific file.
-    original_stat = os.stat
+        def is_dir(self, follow_symlinks=False):
+            return False
 
-    def side_effect(path, *args, **kwargs):
-        if str(path).endswith("unreadable.xlsx"):
+        def is_file(self, follow_symlinks=False):
+            return True
+
+        def stat(self, follow_symlinks=False):
             raise PermissionError("Access denied")
-        return original_stat(path, *args, **kwargs)
+
+    class FakeScandir:
+        def __enter__(self):
+            return iter([BadEntry()])
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
 
     with (
-        patch("os.stat", side_effect=side_effect),
+        patch("core.infra.ingestion_engine.os.scandir", return_value=FakeScandir()),
         patch("core.infra.ingestion_engine.logger") as mock_logger,
     ):
         res = engine.scan_directory(tmp_path)

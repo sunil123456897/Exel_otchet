@@ -1,199 +1,77 @@
-# Copy this file to config.yaml and fill in real paths
-# IMPORTANT: Replace \SERVER\share\REPORTS_SYSTEM with your actual network root path before running.
-database: {isolation_level: EXCLUSIVE, path:
-    \\SERVER\share\REPORTS_SYSTEM\\APP\cache.db, schema_path:
-    \\SERVER\share\REPORTS_SYSTEM\\APP\src\db_schema.sql, timeout: 30.0, use_wal:
-    true}
-employee_paths:
-  Сотрудник_1:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Адам К\отчет
-        Адам стафф.xlsx
-      id: 3659174697613460
-      fp: cee210c00b2e2076aae334b8b4914f19
-  Сотрудник_2:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Александра
-        П\отчет Александра П 2026.xlsx
-      id: 5066549581166741
-      fp: 6848b54aa8e4afb160091f1954ba743d
-  Сотрудник_3:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
-        3\Алексей\Отчет Стафф Алексей.xlsx
-      id: 3659174697613464
-      fp: cf9a2e34328afb68d5b25e25cfb8ad33
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
-        3\Алексей\Отчёт Алексей.xlsx
-      id: 3659174697613462
-      fp: 2863e353164399fa782f4f32776e3367
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
-        3\Алексей\Отчет Гетворк Алексей Актуальный.xlsx
-      id: 5066549581166743
-      fp: 9af9ab890a028365aa0d467ede156f7b
-  Сотрудник_4:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Алиса
-        С\отчет 2026 Алиса С.xlsx
-      id: 5066549581166745
-      fp: f12ad70c0c4cc19a7a3d1ad6a6840182
-  Сотрудник_5:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Алиса
-        Ю\Отчет Алиса Ю Корень с 06.03.26.xlsx
-      id: 3659174697613466
-      fp: 7241f0008534964804c249f1f95d71aa
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Алиса
-        Ю\Отчет Корень Фонд Алиса Ю.xlsx
-      id: 5066549581166747
-      fp: ea056ed8599718d65f6e4381a44c5ee9
-  Сотрудник_6:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Амалия\Отчет
-        ОПТ Амали  22.03.2026.xlsb
-      id: 3659174697613424
-      fp: e28a73cf91b71d99800cc6777d2c521b
-      size: 2381418
-      mtime: 1774632920.748485
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Амалия\Отчет
-        стафф Амиля 20.03.xlsx
-      id: 5066549581166703
-      fp: 9a00cbcd300615e6eadc2a9a094a9d75
-  Сотрудник_7:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
-        1\Антон\Ежедневный отчет Антон 25.03 ОПТ.xlsx
-      id: 3659174697613426
-      fp: dc8a962c1a4a75a098bd46fe20ba8325
-  Сотрудник_8:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Арина
-        Т\Отчет Арина Т Новый (корень).xlsx
-      id: 3659174697613468
-      fp: bad4793ec132eb86fbba349e9643f6df
-  Сотрудник_9:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Богдан
-        Л\Отчёт Богдан Л.xlsx
-      id: 5066549581166749
-      fp: 4ab3424e0ff56760eb71cc44a7102548
-  Сотрудник_10:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Борис
-        Ж\Отчёт Борис Ж.xlsx
-      id: 5066549581166721
-      fp: 42d9afa6250d0b942bd8f5507264f47c
-  Сотрудник_11:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Гена Ц
-        Отчет\Отчет Гена Ц.xlsx
-      id: 3659174697613470
-      fp: 5547db37bd8650e9963e3c34b3a076f8
-  Сотрудник_12:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\ДАМИР\Отчет
-        Дамир.xlsx
-      id: 3659174697613442
-      fp: d37ade469117f23f7349564dc072a8ec
-  Сотрудник_13:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Иван\Отчет
-        новый Иван .xlsx
-      id: 5066549581166707
-      fp: 232e1bbeb2233e2e3f3af629d9bc9ff0
-  Сотрудник_14:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Кира В\отчет
-        кира стафф1.xlsx
-      id: 5066549581166751
-      fp: 2ebeddbb1684fd815994d9c776cc0227
-  Сотрудник_15:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Лев Е\Отчёт
-        ЛЕВ Е !!!.xlsx
-      id: 5066549581166723
-      fp: 13ab2208383127c987a5ed8a165774a1
-  Сотрудник_16:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Марго\Отчет
-        Марго СТАФФ.xlsx
-      id: 5066549581166709
-      fp: fb54a9c7e3416c6309cb0c448b98cdb1
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Марго\Отчет
-        Марго.xlsx
-      id: 3659174697613428
-      fp: de4f84befc2a66f66ea4ad654e2278ef
-  Сотрудник_17:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Марьяна
-        Г\Отчет Марьяна Г.xlsx
-      id: 3659174697613444
-      fp: 0b856e1d671f4289c5a8d57af011045d
-  Сотрудник_18:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Матвей
-        Т\Ежедневый отчет_Матвей.xlsx
-      id: 5066549581166725
-      fp: ac1481229d405e4fbb9247724fcfe781
-  Сотрудник_19:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Надежда
-        Р\отчет стафф проекты Надежда Р.xlsx
-      id: 3659174697613472
-      fp: 9e7ec9a863c4334150ebe62be97adb2d
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 3\Надежда
-        Р\Отчеты Надежда.xlsx
-      id: 5066549581166753
-      fp: 2afbcfa500b10b219ceb8c0ad1f22686
-  Сотрудник_20:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Николай
-        С\Отчет Коля.xlsx
-      id: 3659174697613446
-      fp: 5e8a3f8a13a04adf8005393ed6bf6e49
-  Сотрудник_21:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
-        1\Оливия\Ежедневый отчет Оливия Г.xlsx
-      id: 5066549581166711
-      fp: 28cc71022e90a61a18039a58a75b614d
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов
-        1\Оливия\Ележневный отчет Оливия Стафф.xlsx
-      id: 3659174697613430
-      fp: 489aedb2c5b23914b7b103f659362fb6
-  Сотрудник_22:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Роман В\День
-        отчёт Роман В (Стафф) Верная.xlsx
-      id: 5066549581166727
-      fp: c4aeabe45d5ced12679dd73bb6e96fb4
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Роман В\День
-        отчет Роман.xlsx
-      id: 3659174697613448
-      fp: 1728de8cdad952ec9fbf11b78aca30e3
-  Сотрудник_23:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 2\Юнона
-        А\Отчет Юнона А.xlsx
-      id: 5066549581166729
-      fp: 3b2dff1b7c0889baf37c64987ceb2e15
-  Сотрудник_24:
-    - path: \\SERVER\share\REPORTS_SYSTEM\REPORTS\Отчет кураторов 1\Яна А\Отчет
-        Яна А.xlsx
-      id: 3659174697613432
-      fp: 0fe8815f316b8b9d216429ad31f45ca7
-employees:
-  - Сотрудник_1
-  - Сотрудник_2
-  - Сотрудник_3
-  - Сотрудник_4
-  - Сотрудник_5
-  - Сотрудник_6
-  - Сотрудник_7
-  - Сотрудник_8
-  - Сотрудник_9
-  - Сотрудник_10
-  - Сотрудник_11
-  - Сотрудник_12
-  - Сотрудник_13
-  - Сотрудник_14
-  - Сотрудник_15
-  - Сотрудник_16
-  - Сотрудник_17
-  - Сотрудник_18
-  - Сотрудник_19
-  - Сотрудник_20
-  - Сотрудник_21
-  - Сотрудник_22
-  - Сотрудник_23
-  - Сотрудник_24
-locking: {retry_backoff: 2.0, retry_count: 5, use_semaphores: true}
+# Copy this file to APP/config.yaml and adjust paths for the workstation.
+# Prefer relative app-local paths for database files so the project can move
+# between PCs without keeping stale E:\... paths.
+
+database:
+  path: cache.db
+  schema_path: db_schema.sql
+  timeout: 30.0
+  allow_local_fallback: false
+  isolation_level: EXCLUSIVE
+  use_wal: true
+
+locking:
+  retry_count: 5
+  retry_backoff: 2.0
+  use_semaphores: true
+
+network:
+  drive_letters:
+    - Q
+    - Z
+
 logic:
-  income_overrides: [доп, доп сф, '% посред']
-  return_keywords: [возврат]
-paths: {archive_dir: ./backups, master_file:
-    \\SERVER\share\REPORTS_SYSTEM\Master_Report.xlsx, source_root:
-    \\SERVER\share\REPORTS_SYSTEM\REPORTS}
+  commission_is_percent: true
+  income_overrides:
+    - доп
+    - доп сф
+    - "% посред"
+  return_keywords:
+    - возврат
+
+paths:
+  master_file: ../Master_Report.xlsx
+  source_roots:
+    - Q:\Отчет кураторов 1
+    - Q:\Отчет кураторов 2
+    - Q:\Отчет кураторов 3
+  archive_dir: ../backups
+
+curators:
+  boris:
+    enabled: true
+    output_path: output/boris_report.xlsx
+    employees_key: борис
+    direct_paths: []
+  ivan:
+    enabled: true
+    output_path: output/ivan_report.xlsx
+    employees_key: иван
+    direct_paths: []
+
+rsch:
+  recent_sources: []
+  last_output_dir: ../РСЧ
+  mode: combined
+
 sh1:
-  markers: {amount: сумма платежа, broker1: посредник 1(кэш), broker2: посредник
-      2, commission: комиссия, contractor: Исполнитель, customer: Заказчик,
-      expense: расход, filters: фильтры, income: приход, percent_broker: '% посредника',
-    total: итог}
+  markers:
+    source: Источник
+    amount: сумма платежа
+    broker1: посредник 1(кэш)
+    broker2: посредник 2
+    commission: комиссия
+    contractor: Исполнитель
+    currency: валюта
+    currency_amount: сумма
+    exchange_rate: курс
+    customer: Заказчик
+    expense: расход
+    filters: фильтры
+    income: приход
+    percent_broker: "% посредника"
+    transit_obligation: отправка транзитных обязательств
+    total: итог
+
 sh2: {}
+validation: {}

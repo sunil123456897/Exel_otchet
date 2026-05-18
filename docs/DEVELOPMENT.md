@@ -28,12 +28,7 @@ UI -> ViewModels / GuiCommands -> AppController -> Domain / Infra
 - `infra` отвечает за файлы, Excel, SQLite, сеть и форматирование.
 - Конфигурация должна оставаться переносимой между ПК.
 
-Текущий Sentrux baseline:
-
-- dependency inversions: 0;
-- layering: clean;
-- known bottleneck: modularity;
-- quality signal: около `6828`.
+Sentrux/GitNexus baseline фиксировать только по свежему запуску инструментов в текущей сессии. Если Sentrux отвечает `No scan data` или scan-инструмент недоступен, не записывать это как зеленый архитектурный gate.
 
 ## Команды Проверки
 

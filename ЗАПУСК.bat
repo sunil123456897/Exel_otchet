@@ -9,10 +9,12 @@ set "MAINFILE=%APPDIR%\main.py"
 set "LOGFILE=%~dp0startup_log.txt"
 set "GUIERRLOG=%~dp0gui_error_log.txt"
 set "TARGET_PY=3.12"
+set "VENV_DIR=%~dp0.venv"
 set "FAIL_MESSAGE="
 
 set "PYTHON_CMD="
 set "PYTHONW_CMD="
+set "PYTHON_IS_VENV="
 
 break > "%LOGFILE%"
 break > "%GUIERRLOG%"
@@ -55,8 +57,8 @@ if errorlevel 1 goto pip_repair_failed
 
 :pip_ok
 
-call :step "Step 3/5. Updating tools"
-"%PYTHON_CMD%" -m pip install --user --upgrade pip setuptools wheel >> "%LOGFILE%" 2>&1
+call :step "Step 3/5. Checking packaging tools"
+"%PYTHON_CMD%" -m pip --version >> "%LOGFILE%" 2>&1
 if errorlevel 1 goto tool_upgrade_failed
 
 call :step "Step 4/5. Checking libraries"
@@ -66,7 +68,12 @@ goto after_requirements
 
 :install_requirements
 call :log "Installing missing libraries..."
-"%PYTHON_CMD%" -m pip install --user -r "%~dp0requirements.txt" >> "%LOGFILE%" 2>&1
+if defined PYTHON_IS_VENV (
+    "%PYTHON_CMD%" -m pip install -r "%~dp0requirements.txt" >> "%LOGFILE%" 2>&1
+) else (
+    call :log "WARNING: local .venv is unavailable; installing into user site-packages."
+    "%PYTHON_CMD%" -m pip install --user -r "%~dp0requirements.txt" >> "%LOGFILE%" 2>&1
+)
 if errorlevel 1 goto requirements_install_failed
 
 :after_requirements
@@ -149,6 +156,28 @@ set "PATH=%PATH%;%USERPROFILE%\AppData\Local\Microsoft\WindowsApps;%LocalAppData
 exit /b 0
 
 :find_python
+rem Prefer an isolated local virtual environment next to the launcher.
+if exist "%VENV_DIR%\Scripts\python.exe" (
+    set "PYTHON_CMD=%VENV_DIR%\Scripts\python.exe"
+    set "PYTHON_IS_VENV=1"
+    if exist "%VENV_DIR%\Scripts\pythonw.exe" set "PYTHONW_CMD=%VENV_DIR%\Scripts\pythonw.exe"
+    goto python_launcher_done
+)
+
+rem Create the local virtual environment when the requested Python launcher exists.
+py -%TARGET_PY% --version >nul 2>&1
+if not errorlevel 1 (
+    call :log "Creating local virtual environment: %VENV_DIR%"
+    py -%TARGET_PY% -m venv "%VENV_DIR%" >> "%LOGFILE%" 2>&1
+    if exist "%VENV_DIR%\Scripts\python.exe" (
+        set "PYTHON_CMD=%VENV_DIR%\Scripts\python.exe"
+        set "PYTHON_IS_VENV=1"
+        if exist "%VENV_DIR%\Scripts\pythonw.exe" set "PYTHONW_CMD=%VENV_DIR%\Scripts\pythonw.exe"
+        goto python_launcher_done
+    )
+    call :log "WARNING: could not create local .venv; falling back to PATH Python."
+)
+
 rem Find regular python
 for /f "delims=" %%I in ('where python 2^>nul') do (
     if not defined PYTHON_CMD set "PYTHON_CMD=%%~fI"

@@ -22,6 +22,7 @@ from core.app.controller_messages import (
     format_file_error_note as format_controller_file_error_note,
     normalize_consolidation_dates as normalize_controller_consolidation_dates,
 )
+from core.infra.reconciliation_report import build_combined_reconciliation_report
 from core.infra.rsch_report import build_rsch_report
 
 _ADAPTIVE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
@@ -176,6 +177,19 @@ class AppController:
         if isinstance(selected_date, datetime):
             return selected_date
         return datetime.combine(selected_date, datetime.min.time())
+
+    def _get_network_drive_letters(self) -> tuple[str, ...]:
+        cfg = getattr(self.config_controller, "config", {}) or {}
+        network_cfg = cfg.get("network") if isinstance(cfg, dict) else {}
+        raw_letters = (
+            network_cfg.get("drive_letters", ("Q", "Z"))
+            if isinstance(network_cfg, dict)
+            else ("Q", "Z")
+        )
+        if isinstance(raw_letters, str):
+            raw_letters = [raw_letters]
+        letters = tuple(str(letter).strip() for letter in raw_letters if str(letter).strip())
+        return letters or ("Q", "Z")
 
     @staticmethod
     def _has_target_date(
@@ -654,6 +668,163 @@ class AppController:
             curator=curator,
         )
 
+    def _run_consolidation_blocking(
+        self,
+        *,
+        target_date_str: Optional[str],
+        start_date_str: Optional[str],
+        end_date_str: Optional[str],
+        session_type: str,
+        curator: Optional[str],
+    ) -> Path:
+        curator_config = self._get_curator_config(curator)
+        if not self._is_report_writable(curator_config):
+            label = curator or "общий"
+            raise RuntimeError(f"Файл отчета {label} занят в Excel! Закройте его и повторите.")
+
+        result: dict[str, Any] = {}
+
+        def on_complete(ok: bool, msg: str, path: Optional[Path]) -> None:
+            result["ok"] = ok
+            result["msg"] = msg
+            result["path"] = path
+
+        self._execute_consolidation(
+            lambda _progress: None,
+            on_complete,
+            target_date_str,
+            start_date_str,
+            end_date_str,
+            session_type,
+            False,
+            curator,
+        )
+
+        if not result.get("ok"):
+            raise RuntimeError(str(result.get("msg") or "Не удалось собрать отчет"))
+        path = result.get("path")
+        if path is None:
+            raise RuntimeError("Отчет собран, но путь к файлу не получен")
+        return Path(path)
+
+    def run_auto_reconciliation_day(
+        self,
+        source_paths: Path | Sequence[Path],
+        output_path: Path,
+        selected_date,
+        on_complete: Callable[[bool, str, Optional[Path]], None],
+    ) -> None:
+        """Rebuild daily reports, rebuild RSC, then write one 3-sheet reconciliation."""
+
+        def task() -> None:
+            try:
+                target_date = selected_date.date() if hasattr(selected_date, "date") else selected_date
+                date_suffix = target_date.strftime("%d.%m.%Y")
+                output_path_resolved = Path(output_path)
+                rsch_output = output_path_resolved.parent / f"РСЧ_отчет_{date_suffix}.xlsx"
+
+                master_paths = {
+                    "Общий": self._run_consolidation_blocking(
+                        target_date_str=date_suffix,
+                        start_date_str=None,
+                        end_date_str=None,
+                        session_type="daily",
+                        curator=None,
+                    ),
+                    "Борис": self._run_consolidation_blocking(
+                        target_date_str=date_suffix,
+                        start_date_str=None,
+                        end_date_str=None,
+                        session_type="daily",
+                        curator="boris",
+                    ),
+                    "Иван": self._run_consolidation_blocking(
+                        target_date_str=date_suffix,
+                        start_date_str=None,
+                        end_date_str=None,
+                        session_type="daily",
+                        curator="ivan",
+                    ),
+                }
+
+                if isinstance(source_paths, (str, Path)):
+                    normalized_sources = [Path(source_paths)]
+                else:
+                    normalized_sources = [Path(p) for p in source_paths]
+
+                issues: List[str] = []
+                rsch_rows = build_rsch_report(
+                    normalized_sources,
+                    rsch_output,
+                    target_date=target_date,
+                    issues_sink=issues,
+                    drive_letters=self._get_network_drive_letters(),
+                )
+                if rsch_rows == 0:
+                    raise RuntimeError(f"РСЧ за дату {date_suffix} не содержит данных")
+
+                counts = build_combined_reconciliation_report(
+                    master_paths,
+                    rsch_output,
+                    output_path_resolved,
+                    target_date=target_date,
+                    drive_letters=self._get_network_drive_letters(),
+                )
+                issue_note = (
+                    f" Есть проблемы с листами РСЧ: {build_issue_preview(issues)}"
+                    if issues
+                    else ""
+                )
+                msg = (
+                    "Автосверка собрана: "
+                    f"Общий {counts.get('Общий', 0)}, "
+                    f"Борис {counts.get('Борис', 0)}, "
+                    f"Иван {counts.get('Иван', 0)} строк. "
+                    f"РСЧ: {rsch_rows} строк."
+                    f"{issue_note}"
+                )
+                on_complete(True, msg, output_path_resolved)
+            except Exception as e:
+                logging.error("Auto reconciliation error: %s", e)
+                on_complete(False, f"Ошибка автоматической сверки: {e}", None)
+
+        self._start_thread(task)
+
+    def run_reconciliation_report(
+        self,
+        master_paths: Dict[str, Path],
+        rsch_path: Path,
+        output_path: Path,
+        selected_date,
+        on_complete: Callable[[bool, str, Optional[Path]], None],
+    ) -> None:
+        """Build a reconciliation report from already selected report and RSC files."""
+
+        def task() -> None:
+            try:
+                target_date = (
+                    selected_date.date() if hasattr(selected_date, "date") else selected_date
+                )
+                counts = build_combined_reconciliation_report(
+                    {label: Path(path) for label, path in master_paths.items()},
+                    Path(rsch_path),
+                    Path(output_path),
+                    target_date=target_date,
+                    drive_letters=self._get_network_drive_letters(),
+                )
+                msg = (
+                    "Отчет расхождений собран: "
+                    f"Общий {counts.get('Общий', 0)}, "
+                    f"Борис {counts.get('Борис', 0)}, "
+                    f"Иван {counts.get('Иван', 0)} строк."
+                )
+                on_complete(True, msg, Path(output_path))
+            except Exception as e:
+                logging.error("Reconciliation report error: %s", e)
+                on_complete(False, f"Ошибка сверки отчетов: {e}", None)
+
+        self._start_thread(task)
+
     def run_rsch_report(
         self,
         source_paths: Path | Sequence[Path],
@@ -681,6 +852,7 @@ class AppController:
                     output_path,
                     target_date=target_date,
                     issues_sink=issues,
+                    drive_letters=self._get_network_drive_letters(),
                 )
 
                 if issues:
@@ -731,6 +903,7 @@ class AppController:
                     start_date=start,
                     end_date=end,
                     issues_sink=issues,
+                    drive_letters=self._get_network_drive_letters(),
                 )
 
                 if issues:
@@ -785,6 +958,7 @@ class AppController:
                         output_path,
                         target_date=current,
                         issues_sink=issues,
+                        drive_letters=self._get_network_drive_letters(),
                     )
                     if written_rows:
                         total_rows += written_rows
@@ -843,6 +1017,7 @@ class AppController:
                         out,
                         target_date=target_date,
                         issues_sink=issues,
+                        drive_letters=self._get_network_drive_letters(),
                     )
 
                 output_dir = (

@@ -116,6 +116,33 @@ def test_run_rsch_report_uses_saved_sources_when_confirmed(commands_fixture):
     assert args[0] == [Path("C:/saved1.xlsx"), Path("C:/saved2.xlsx")]
 
 
+def test_run_rsch_report_resolves_relative_saved_sources(commands_fixture):
+    cmd, _root, sidebar = commands_fixture
+    cmd.config_controller.config = {
+        "rsch": {
+            "recent_sources": ["../рсч всех/РСЧ Моника.xlsx"],
+            "last_output_dir": "../РСЧ",
+        }
+    }
+    cmd.config_controller.resolve_path.side_effect = lambda p: Path("E:/Dlia Dashi/Version5/APP") / p
+
+    with (
+        patch("core.ui.gui_commands.Path.exists", return_value=True),
+        patch("core.ui.gui_commands.messagebox.askyesnocancel", return_value=True),
+        patch("core.ui.gui_commands.filedialog.askopenfilenames") as ask_many,
+        patch(
+            "core.ui.gui_commands.filedialog.asksaveasfilename",
+            return_value="E:/Dlia Dashi/Version5/РСЧ/out.xlsx",
+        ),
+    ):
+        cmd.run_rsch_report()
+
+    ask_many.assert_not_called()
+    sidebar.set_rsch_state.assert_called_once_with("disabled")
+    args = cmd.app_controller.run_rsch_report.call_args[0]
+    assert args[0] == [Path("E:/Dlia Dashi/Version5/APP/../рсч всех/РСЧ Моника.xlsx")]
+
+
 def test_run_rsch_report_collects_sources_from_multiple_dirs(commands_fixture):
     cmd, _root, _sidebar = commands_fixture
 
@@ -320,6 +347,30 @@ def test_on_rsch_complete_error(commands_fixture):
     showerror.assert_called_once_with("Ошибка", "fail")
 
 
+def test_on_reconciliation_complete_success_opens_file(commands_fixture):
+    cmd, _root, sidebar = commands_fixture
+
+    with (
+        patch("core.ui.gui_commands.messagebox.askyesno", return_value=True),
+        patch("core.ui.gui_commands.open_path") as open_path,
+    ):
+        cmd._on_reconciliation_complete(True, "ok", Path("C:/out.xlsx"))
+
+    sidebar.set_reconciliation_state.assert_called_once_with("normal")
+    open_path.assert_called_once()
+    assert open_path.call_args[0][0].endswith("out.xlsx")
+
+
+def test_on_reconciliation_complete_error(commands_fixture):
+    cmd, _root, sidebar = commands_fixture
+
+    with patch("core.ui.gui_commands.messagebox.showerror") as showerror:
+        cmd._on_reconciliation_complete(False, "fail", None)
+
+    sidebar.set_reconciliation_state.assert_called_once_with("normal")
+    showerror.assert_called_once_with("Ошибка", "fail")
+
+
 def test_run_reconciliation_report_uses_selected_master_and_selected_rsch_file(
     commands_fixture,
 ):
@@ -330,24 +381,31 @@ def test_run_reconciliation_report_uses_selected_master_and_selected_rsch_file(
     with (
         patch(
             "core.ui.gui_commands.filedialog.askopenfilename",
-            side_effect=["C:/chosen_master.xlsx", "C:/rsch.xlsx"],
+            side_effect=[
+                "C:/chosen_master.xlsx",
+                "C:/boris.xlsx",
+                "C:/ivan.xlsx",
+                "C:/rsch.xlsx",
+            ],
         ),
         patch(
             "core.ui.gui_commands.filedialog.asksaveasfilename",
             return_value="C:/out/reconciliation.xlsx",
         ),
-        patch("core.ui.gui_commands.messagebox.askyesno", return_value=False),
-        patch("core.ui.gui_commands.build_reconciliation_report", return_value=3) as build,
     ):
         cmd.run_reconciliation_report()
 
-    sidebar.set_reconciliation_state.assert_any_call("disabled")
-    sidebar.set_reconciliation_state.assert_any_call("normal")
-    build.assert_called_once_with(
-        Path("C:/chosen_master.xlsx"),
+    sidebar.set_reconciliation_state.assert_called_once_with("disabled")
+    cmd.app_controller.run_reconciliation_report.assert_called_once_with(
+        {
+            "Общий": Path("C:/chosen_master.xlsx"),
+            "Борис": Path("C:/boris.xlsx"),
+            "Иван": Path("C:/ivan.xlsx"),
+        },
         Path("C:/rsch.xlsx"),
         Path("C:/out/reconciliation.xlsx"),
-        target_date=datetime(2026, 4, 21),
+        datetime(2026, 4, 21),
+        cmd._on_reconciliation_complete,
     )
 
 
@@ -357,12 +415,44 @@ def test_run_reconciliation_report_cancel_on_master_file(commands_fixture):
 
     with (
         patch("core.ui.gui_commands.filedialog.askopenfilename", return_value=""),
-        patch("core.ui.gui_commands.build_reconciliation_report") as build,
     ):
         cmd.run_reconciliation_report()
 
     sidebar.set_reconciliation_state.assert_not_called()
-    build.assert_not_called()
+    cmd.app_controller.run_reconciliation_report.assert_not_called()
+
+
+def test_run_auto_reconciliation_day_uses_saved_sources_and_output(
+    commands_fixture,
+):
+    cmd, _root, sidebar = commands_fixture
+    sidebar.get_date.return_value = datetime(2026, 4, 21)
+    source = Path("C:/rsch/source.xlsx")
+    cmd.config_controller.config = {
+        "rsch": {
+            "recent_sources": [str(source)],
+            "last_output_dir": "C:/out",
+            "mode": "combined",
+        }
+    }
+
+    with (
+        patch.object(Path, "exists", return_value=True),
+        patch("core.ui.gui_commands.messagebox.askyesnocancel", return_value=True),
+        patch(
+            "core.ui.gui_commands.filedialog.asksaveasfilename",
+            return_value="C:/out/Отчет_расхождений_21.04.2026.xlsx",
+        ),
+    ):
+        cmd.run_auto_reconciliation_day()
+
+    sidebar.set_reconciliation_state.assert_called_once_with("disabled")
+    cmd.app_controller.run_auto_reconciliation_day.assert_called_once_with(
+        [source],
+        Path("C:/out/Отчет_расхождений_21.04.2026.xlsx"),
+        datetime(2026, 4, 21),
+        cmd._on_auto_reconciliation_complete,
+    )
 
 
 def test_on_rsch_complete_batch_success_opens_folder(commands_fixture):

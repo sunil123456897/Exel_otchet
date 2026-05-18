@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Optional, List
 
 from core.infra import open_path
-from core.infra.reconciliation_report import build_reconciliation_report
 
 
 class GuiCommands:
@@ -205,22 +204,27 @@ class GuiCommands:
 
     def run_reconciliation_report(self):
         default_master_path = self.employee_vm.get_master_path(self.config_controller)
-        master_dialog_kwargs = {
-            "title": "Выберите мастер-отчет",
-            "filetypes": [("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")],
-        }
+        filetypes = [("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")]
+        master_dialog_kwargs = {"filetypes": filetypes}
         if default_master_path:
             master_dialog_kwargs["initialdir"] = str(Path(default_master_path).parent)
-        master_path = filedialog.askopenfilename(
-            **master_dialog_kwargs,
-        )
-        if not master_path:
-            return
+
+        master_paths: dict[str, Path] = {}
+        for label, title in (
+            ("Общий", "Выберите общий мастер-отчет"),
+            ("Борис", "Выберите отчет Бориса"),
+            ("Иван", "Выберите отчет Ивана"),
+        ):
+            selected = filedialog.askopenfilename(title=title, **master_dialog_kwargs)
+            if not selected:
+                return
+            master_paths[label] = Path(selected)
+            master_dialog_kwargs["initialdir"] = str(Path(selected).parent)
 
         selected_date = self.sidebar.get_date()
         rsch_path = filedialog.askopenfilename(
             title="Выберите готовый РСЧ отчет",
-            filetypes=[("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")],
+            filetypes=filetypes,
             initialdir=self._suggest_rsch_output_dir([]),
         )
         if not rsch_path:
@@ -238,22 +242,59 @@ class GuiCommands:
             return
 
         self.sidebar.set_reconciliation_state("disabled")
-        try:
-            rows_count = build_reconciliation_report(
-                Path(master_path),
-                Path(rsch_path),
-                Path(output),
-                target_date=selected_date,
+        self.app_controller.run_reconciliation_report(
+            master_paths,
+            Path(rsch_path),
+            Path(output),
+            selected_date,
+            self._on_reconciliation_complete,
+        )
+
+    def run_auto_reconciliation_day(self):
+        saved_sources = self._get_saved_rsch_sources()
+        source_paths: List[Path] = []
+        if saved_sources:
+            existing_saved = [p for p in saved_sources if p.exists()]
+            use_saved = messagebox.askyesnocancel(
+                "РСЧ файлы",
+                "Использовать сохраненный набор файлов РСЧ?",
             )
-        except Exception as exc:
-            logging.exception("Ошибка сверки отчетов")
-            messagebox.showerror("Ошибка", str(exc))
-        else:
-            logging.info("Отчет расхождений собран: %s строк", rows_count)
-            if messagebox.askyesno("Успех", "Отчет расхождений собран. Открыть файл?"):
-                open_path(str(output))
-        finally:
-            self.sidebar.set_reconciliation_state("normal")
+            if use_saved is None:
+                return
+            if use_saved:
+                if existing_saved:
+                    source_paths = existing_saved
+                else:
+                    messagebox.showwarning(
+                        "РСЧ файлы",
+                        "Сохраненные пути не найдены. Выберите файлы заново.",
+                    )
+
+        if not source_paths:
+            source_paths = self._select_rsch_sources(saved_sources)
+            if not source_paths:
+                return
+
+        selected_date = self.sidebar.get_date()
+        date_suffix = selected_date.strftime("%d.%m.%Y")
+        output = filedialog.asksaveasfilename(
+            title="Сохранить автоматический отчет расхождений",
+            defaultextension=".xlsx",
+            initialfile=f"Отчет_расхождений_{date_suffix}.xlsx",
+            initialdir=self._suggest_rsch_output_dir(source_paths),
+            filetypes=[("Excel files", "*.xlsx")],
+        )
+        if not output:
+            return
+
+        self._save_rsch_preferences(source_paths, Path(output), "combined")
+        self.sidebar.set_reconciliation_state("disabled")
+        self.app_controller.run_auto_reconciliation_day(
+            source_paths,
+            Path(output),
+            selected_date,
+            self._on_auto_reconciliation_complete,
+        )
 
     def _get_rsch_config(self) -> dict:
         cfg = getattr(self.config_controller, "config", None)
@@ -286,8 +327,16 @@ class GuiCommands:
             if key in seen:
                 continue
             seen.add(key)
-            normalized.append(path)
+            normalized.append(self._resolve_config_path(path))
         return normalized
+
+    def _resolve_config_path(self, path: Path) -> Path:
+        if path.is_absolute():
+            return path
+        resolve_path = getattr(self.config_controller, "resolve_path", None)
+        if callable(resolve_path):
+            return Path(resolve_path(str(path)))
+        return path
 
     def _select_rsch_sources(self, saved_sources: List[Path]) -> List[Path]:
         selected_paths: List[Path] = []
@@ -368,7 +417,7 @@ class GuiCommands:
         rsch_cfg = self._get_rsch_config()
         last_output_dir = rsch_cfg.get("last_output_dir")
         if last_output_dir:
-            parent = Path(str(last_output_dir))
+            parent = self._resolve_config_path(Path(str(last_output_dir)))
             if parent.exists():
                 return str(parent)
         return ""
@@ -377,7 +426,7 @@ class GuiCommands:
         rsch_cfg = self._get_rsch_config()
         last_output_dir = rsch_cfg.get("last_output_dir")
         if last_output_dir:
-            parent = Path(str(last_output_dir))
+            parent = self._resolve_config_path(Path(str(last_output_dir)))
             if parent.exists():
                 return str(parent)
         if source_paths:
@@ -537,6 +586,46 @@ class GuiCommands:
                     "Успех", "РСЧ отчеты собраны. Открыть папку?"
                 ):
                     open_path(str(output_dir))
+            else:
+                logging.error(f"Ошибка: {msg}")
+                messagebox.showerror("Ошибка", msg)
+
+        self.root.after(0, fin)
+
+    def _on_auto_reconciliation_complete(
+        self,
+        ok: bool,
+        msg: str,
+        path: Optional[Path],
+    ):
+        def fin():
+            self.sidebar.set_reconciliation_state("normal")
+            if ok:
+                logging.info(f"Успешно: {msg}")
+                if path and messagebox.askyesno(
+                    "Успех", "Автоматический отчет расхождений собран. Открыть файл?"
+                ):
+                    open_path(str(path))
+            else:
+                logging.error(f"Ошибка: {msg}")
+                messagebox.showerror("Ошибка", msg)
+
+        self.root.after(0, fin)
+
+    def _on_reconciliation_complete(
+        self,
+        ok: bool,
+        msg: str,
+        path: Optional[Path],
+    ):
+        def fin():
+            self.sidebar.set_reconciliation_state("normal")
+            if ok:
+                logging.info(f"Успешно: {msg}")
+                if path and messagebox.askyesno(
+                    "Успех", "Отчет расхождений собран. Открыть файл?"
+                ):
+                    open_path(str(path))
             else:
                 logging.error(f"Ошибка: {msg}")
                 messagebox.showerror("Ошибка", msg)

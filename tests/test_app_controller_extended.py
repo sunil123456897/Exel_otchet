@@ -1569,10 +1569,10 @@ class TestRunRschReportBatch:
 
 
 class TestRunRschReportPeriodBatch:
-    def test_success_writes_only_dates_with_rows(self, app_controller):
+    def test_success_writes_only_dates_with_rows(self, app_controller, tmp_path):
         on_complete = MagicMock()
-        sources = [Path("/tmp/source.xlsx")]
-        output_dir = Path("/tmp/out")
+        sources = [tmp_path / "source.xlsx"]
+        output_dir = tmp_path / "out"
 
         with (
             patch("core.app_controller.build_rsch_report", side_effect=[0, 4, 0]) as build_report,

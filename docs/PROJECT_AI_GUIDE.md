@@ -55,12 +55,14 @@ python -m mypy APP tests
 pytest --cov=APP/core --cov-report=term-missing tests
 ```
 
-Expected current verification baseline:
+Expected verification baseline must be refreshed from the current workspace before claiming success:
 
-- `pytest tests`: 737 tests passing.
-- `ruff`: all checks passing.
-- `mypy`: no issues found under the project baseline config.
-- coverage: at least 90% when the coverage gate is run.
+- `python -m pytest -q -p no:cacheprovider`
+- `python -m ruff check APP tests -q`
+- `python -m mypy APP tests --no-error-summary`
+- `python -m compileall -q APP`
+
+Do not rely on old `passed` counts. Sentrux is a valid gate only when its scan/health tools are available and have been run in the current session.
 
 ## Repository Layout
 

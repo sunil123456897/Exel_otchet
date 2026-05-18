@@ -1,6 +1,6 @@
 database:
-  path: E:\Dlia Dashi\Version5\APP\cache.db
-  schema_path: E:\Dlia Dashi\Version5\APP\db_schema.sql
+  path: cache.db
+  schema_path: db_schema.sql
   timeout: 30.0
   allow_local_fallback: false
   isolation_level: EXCLUSIVE
@@ -22,7 +22,7 @@ logic:
   return_keywords:
     - возврат
 paths:
-  master_file: E:\Dlia Dashi\Version5\Master_Report.xlsx
+  master_file: ../Master_Report.xlsx
   source_root: Q:\Отчет кураторов 1
   source_roots:
     - Q:\Отчет кураторов 1
@@ -93,11 +93,14 @@ curators:
 validation: {}
 rsch:
   recent_sources:
-    - E:\Dlia Dashi\Version5\рсч всех\!!РСЧ Ханде.xlsx
-    - E:\Dlia Dashi\Version5\рсч всех\!РСЧ_Алина.xlsx
-    - E:\Dlia Dashi\Version5\рсч всех\РСЧ Антон.xlsx
-    - E:\Dlia Dashi\Version5\рсч всех\РСЧ дядя Розетта.xlsx
-    - E:\Dlia Dashi\Version5\рсч всех\РСЧ Моника.xlsx
-  last_output_dir: E:\Dlia Dashi\Version5\РСЧ
+    - ../рсч всех/!!РСЧ Ханде.xlsx
+    - ../рсч всех/!РСЧ Адам.xlsx
+    - ../рсч всех/!РСЧ_Алина.xlsx
+    - ../рсч всех/РСЧ Антон.xlsx
+    - ../рсч всех/РСЧ дядя Розетта.xlsx
+    - ../рсч всех/РСЧ Моника.xlsx
+  last_output_dir: ../РСЧ
   mode: combined
-discovery_cache: {}
+
+performance:
+  isolate_calamine: true

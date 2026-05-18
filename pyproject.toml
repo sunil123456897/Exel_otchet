@@ -39,3 +39,7 @@ disable_error_code = [
 [[tool.mypy.overrides]]
 module = ["tests.*", "performance_benchmark", "stress_test_new"]
 ignore_errors = true
+
+[tool.pytest.ini_options]
+addopts = "-p no:cacheprovider"
+testpaths = ["tests"]

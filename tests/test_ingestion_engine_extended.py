@@ -196,6 +196,53 @@ class TestScanDirectory:
         assert len(results) == 1
         assert Path(results[0]["path"]).is_absolute()
 
+    def test_scan_continues_when_entry_stat_fails(self, engine, tmp_path):
+        class FakeStat:
+            st_ino = 123
+            st_size = 10
+            st_mtime = 1000.0
+
+        class FakeEntry:
+            def __init__(self, name, *, stat_error=None):
+                self.name = name
+                self.path = str(tmp_path / name)
+                self.stat_error = stat_error
+
+            def is_dir(self, follow_symlinks=False):
+                return False
+
+            def is_file(self, follow_symlinks=False):
+                return True
+
+            def stat(self, follow_symlinks=False):
+                if self.stat_error:
+                    raise self.stat_error
+                return FakeStat()
+
+        class FakeScandir:
+            def __init__(self, entries):
+                self.entries = entries
+
+            def __enter__(self):
+                return iter(self.entries)
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        entries = [
+            FakeEntry("broken.xlsx", stat_error=PermissionError("Access denied")),
+            FakeEntry("ok.xlsx"),
+        ]
+
+        with (
+            patch("core.infra.ingestion_engine.os.scandir", return_value=FakeScandir(entries)),
+            patch("core.infra.ingestion_engine.logger") as mock_logger,
+        ):
+            results = engine.scan_directory(tmp_path)
+
+        assert [Path(item["path"]).name for item in results] == ["ok.xlsx"]
+        mock_logger.error.assert_called_once()
+
 
 class TestReadFile:
     """Тесты read_file."""

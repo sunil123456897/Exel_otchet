@@ -11,7 +11,10 @@ from core.ui.ui_dialogs import show_attach_file_dialog, ask_employee_name
 
 @pytest.fixture
 def root():
-    r = tk.Tk()
+    try:
+        r = tk.Tk()
+    except tk.TclError as exc:
+        pytest.skip(f"Tk is not available in this environment: {exc}")
     r.withdraw()
     yield r
     r.destroy()

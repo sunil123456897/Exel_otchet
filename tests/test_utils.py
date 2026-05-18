@@ -2,7 +2,7 @@ from pathlib import Path
 from unittest.mock import patch
 import os
 
-from core.infra.utils import get_local_copy, is_file_writable
+from core.infra.utils import cleanup_local_copy_cache, get_local_copy, is_file_writable
 
 
 def test_is_file_writable_returns_true_for_missing_file(tmp_path):
@@ -25,6 +25,28 @@ def test_get_local_copy_returns_input_for_non_network_path(tmp_path):
     local.write_text("x", encoding="utf-8")
     path = str(local)
     assert get_local_copy(path) == (path, None)
+
+
+def test_get_local_copy_uses_custom_drive_letters(tmp_path):
+    network_path = r"R:\share\report.xlsx"
+    cache_file = tmp_path / "cached.xlsx"
+
+    with (
+        patch("core.infra.utils._CACHE_DIR", tmp_path),
+        patch("core.infra.utils.hashlib.md5") as mock_md5,
+        patch("core.infra.utils.shutil.copy2") as mock_copy,
+    ):
+        mock_md5.return_value.hexdigest.return_value = "cached"
+        local_path, temp_file = get_local_copy(
+            network_path,
+            drive_letters=("R",),
+            remote_mtime=1000.0,
+            remote_size=10,
+        )
+
+    assert local_path == str(cache_file)
+    assert temp_file is None
+    mock_copy.assert_called_once_with(network_path, str(cache_file))
 
 
 def test_get_local_copy_treats_relative_q_prefixed_file_as_local(tmp_path, monkeypatch):
@@ -211,3 +233,35 @@ def test_get_local_copy_returns_original_when_all_copy_strategies_fail(tmp_path)
 
     assert local_path == network_path
     assert temp_file is None
+
+
+def test_cleanup_local_copy_cache_removes_old_files(tmp_path):
+    old_file = tmp_path / "old.xlsx"
+    fresh_file = tmp_path / "fresh.xlsx"
+    old_file.write_text("old", encoding="utf-8")
+    fresh_file.write_text("fresh", encoding="utf-8")
+    os.utime(old_file, (1, 1))
+
+    with patch("core.infra.utils._CACHE_DIR", tmp_path):
+        cleanup_local_copy_cache(
+            max_age_days=1,
+            max_total_mb=512,
+            min_delete_age_seconds=0,
+        )
+
+    assert not old_file.exists()
+    assert fresh_file.exists()
+
+
+def test_cleanup_local_copy_cache_skips_recent_files(tmp_path):
+    recent_file = tmp_path / "recent.xlsx"
+    recent_file.write_text("recent", encoding="utf-8")
+
+    with patch("core.infra.utils._CACHE_DIR", tmp_path):
+        cleanup_local_copy_cache(
+            max_age_days=0,
+            max_total_mb=512,
+            min_delete_age_seconds=30 * 60,
+        )
+
+    assert recent_file.exists()

@@ -12,7 +12,10 @@ def mock_controllers():
 
 @pytest.fixture
 def gui_app(mock_controllers):
-    root = tk.Tk()
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:
+        pytest.skip(f"Tk is not available in this environment: {exc}")
     root.withdraw()
     config_controller, app_controller = mock_controllers
 

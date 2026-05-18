@@ -188,3 +188,119 @@ def test_max_path_save_force_long(temp_dir, mocker):
     # In my implementation I should probably ensure it's handled.
     # For now it will probably fail this test because it doesn't do it yet.
     assert save_path.startswith("\\\\?\\")
+
+
+# 7. Test Date parsing with fallback_year hint
+def test_date_resolution_with_fallback_year():
+    from core.app.file_processor import _resolve_row_date_for_filters
+    from datetime import datetime
+    
+    today = datetime(2026, 5, 18)
+    # Case 1: Date without year, fallback_year = 2026 -> Parses as 10.04.2026
+    dt, error = _resolve_row_date_for_filters(
+        raw_date="10.04",
+        target_date=None,
+        start_date=None,
+        end_date=None,
+        today=today,
+        fallback_year=2026,
+    )
+    assert dt == datetime(2026, 4, 10)
+    assert error is None
+
+    # Case 2: Date without year, fallback_year = None -> Fails with missing_year
+    dt, error = _resolve_row_date_for_filters(
+        raw_date="10.04",
+        target_date=None,
+        start_date=None,
+        end_date=None,
+        today=today,
+        fallback_year=None,
+    )
+    assert dt is None
+    assert error == "missing_year"
+
+
+# 8. Test SQLite connection management ensures no connection leaks
+def test_sqlite_connection_management_no_leaks(temp_dir):
+    from core.infra.db_connection import SQLiteConnectionManager
+    from core.infra.session_repo import SessionRepository
+    from unittest.mock import call
+    
+    db_path = temp_dir / "test_leaks.db"
+    schema_path = Path("E:/Dlia Dashi/Version5/APP/db_schema.sql")
+    
+    # We create connection manager and repository
+    repo = SessionRepository(str(db_path), str(schema_path), {})
+    
+    # Let's spy on connection closing using a wrapper class
+    class ConnectionWrapper:
+        def __init__(self, conn):
+            self._conn = conn
+            self.close_called = False
+            self.execute = MagicMock(side_effect=conn.execute)
+            self.executemany = MagicMock(side_effect=conn.executemany)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def close(self):
+            self.close_called = True
+            self._conn.close()
+            
+    connections_created = []
+    original_get = repo.connection_manager.get_connection
+    
+    def spy_get_connection():
+        conn = original_get()
+        wrapper = ConnectionWrapper(conn)
+        connections_created.append(wrapper)
+        return wrapper
+        
+    repo.connection_manager.get_connection = spy_get_connection
+    repo._get_connection = spy_get_connection
+    
+    # Now run methods that read
+    repo.get_template_errors("session-123")
+    repo.get_session_status("session-123")
+    repo.source_file_repo.get_file_cache("file.xlsx")
+    repo.staging_repo.get_consolidated_data("session-123")
+    
+    # Verify that every connection created was closed!
+    assert len(connections_created) > 0
+    for conn in connections_created:
+        assert conn.close_called is True
+
+
+# 9. Test get_local_copy is fully thread-safe under concurrent stress
+def test_get_local_copy_thread_safe(temp_dir):
+    from core.infra.utils import get_local_copy
+    import threading
+    
+    network_file = temp_dir / "network.xlsx"
+    network_file.write_bytes(b"some content")
+    
+    exceptions = []
+    # Extract the drive letter of temp_dir (e.g. C or D)
+    drive_letter = Path(temp_dir).drive.rstrip(":")
+    if not drive_letter:
+        drive_letter = "C"
+        
+    def worker():
+        try:
+            # We pass the real drive letter as drive_letters parameter
+            # so the path is recognized as network path naturally
+            local_p, cleanup = get_local_copy(str(network_file), drive_letters=(drive_letter,))
+            if local_p:
+                assert os.path.exists(local_p)
+                assert os.path.getsize(local_p) == len(b"some content")
+        except Exception as e:
+            exceptions.append(e)
+            
+    threads = [threading.Thread(target=worker) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+        
+    assert not exceptions, f"Exceptions encountered: {exceptions}"

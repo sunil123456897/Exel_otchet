@@ -186,6 +186,108 @@ def test_run_curator_consolidation_filters_employees_and_uses_curator_output(
     assert write_args.kwargs["curator"] == "boris"
 
 
+def test_run_auto_reconciliation_day_rebuilds_reports_rsch_and_combined_output(
+    app_controller,
+    mocker,
+):
+    report_paths = {
+        None: Path("Master_Report.xlsx"),
+        "boris": Path("output/boris_report.xlsx"),
+        "ivan": Path("output/ivan_report.xlsx"),
+    }
+    run_blocking = mocker.patch.object(
+        app_controller,
+        "_run_consolidation_blocking",
+        side_effect=lambda **kwargs: report_paths[kwargs["curator"]],
+    )
+    build_rsch = mocker.patch("core.app_controller.build_rsch_report", return_value=42)
+    build_combined = mocker.patch(
+        "core.app_controller.build_combined_reconciliation_report",
+        return_value={"Общий": 10, "Борис": 20, "Иван": 30},
+    )
+    on_complete = MagicMock()
+
+    with patch("threading.Thread") as mock_thread:
+        app_controller.run_auto_reconciliation_day(
+            [Path("rsch_source.xlsx")],
+            Path("out/Отчет_расхождений_21.04.2026.xlsx"),
+            datetime(2026, 4, 21),
+            on_complete,
+        )
+        task = mock_thread.call_args.kwargs["target"]
+        task()
+
+    assert [call.kwargs["curator"] for call in run_blocking.call_args_list] == [
+        None,
+        "boris",
+        "ivan",
+    ]
+    build_rsch.assert_called_once()
+    assert build_rsch.call_args.args[0] == [Path("rsch_source.xlsx")]
+    assert build_rsch.call_args.args[1] == Path("out/РСЧ_отчет_21.04.2026.xlsx")
+    assert build_rsch.call_args.kwargs["drive_letters"] == ("Q", "Z")
+    build_combined.assert_called_once_with(
+        {
+            "Общий": Path("Master_Report.xlsx"),
+            "Борис": Path("output/boris_report.xlsx"),
+            "Иван": Path("output/ivan_report.xlsx"),
+        },
+        Path("out/РСЧ_отчет_21.04.2026.xlsx"),
+        Path("out/Отчет_расхождений_21.04.2026.xlsx"),
+        target_date=datetime(2026, 4, 21).date(),
+        drive_letters=("Q", "Z"),
+    )
+    on_complete.assert_called_once()
+    assert on_complete.call_args.args[0] is True
+    assert on_complete.call_args.args[2] == Path("out/Отчет_расхождений_21.04.2026.xlsx")
+
+
+def test_run_reconciliation_report_builds_in_background(app_controller, mocker):
+    build_combined = mocker.patch(
+        "core.app_controller.build_combined_reconciliation_report",
+        return_value={"Общий": 10, "Борис": 20, "Иван": 30},
+    )
+    on_complete = MagicMock()
+
+    with patch("threading.Thread") as mock_thread:
+        app_controller.run_reconciliation_report(
+            {
+                "Общий": Path("master.xlsx"),
+                "Борис": Path("boris.xlsx"),
+                "Иван": Path("ivan.xlsx"),
+            },
+            Path("rsch.xlsx"),
+            Path("out.xlsx"),
+            datetime(2026, 4, 21),
+            on_complete,
+        )
+        task = mock_thread.call_args.kwargs["target"]
+        task()
+
+    build_combined.assert_called_once_with(
+        {
+            "Общий": Path("master.xlsx"),
+            "Борис": Path("boris.xlsx"),
+            "Иван": Path("ivan.xlsx"),
+        },
+        Path("rsch.xlsx"),
+        Path("out.xlsx"),
+        target_date=datetime(2026, 4, 21).date(),
+        drive_letters=("Q", "Z"),
+    )
+    on_complete.assert_called_once_with(
+        True,
+        "Отчет расхождений собран: Общий 10, Борис 20, Иван 30 строк.",
+        Path("out.xlsx"),
+    )
+
+
+def test_network_drive_letters_read_from_config(app_controller):
+    app_controller.config_controller.config = {"network": {"drive_letters": ["R", "S:"]}}
+
+    assert app_controller._get_network_drive_letters() == ("R", "S:")
+
+
 @pytest.mark.parametrize(
     ("curator", "employee_name", "source_path", "output_path"),
     [

@@ -65,6 +65,50 @@ def test_headless_run_respects_timeout_env_override(monkeypatch):
     app_ctl.shutdown.assert_called_once()
 
 
+def test_headless_run_logs_success_callback(monkeypatch):
+    app_ctl = MagicMock()
+    db = MagicMock()
+    event = MagicMock()
+    event.wait.return_value = True
+
+    def run_all(_progress, on_complete):
+        on_complete(True, "done", "out.xlsx")
+
+    app_ctl.run_consolidation_all_dates.side_effect = run_all
+    monkeypatch.setattr(sys, "argv", ["headless_run.py"])
+
+    with (
+        patch("headless_run.Bootstrap.setup", return_value=(None, app_ctl, db)),
+        patch("headless_run.threading.Event", return_value=event),
+    ):
+        headless_run.main()
+
+    event.set.assert_called_once()
+    app_ctl.shutdown.assert_called_once()
+
+
+def test_headless_run_logs_error_callback(monkeypatch):
+    app_ctl = MagicMock()
+    db = MagicMock()
+    event = MagicMock()
+    event.wait.return_value = True
+
+    def run_all(_progress, on_complete):
+        on_complete(False, "failed", None)
+
+    app_ctl.run_consolidation_all_dates.side_effect = run_all
+    monkeypatch.setattr(sys, "argv", ["headless_run.py"])
+
+    with (
+        patch("headless_run.Bootstrap.setup", return_value=(None, app_ctl, db)),
+        patch("headless_run.threading.Event", return_value=event),
+    ):
+        headless_run.main()
+
+    event.set.assert_called_once()
+    app_ctl.shutdown.assert_called_once()
+
+
 def test_toxic_run_shutdowns_controller_on_success(monkeypatch):
     app_ctl = MagicMock()
     db = MagicMock()

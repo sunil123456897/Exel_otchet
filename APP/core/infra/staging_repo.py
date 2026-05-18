@@ -144,7 +144,8 @@ class StagingDataRepository:
             ORDER BY staging_data.employee_name, staging_data.date_val
         """
         results = []
-        with self.connection_manager.get_connection() as conn:
+        conn = self.connection_manager.get_connection()
+        try:
             for row in conn.execute(sql, (session_id,)):
                 data = json.loads(row["raw_content_json"])
                 data.update(
@@ -155,6 +156,8 @@ class StagingDataRepository:
                     }
                 )
                 results.append(data)
+        finally:
+            conn.close()
         return results
 
     def close(self):

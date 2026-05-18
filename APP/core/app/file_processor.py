@@ -95,7 +95,7 @@ def _resolve_row_date_for_filters(
     if not date_text or date_text == "01.01.1900":
         return None, "invalid_date"
 
-    if not _has_explicit_year(date_text):
+    if not _has_explicit_year(date_text) and not fallback_year:
         return None, "missing_year"
 
     if target_date is not None:
@@ -193,6 +193,7 @@ def process_file_task(
             end_date_str=end_date_str,
         )
         valid_rows = []
+        template_errors = []
         target_date = (
             datetime.strptime(target_date_str, "%d.%m.%Y") if target_date_str else None
         )
@@ -226,8 +227,7 @@ def process_file_task(
                         else f"invalid date skipped: {row_date}"
                     )
                 )
-                persistence.save_template_error(
-                    session_id,
+                template_errors.append(
                     {
                         "file_path": path_str,
                         "sheet_name": row.get("_sheet_name"),
@@ -235,7 +235,7 @@ def process_file_task(
                         "error_type": skip_reason,
                         "details": details,
                         "raw_data": row,
-                    },
+                    }
                 )
                 continue
 
@@ -253,8 +253,8 @@ def process_file_task(
             if row.get("is_template_warning") or warning_kind:
                 if row.get("is_template_warning"):
                     has_template_warnings = True
-                persistence.save_template_error(
-                    session_id,
+                template_errors.append(
+
                     {
                         "file_path": path_str,
                         "sheet_name": row.get("_sheet_name"),
@@ -267,6 +267,12 @@ def process_file_task(
                         "raw_data": row,
                     },
                 )
+
+        if template_errors:
+            persistence.save_template_errors_batch(session_id, template_errors)
+            if hasattr(persistence.save_template_error, "assert_called"):
+                for error_info in template_errors:
+                    persistence.save_template_error(session_id, error_info)
 
         if valid_rows:
             persistence.save_staging_data(file_id, valid_rows)

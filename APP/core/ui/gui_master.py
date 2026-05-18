@@ -144,6 +144,9 @@ class GuiMaster:
     def run_reconciliation_report(self):
         self.commands.run_reconciliation_report()
 
+    def run_auto_reconciliation_day(self):
+        self.commands.run_auto_reconciliation_day()
+
     def add_employee_dialog(self):
         self.commands.add_employee_dialog()
 

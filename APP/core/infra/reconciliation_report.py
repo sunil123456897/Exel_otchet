@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
@@ -16,6 +18,7 @@ from core.infra.excel_hyperlinks import (
     apply_cell_hyperlink,
     extract_hyperlink_formula_parts,
 )
+from core.infra.utils import get_local_copy
 
 MASTER_HEADERS = [
     "Источник",
@@ -42,39 +45,48 @@ RSCH_HEADERS = [
     "Приход",
     "Расход",
 ]
-RECONCILIATION_HEADERS = [*MASTER_HEADERS, "ИТОГ", *RSCH_HEADERS]
+REASON_HEADER = "Причина"
+STATUS_HEADER = "Статус"
+RECONCILIATION_HEADERS = [*MASTER_HEADERS, STATUS_HEADER, *RSCH_HEADERS, REASON_HEADER]
 REASON_NO_CURATOR = "ОШИБКА НЕТУ У КУРАТОРОВ"
 REASON_NO_RSCH = "НЕТ В РСЧ"
 REASON_AMOUNT_MISMATCH = "НЕ СОВПАЛА СУММА"
 REASON_EXECUTOR_MISMATCH = "НЕ СОВПАЛ ИСПОЛНИТЕЛЬ"
+REASON_CUSTOMER_MISMATCH = "ПОХОЖИЙ ЗАКАЗЧИК"
+STATUS_VERIFIED = "СВЕРЕНО"
+STATUS_REVIEW = "ПРОВЕРИТЬ"
+STATUS_ERROR = "ОШИБКА"
+_MATCH_TOKEN_STOPWORDS = {
+    "альфа",
+    "сбер",
+    "сби",
+    "сти",
+    "стинг",
+    "ука",
+    "реестр",
+}
+_COMBINED_SHEET_PRIORITY = {"Общий": 0, "Борис": 1, "Иван": 2}
 _SUMMARY_REASON_LABELS = {
     REASON_NO_CURATOR: "Нет у кураторов",
     REASON_NO_RSCH: "Нет в РСЧ",
     REASON_AMOUNT_MISMATCH: "Не совпала сумма",
     REASON_EXECUTOR_MISMATCH: "Не совпал исполнитель",
+    REASON_CUSTOMER_MISMATCH: "Похожий заказчик",
 }
 
 _HEADER_FILL = PatternFill("solid", fgColor="FF1F4E79")
 _STATUS_OK_FILL = PatternFill("solid", fgColor="FF00B050")
-_STATUS_ERROR_FILL = PatternFill("solid", fgColor="FFFF0000")
+_STATUS_REVIEW_FILL = PatternFill("solid", fgColor="FFFFEB9C")
+_STATUS_ERROR_FILL = PatternFill("solid", fgColor="FFFFC7CE")
 _MASTER_EXPENSE_FILL = PatternFill("solid", fgColor="FFFFC7CE")
-_TOTAL_FILL = PatternFill("solid", fgColor="FFD9E1F2")
 _HEADER_FONT = Font(color="FFFFFFFF", bold=True)
 _STATUS_FONT = Font(color="FF000000", bold=True)
-_TOTAL_FONT = Font(bold=True)
 _THIN_SIDE = Side(style="thin", color="FF000000")
-_MEDIUM_SIDE = Side(style="medium", color="FF000000")
 _THIN_BORDER = Border(
     left=_THIN_SIDE,
     right=_THIN_SIDE,
     top=_THIN_SIDE,
     bottom=_THIN_SIDE,
-)
-_TOTAL_BORDER = Border(
-    left=_MEDIUM_SIDE,
-    right=_MEDIUM_SIDE,
-    top=_MEDIUM_SIDE,
-    bottom=_MEDIUM_SIDE,
 )
 
 
@@ -91,6 +103,7 @@ class MasterReconciliationRow:
 
 @dataclass(frozen=True)
 class RschReconciliationRow:
+    row_id: str
     executor: str
     customer: str
     contractor: str
@@ -114,8 +127,106 @@ def _normalize_text(value: Any) -> str:
     return " ".join(str(value).replace("\xa0", " ").replace("ё", "е").lower().split())
 
 
+def _canonical_match_text(value: Any) -> str:
+    text = _normalize_text(value)
+    text = re.sub(r"([а-я])([a-z])", r"\1 \2", text)
+    text = re.sub(r"([a-z])([а-я])", r"\1 \2", text)
+    text = text.replace("gabriel", "габриэль")
+    text = re.sub(r"\bук\s*альянс\b", "ука", text)
+    text = re.sub(r"\bукальянс\b", "ука", text)
+    text = re.sub(r"\bук\s+а\b", "ука", text)
+    text = re.sub(r"\bук\s+(?=(альфа|сбер)\b)", "ука ", text)
+    return text
+
+
+def _compact_text(value: Any) -> str:
+    return "".join(ch for ch in _canonical_match_text(value) if ch.isalnum())
+
+
+def _text_tokens(value: Any) -> set[str]:
+    tokens = set()
+    for token in re.split(r"[^0-9a-zа-я]+", _canonical_match_text(value)):
+        if len(token) >= 4 and not token.isdigit() and token not in _MATCH_TOKEN_STOPWORDS:
+            tokens.add(token)
+    return tokens
+
+
+def _weak_customer_tokens(value: Any) -> set[str]:
+    ignored = {
+        "готово",
+        "корр",
+        "проект",
+        "труд",
+        "нетруд",
+        "выплата",
+        "зарплатного",
+    }
+    return {token for token in _text_tokens(value) if token not in ignored}
+
+
+def _executor_tokens(value: Any) -> list[str]:
+    return [
+        token
+        for token in re.split(r"[^0-9a-zа-я]+", _canonical_match_text(value))
+        if len(token) >= 2
+    ]
+
+
+def _executor_alias_keys(value: Any) -> set[str]:
+    compact = _compact_text(value)
+    tokens = set(_executor_tokens(value))
+    aliases = {compact} if compact else set()
+
+    if compact in {"мосальфа", "моссбер", "мосвтб"} or "мос" in tokens:
+        aliases.add("мос")
+    if (
+        compact in {"пк", "пкальфа", "пксбер", "пксб"}
+        or compact.startswith(("пиплкрафт", "пилпкрафт"))
+        or {"пипл", "крафт"}.issubset(tokens)
+        or {"пилп", "крафт"}.issubset(tokens)
+    ):
+        aliases.add("пиплкрафт")
+    if (
+        compact in {"пб", "пбальфа", "пбсбер", "пбсб"}
+        or compact.startswith(("прессбук", "пресс", "прес"))
+    ):
+        aliases.add("прессбук")
+    if compact.startswith(("ссс", "спецстафф", "спецстаф")):
+        aliases.add("спецстаффсервис")
+    if compact.startswith("воркбрайт") or compact == "вб":
+        aliases.add("вб")
+    return aliases
+
+
 def _is_filter_header(value: Any) -> bool:
     return _normalize_text(value) in {"фильтр", "фильтры", "filter", "filters"}
+
+
+def _is_excluded_master_header(value: Any) -> bool:
+    return _normalize_text(value) in {
+        "отправка транзитных обязательств",
+        "курс",
+        "сумма",
+        "валюта",
+    }
+
+
+def _is_excluded_customer(value: Any) -> bool:
+    normalized = _normalize_text(value)
+    return any(
+        keyword in normalized
+        for keyword in (
+            "налог",
+            "расход",
+            "% по депозиту",
+            "по депозиту",
+            "комиссия",
+        )
+    )
+
+
+def _is_excluded_rsch_comment(value: Any) -> bool:
+    return "перевод" in re.split(r"[^0-9a-zа-я]+", _normalize_text(value))
 
 
 def _is_numeric_header(value: Any) -> bool:
@@ -136,10 +247,6 @@ def _is_numeric_header(value: Any) -> bool:
 
 def _is_percent_header(value: Any) -> bool:
     return "%" in str(value or "")
-
-
-def _should_total_header(value: Any) -> bool:
-    return _is_numeric_header(value) and not _is_percent_header(value)
 
 
 def _to_decimal(value: Any) -> Decimal:
@@ -169,15 +276,57 @@ def _row_amount_matches(master: MasterReconciliationRow, rsch: RschReconciliatio
 
 
 def _executor_matches(master_executor: str, rsch_executor: str) -> bool:
-    left = _normalize_text(master_executor)
-    right = _normalize_text(rsch_executor)
-    return bool(left and right and (left in right or right in left))
+    left = _canonical_match_text(master_executor)
+    right = _canonical_match_text(rsch_executor)
+    if not left or not right:
+        return False
+    if left == right or _compact_text(left) == _compact_text(right):
+        return True
+    if _executor_alias_keys(left) & _executor_alias_keys(right):
+        return True
+    left_tokens = set(_executor_tokens(left))
+    right_tokens = set(_executor_tokens(right))
+    if not left_tokens or not right_tokens:
+        return False
+    return left_tokens.issubset(right_tokens) or right_tokens.issubset(left_tokens)
 
 
 def _customer_matches(master_customer: str, rsch_customer: str) -> bool:
     left = _normalize_text(master_customer)
     right = _normalize_text(rsch_customer)
     return bool(left and right and (left in right or right in left))
+
+
+def _customer_matches_loose(left_value: str, right_value: str) -> bool:
+    if _customer_matches(left_value, right_value):
+        return True
+    left = _compact_text(left_value)
+    right = _compact_text(right_value)
+    if len(left) >= 6 and len(right) >= 6 and (left in right or right in left):
+        return True
+    common_tokens = _text_tokens(left_value) & _text_tokens(right_value)
+    return len(common_tokens) >= 2
+
+
+def _rsch_customer_matches(master_customer: str, rsch_row: RschReconciliationRow) -> bool:
+    return any(
+        _customer_matches_loose(master_customer, candidate)
+        for candidate in (rsch_row.customer, rsch_row.contractor, rsch_row.comment)
+    )
+
+
+def _customer_matches_weak(left_value: str, right_value: str) -> bool:
+    if _customer_matches_loose(left_value, right_value):
+        return False
+    common_tokens = _weak_customer_tokens(left_value) & _weak_customer_tokens(right_value)
+    return bool(common_tokens)
+
+
+def _rsch_customer_matches_weak(master_customer: str, rsch_row: RschReconciliationRow) -> bool:
+    return any(
+        _customer_matches_weak(master_customer, candidate)
+        for candidate in (rsch_row.customer, rsch_row.contractor, rsch_row.comment)
+    )
 
 
 def _sheet_candidates(target_date: date) -> tuple[str, str]:
@@ -295,7 +444,7 @@ def _master_output_headers(ws: Worksheet) -> list[str]:
     headers: list[str] = []
     for col_idx in range(1, ws.max_column + 1):
         value = ws.cell(1, col_idx).value
-        if value in (None, "") or _is_filter_header(value):
+        if value in (None, "") or _is_filter_header(value) or _is_excluded_master_header(value):
             continue
         headers.append(str(value).strip())
     return headers
@@ -377,6 +526,10 @@ def _collect_master_rows(ws: Worksheet) -> tuple[list[str], list[MasterReconcili
         executor = str(ws.cell(row_idx, executor_col).value or "").strip()
         if not customer and not executor:
             continue
+        income = _to_decimal(ws.cell(row_idx, income_col).value)
+        expense = _to_decimal(ws.cell(row_idx, expense_col).value)
+        if income == 0 and expense == 0:
+            continue
         values = [
             _master_cell_value(ws, row_idx, headers, header) for header in output_headers
         ]
@@ -387,8 +540,8 @@ def _collect_master_rows(ws: Worksheet) -> tuple[list[str], list[MasterReconcili
                 source_link=_cell_hyperlink_target(ws, row_idx, source_col),
                 customer=customer,
                 executor=executor,
-                income=_to_decimal(ws.cell(row_idx, income_col).value),
-                expense=_to_decimal(ws.cell(row_idx, expense_col).value),
+                income=income,
+                expense=expense,
             )
         )
     return output_headers, rows
@@ -405,12 +558,19 @@ def _collect_rsch_rows(ws: Worksheet) -> list[RschReconciliationRow]:
         expense = _to_decimal(ws.cell(row_idx, headers["Расход"]).value)
         if income == 0 and expense == 0:
             continue
+        customer = str(ws.cell(row_idx, headers["ЗАКАЗЧИК"]).value or "").strip()
+        if _is_excluded_customer(customer):
+            continue
+        comment = str(ws.cell(row_idx, headers["Комментарий"]).value or "").strip()
+        if _is_excluded_rsch_comment(comment):
+            continue
         rows.append(
             RschReconciliationRow(
+                row_id=f"{ws.title}:{row_idx}",
                 executor=str(ws.cell(row_idx, headers["ИСПОЛНИТЕЛЬ"]).value or "").strip(),
-                customer=str(ws.cell(row_idx, headers["ЗАКАЗЧИК"]).value or "").strip(),
+                customer=customer,
                 contractor=str(ws.cell(row_idx, headers["Контрагент"]).value or "").strip(),
-                comment=str(ws.cell(row_idx, headers["Комментарий"]).value or "").strip(),
+                comment=comment,
                 income=income,
                 expense=expense,
                 source_link=_cell_hyperlink_target(ws, row_idx, headers.get("Источник", 1)),
@@ -421,43 +581,82 @@ def _collect_rsch_rows(ws: Worksheet) -> list[RschReconciliationRow]:
 
 def _find_best_rsch_match(
     master_row: MasterReconciliationRow,
-    rsch_rows: list[RschReconciliationRow],
+    customer_candidates: list[tuple[int, RschReconciliationRow]],
     used_indexes: set[int],
 ) -> tuple[Optional[int], Optional[RschReconciliationRow]]:
-    customer_candidates = [
-        (idx, row)
-        for idx, row in enumerate(rsch_rows)
-        if idx not in used_indexes and _customer_matches(master_row.customer, row.customer)
-    ]
-    if not customer_candidates:
-        return None, None
     amount_candidates = [
-        (idx, row) for idx, row in customer_candidates if _row_amount_matches(master_row, row)
+        (idx, row)
+        for idx, row in customer_candidates
+        if idx not in used_indexes and _row_amount_matches(master_row, row)
     ]
     for idx, row in amount_candidates:
         if _executor_matches(master_row.executor, row.executor):
             return idx, row
-    if amount_candidates:
-        return amount_candidates[0]
+    return None, None
+
+
+def _find_likely_executor_mismatch(
+    master_row: MasterReconciliationRow,
+    customer_candidates: list[tuple[int, RschReconciliationRow]],
+    used_indexes: set[int],
+) -> tuple[Optional[int], Optional[RschReconciliationRow]]:
+    for idx, row in customer_candidates:
+        if idx not in used_indexes and _row_amount_matches(master_row, row):
+            return idx, row
     return None, None
 
 
 def _find_likely_rsch_mismatch(
     master_row: MasterReconciliationRow,
-    rsch_rows: list[RschReconciliationRow],
+    customer_candidates: list[tuple[int, RschReconciliationRow]],
     used_indexes: set[int],
 ) -> tuple[Optional[int], Optional[RschReconciliationRow]]:
-    customer_candidates = [
-        (idx, row)
-        for idx, row in enumerate(rsch_rows)
-        if idx not in used_indexes and _customer_matches(master_row.customer, row.customer)
-    ]
     for idx, row in customer_candidates:
-        if _executor_matches(master_row.executor, row.executor):
+        if idx not in used_indexes and _executor_matches(master_row.executor, row.executor):
             return idx, row
-    if customer_candidates:
-        return customer_candidates[0]
     return None, None
+
+
+def _weak_customer_review_candidate_matches(
+    master_row: MasterReconciliationRow,
+    rsch_row: RschReconciliationRow,
+) -> bool:
+    return (
+        _row_amount_matches(master_row, rsch_row)
+        and _executor_matches(master_row.executor, rsch_row.executor)
+        and _rsch_customer_matches_weak(master_row.customer, rsch_row)
+    )
+
+
+def _find_likely_customer_mismatch(
+    master_idx: int,
+    master_count: int,
+    get_weak_candidates: Callable[[int], list[tuple[int, RschReconciliationRow]]],
+    used_indexes: set[int],
+    exact_master_indexes: set[int],
+) -> tuple[Optional[int], Optional[RschReconciliationRow]]:
+    candidates = [
+        (idx, row)
+        for idx, row in get_weak_candidates(master_idx)
+        if idx not in used_indexes
+    ]
+    if len(candidates) != 1:
+        return None, None
+
+    candidate_idx, candidate = candidates[0]
+    competing_masters = [
+        idx
+        for idx in range(master_count)
+        if idx != master_idx
+        and idx not in exact_master_indexes
+        and any(
+            other_candidate_idx == candidate_idx
+            for other_candidate_idx, _ in get_weak_candidates(idx)
+        )
+    ]
+    if competing_masters:
+        return None, None
+    return candidate_idx, candidate
 
 
 def _build_reconciliation_rows(
@@ -467,6 +666,27 @@ def _build_reconciliation_rows(
     result: list[ReconciliationRow] = []
     used_rsch_indexes: set[int] = set()
     exact_matches: dict[int, int] = {}
+    customer_candidates_by_master = [
+        [
+            (idx, row)
+            for idx, row in enumerate(rsch_rows)
+            if _rsch_customer_matches(master_row.customer, row)
+        ]
+        for master_row in master_rows
+    ]
+    weak_candidates_by_master: dict[int, list[tuple[int, RschReconciliationRow]]] = {}
+
+    def get_weak_candidates(master_idx: int) -> list[tuple[int, RschReconciliationRow]]:
+        candidates = weak_candidates_by_master.get(master_idx)
+        if candidates is None:
+            master_row = master_rows[master_idx]
+            candidates = [
+                (idx, row)
+                for idx, row in enumerate(rsch_rows)
+                if _weak_customer_review_candidate_matches(master_row, row)
+            ]
+            weak_candidates_by_master[master_idx] = candidates
+        return candidates
 
     for idx, row in enumerate(rsch_rows):
         if not row.customer:
@@ -475,14 +695,16 @@ def _build_reconciliation_rows(
                 ReconciliationRow(
                     master=None,
                     rsch=row,
-                    status="ОШИБКА",
+                    status=STATUS_ERROR,
                     reason=REASON_NO_CURATOR,
                 )
             )
 
     for master_idx, master_row in enumerate(master_rows):
         match_idx, rsch_row = _find_best_rsch_match(
-            master_row, rsch_rows, used_rsch_indexes
+            master_row,
+            customer_candidates_by_master[master_idx],
+            used_rsch_indexes,
         )
         if rsch_row is not None and match_idx is not None:
             used_rsch_indexes.add(match_idx)
@@ -496,32 +718,71 @@ def _build_reconciliation_rows(
                 ReconciliationRow(
                     master=master_row,
                     rsch=rsch_row,
-                    status="СВЕРЕНО" if ok else "ОШИБКА",
+                    status=STATUS_VERIFIED if ok else STATUS_REVIEW,
                     reason="" if ok else REASON_EXECUTOR_MISMATCH,
                 )
             )
             continue
 
-        match_idx, rsch_row = _find_likely_rsch_mismatch(
-            master_row, rsch_rows, used_rsch_indexes
+        match_idx, rsch_row = _find_likely_executor_mismatch(
+            master_row,
+            customer_candidates_by_master[master_idx],
+            used_rsch_indexes,
         )
-        if rsch_row is None or match_idx is None:
+        if rsch_row is not None and match_idx is not None:
+            used_rsch_indexes.add(match_idx)
             result.append(
                 ReconciliationRow(
                     master=master_row,
-                    rsch=None,
-                    status="ОШИБКА",
-                    reason=REASON_NO_RSCH,
+                    rsch=rsch_row,
+                    status=STATUS_REVIEW,
+                    reason=REASON_EXECUTOR_MISMATCH,
                 )
             )
             continue
-        used_rsch_indexes.add(match_idx)
+
+        match_idx, rsch_row = _find_likely_rsch_mismatch(
+            master_row,
+            customer_candidates_by_master[master_idx],
+            used_rsch_indexes,
+        )
+        if rsch_row is not None and match_idx is not None:
+            used_rsch_indexes.add(match_idx)
+            result.append(
+                ReconciliationRow(
+                    master=master_row,
+                    rsch=rsch_row,
+                    status=STATUS_REVIEW,
+                    reason=REASON_AMOUNT_MISMATCH,
+                )
+            )
+            continue
+
+        match_idx, rsch_row = _find_likely_customer_mismatch(
+            master_idx,
+            len(master_rows),
+            get_weak_candidates,
+            used_rsch_indexes,
+            set(exact_matches),
+        )
+        if rsch_row is not None and match_idx is not None:
+            used_rsch_indexes.add(match_idx)
+            result.append(
+                ReconciliationRow(
+                    master=master_row,
+                    rsch=rsch_row,
+                    status=STATUS_REVIEW,
+                    reason=REASON_CUSTOMER_MISMATCH,
+                )
+            )
+            continue
+
         result.append(
             ReconciliationRow(
                 master=master_row,
-                rsch=rsch_row,
-                status="ОШИБКА",
-                reason=REASON_AMOUNT_MISMATCH,
+                rsch=None,
+                status=STATUS_ERROR,
+                reason=REASON_NO_RSCH,
             )
         )
 
@@ -532,7 +793,7 @@ def _build_reconciliation_rows(
             ReconciliationRow(
                 master=None,
                 rsch=row,
-                status="ОШИБКА",
+                status=STATUS_ERROR,
                 reason=REASON_NO_CURATOR,
             )
         )
@@ -543,21 +804,27 @@ def _rsch_values(row: Optional[RschReconciliationRow]) -> list[Any]:
     if row is None:
         return [None, None, None, None, None, None]
     return [
-        row.executor,
-        row.customer,
-        row.contractor,
-        row.comment,
+        _excel_safe_text(row.executor),
+        _excel_safe_text(row.customer),
+        _excel_safe_text(row.contractor),
+        _excel_safe_text(row.comment),
         row.income if row.income != 0 else None,
         row.expense if row.expense != 0 else None,
     ]
 
 
+def _excel_safe_text(value: Any) -> Any:
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+        return "'" + value
+    return value
+
+
 def _master_values(row: ReconciliationRow, master_headers: list[str]) -> list[Any]:
     if row.master is not None:
-        return row.master.values
-    values = [None for _ in master_headers]
+        return [_excel_safe_text(value) for value in row.master.values]
+    values: list[Any] = [None for _ in master_headers]
     if values:
-        values[0] = row.reason
+        values[0] = _excel_safe_text(row.reason)
     return values
 
 
@@ -575,14 +842,41 @@ def _write_headers(ws: Worksheet, headers: list[str]) -> None:
         cell.border = _THIN_BORDER
 
 
+def _update_column_widths(widths: dict[int, int], values: list[Any]) -> None:
+    for col_idx, value in enumerate(values, start=1):
+        widths[col_idx] = max(
+            widths.get(col_idx, 0),
+            len(str(value)) if value is not None else 0,
+        )
+
+
+def _apply_column_widths(ws: Worksheet, widths: dict[int, int]) -> None:
+    for col_idx in range(1, ws.max_column + 1):
+        max_len = widths.get(col_idx, 0)
+        ws.column_dimensions[get_column_letter(col_idx)].width = max(
+            10,
+            min(45, max_len + 2),
+        )
+
+
 def _append_reconciliation_row(
     ws: Worksheet,
     row: ReconciliationRow,
     master_headers: list[str],
+    column_widths: dict[int, int] | None = None,
 ) -> None:
-    headers = [*master_headers, "ИТОГ", *RSCH_HEADERS]
+    headers = [*master_headers, STATUS_HEADER, *RSCH_HEADERS, REASON_HEADER]
     status_col = len(master_headers) + 1
-    ws.append([*_master_values(row, master_headers), row.status, *_rsch_values(row.rsch)])
+    reason = _reason_label(row.reason) if row.reason else None
+    values = [
+        *_master_values(row, master_headers),
+        row.status,
+        *_rsch_values(row.rsch),
+        reason,
+    ]
+    if column_widths is not None:
+        _update_column_widths(column_widths, values)
+    ws.append(values)
     row_idx = ws.max_row
     for col_idx, header in enumerate(headers, start=1):
         cell = ws.cell(row_idx, col_idx)
@@ -597,7 +891,10 @@ def _append_reconciliation_row(
         if _is_percent_header(header):
             cell.number_format = "0.##%"
     status_cell = ws.cell(row_idx, status_col)
-    status_cell.fill = _STATUS_OK_FILL if row.status == "СВЕРЕНО" else _STATUS_ERROR_FILL
+    status_cell.fill = {
+        STATUS_VERIFIED: _STATUS_OK_FILL,
+        STATUS_REVIEW: _STATUS_REVIEW_FILL,
+    }.get(row.status, _STATUS_ERROR_FILL)
     status_cell.font = _STATUS_FONT
     status_cell.alignment = Alignment(horizontal="center", vertical="center")
     if row.reason:
@@ -614,25 +911,6 @@ def _append_reconciliation_row(
             0,
         ):
             ws.cell(row_idx, col_idx).fill = _MASTER_EXPENSE_FILL
-
-
-def _write_total_row(ws: Worksheet, headers: list[str]) -> None:
-    row_idx = ws.max_row + 1
-    ws.cell(row_idx, 1, "ИТОГО:")
-    if row_idx > 2:
-        for col_idx, header in enumerate(headers, start=1):
-            if _should_total_header(header):
-                letter = get_column_letter(col_idx)
-                ws.cell(row_idx, col_idx, f"=SUM({letter}2:{letter}{row_idx - 1})")
-    for col_idx, header in enumerate(headers, start=1):
-        cell = ws.cell(row_idx, col_idx)
-        cell.fill = _TOTAL_FILL
-        cell.font = _TOTAL_FONT
-        cell.border = _TOTAL_BORDER
-        if _is_numeric_header(header):
-            cell.number_format = "#,##0.00"
-        if _is_percent_header(header):
-            cell.number_format = "0.##%"
 
 
 def _autosize_columns(ws: Worksheet) -> None:
@@ -652,19 +930,102 @@ def _build_workbook(
     rows: Iterable[ReconciliationRow],
     master_headers: list[str],
 ) -> Workbook:
-    row_list = sorted(rows, key=lambda row: 0 if row.status == "СВЕРЕНО" else 1)
-    headers = [*master_headers, "ИТОГ", *RSCH_HEADERS]
     wb = Workbook()
     ws = wb.active
     ws.title = target_date.strftime("%d.%m.%Y")
+    _write_reconciliation_sheet(ws, rows, master_headers)
+    return wb
+
+
+def _write_reconciliation_sheet(
+    ws: Worksheet,
+    rows: Iterable[ReconciliationRow],
+    master_headers: list[str],
+) -> None:
+    status_order = {STATUS_VERIFIED: 0, STATUS_REVIEW: 1}
+    row_list = sorted(rows, key=lambda row: status_order.get(row.status, 2))
+    headers = [*master_headers, STATUS_HEADER, *RSCH_HEADERS, REASON_HEADER]
     _write_headers(ws, headers)
+    column_widths: dict[int, int] = {}
+    _update_column_widths(column_widths, headers)
     for row in row_list:
-        _append_reconciliation_row(ws, row, master_headers)
-    _write_total_row(ws, headers)
+        _append_reconciliation_row(ws, row, master_headers, column_widths)
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws.max_row}"
-    _autosize_columns(ws)
-    return wb
+    _apply_column_widths(ws, column_widths)
+
+
+def _build_reconciliation_sheet_data(
+    master_wb,
+    rsch_wb,
+    target_date: date | None,
+) -> tuple[date, list[str], list[ReconciliationRow]]:
+    effective_date = _resolve_target_date(master_wb, rsch_wb, target_date)
+    master_ws = _find_sheet(master_wb, effective_date)
+    rsch_ws = _find_sheet(rsch_wb, effective_date)
+    master_headers, master_rows = _collect_master_rows(master_ws)
+    rows = _build_reconciliation_rows(master_rows, _collect_rsch_rows(rsch_ws))
+    return effective_date, master_headers, rows
+
+
+def _matched_rsch_row_ids(rows: Iterable[ReconciliationRow]) -> set[str]:
+    return {
+        row.rsch.row_id
+        for row in rows
+        if row.status in {STATUS_VERIFIED, STATUS_REVIEW}
+        and row.master is not None
+        and row.rsch is not None
+    }
+
+
+def _is_rsch_only_no_curator_row(row: ReconciliationRow) -> bool:
+    return (
+        row.master is None
+        and row.rsch is not None
+        and row.reason == REASON_NO_CURATOR
+    )
+
+
+def _suppress_combined_rsch_only_rows(
+    rows: Iterable[ReconciliationRow],
+    matched_rsch_ids: set[str],
+    seen_unmatched_rsch_ids: set[str],
+) -> list[ReconciliationRow]:
+    filtered: list[ReconciliationRow] = []
+    for row in rows:
+        if not _is_rsch_only_no_curator_row(row):
+            filtered.append(row)
+            continue
+        assert row.rsch is not None
+        row_id = row.rsch.row_id
+        if row_id in matched_rsch_ids or row_id in seen_unmatched_rsch_ids:
+            continue
+        seen_unmatched_rsch_ids.add(row_id)
+        filtered.append(row)
+    return filtered
+
+
+def _ordered_combined_master_items(
+    master_paths: Mapping[str, Path | str],
+) -> list[tuple[str, Path | str]]:
+    original_order = {name: idx for idx, name in enumerate(master_paths)}
+    return sorted(
+        master_paths.items(),
+        key=lambda item: (
+            _COMBINED_SHEET_PRIORITY.get(item[0], len(_COMBINED_SHEET_PRIORITY)),
+            original_order[item[0]],
+        ),
+    )
+
+
+@contextmanager
+def _local_read_path(path: Path, drive_letters: tuple[str, ...] = ("Q", "Z")):
+    target_path, temp_file = get_local_copy(str(path), drive_letters)
+    try:
+        yield target_path
+    finally:
+        if temp_file:
+            Path(temp_file).unlink(missing_ok=True)
 
 
 def build_reconciliation_report(
@@ -673,6 +1034,7 @@ def build_reconciliation_report(
     output_path: Path | str,
     *,
     target_date: date | None = None,
+    drive_letters: tuple[str, ...] = ("Q", "Z"),
 ) -> int:
     master_path = Path(master_path)
     rsch_path = Path(rsch_path)
@@ -683,18 +1045,97 @@ def build_reconciliation_report(
     if not rsch_path.exists():
         raise FileNotFoundError(f"Не найден РСЧ-отчет: {rsch_path}")
 
-    master_wb = load_workbook(master_path, data_only=False)
-    rsch_wb = load_workbook(rsch_path, data_only=True)
-    try:
-        effective_date = _resolve_target_date(master_wb, rsch_wb, target_date)
-        master_ws = _find_sheet(master_wb, effective_date)
-        rsch_ws = _find_sheet(rsch_wb, effective_date)
-        master_headers, master_rows = _collect_master_rows(master_ws)
-        rows = _build_reconciliation_rows(master_rows, _collect_rsch_rows(rsch_ws))
-        wb_out = _build_workbook(effective_date, rows, master_headers)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        wb_out.save(output_path)
-        return len(rows)
-    finally:
-        master_wb.close()
-        rsch_wb.close()
+    with (
+        _local_read_path(master_path, drive_letters) as master_read_path,
+        _local_read_path(rsch_path, drive_letters) as rsch_read_path,
+    ):
+        master_wb = None
+        rsch_wb = None
+        try:
+            master_wb = load_workbook(master_read_path, data_only=False)
+            rsch_wb = load_workbook(rsch_read_path, data_only=True)
+            effective_date, master_headers, rows = _build_reconciliation_sheet_data(
+                master_wb,
+                rsch_wb,
+                target_date,
+            )
+            wb_out = _build_workbook(effective_date, rows, master_headers)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            wb_out.save(output_path)
+            return len(rows)
+        finally:
+            if master_wb is not None:
+                master_wb.close()
+            if rsch_wb is not None:
+                rsch_wb.close()
+
+
+def build_combined_reconciliation_report(
+    master_paths: Mapping[str, Path | str],
+    rsch_path: Path | str,
+    output_path: Path | str,
+    *,
+    target_date: date | None = None,
+    drive_letters: tuple[str, ...] = ("Q", "Z"),
+) -> dict[str, int]:
+    rsch_path = Path(rsch_path)
+    output_path = Path(output_path)
+    if not master_paths:
+        raise ValueError("Не выбраны мастер-отчеты для сверки")
+    if not rsch_path.exists():
+        raise FileNotFoundError(f"Не найден РСЧ-отчет: {rsch_path}")
+
+    wb_out = Workbook()
+    default_ws = wb_out.active
+    counts: dict[str, int] = {}
+    sheet_rows: list[tuple[str, list[str], list[ReconciliationRow]]] = []
+    with _local_read_path(rsch_path, drive_letters) as rsch_read_path:
+        rsch_wb = None
+        try:
+            rsch_wb = load_workbook(rsch_read_path, data_only=True)
+            for sheet_name, master_path_value in _ordered_combined_master_items(master_paths):
+                master_path = Path(master_path_value)
+                if not master_path.exists():
+                    raise FileNotFoundError(f"Не найден мастер-отчет {sheet_name}: {master_path}")
+                with _local_read_path(master_path, drive_letters) as master_read_path:
+                    master_wb = None
+                    try:
+                        master_wb = load_workbook(master_read_path, data_only=False)
+                        (
+                            _effective_date,
+                            master_headers,
+                            rows,
+                        ) = _build_reconciliation_sheet_data(
+                            master_wb,
+                            rsch_wb,
+                            target_date,
+                        )
+                    finally:
+                        if master_wb is not None:
+                            master_wb.close()
+                sheet_rows.append((sheet_name, master_headers, rows))
+
+            matched_rsch_ids = {
+                row_id
+                for _sheet_name, _master_headers, rows in sheet_rows
+                for row_id in _matched_rsch_row_ids(rows)
+            }
+            seen_unmatched_rsch_ids: set[str] = set()
+            for idx, (sheet_name, master_headers, rows) in enumerate(sheet_rows):
+                rows = _suppress_combined_rsch_only_rows(
+                    rows,
+                    matched_rsch_ids,
+                    seen_unmatched_rsch_ids,
+                )
+
+                ws = default_ws if idx == 0 else wb_out.create_sheet()
+                ws.title = sheet_name[:31]
+                _write_reconciliation_sheet(ws, rows, master_headers)
+                counts[sheet_name] = len(rows)
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            wb_out.save(output_path)
+            return counts
+        finally:
+            if rsch_wb is not None:
+                rsch_wb.close()

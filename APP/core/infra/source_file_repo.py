@@ -70,7 +70,8 @@ class SourceFileRepository:
         return self.connection_manager.execute_with_retry(_save)
 
     def get_file_cache(self, file_path: str) -> Optional[Dict[str, Any]]:
-        with self.connection_manager.get_connection() as conn:
+        conn = self.connection_manager.get_connection()
+        try:
             row = conn.execute(
                 "SELECT mtime, size, dates_json FROM file_cache WHERE file_path = ?",
                 (file_path,),
@@ -92,6 +93,8 @@ class SourceFileRepository:
                     "cache_version": cache_version,
                 }
             return None
+        finally:
+            conn.close()
 
     def save_file_cache(
         self, file_path: str, mtime: float, size: int, dates: List[str]

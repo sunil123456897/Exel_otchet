@@ -352,6 +352,136 @@ def test_build_rsch_report_maps_and_splits_rows(tmp_path: Path) -> None:
     assert ws.cell(4, 6).fill.fgColor.rgb == "FFFFC7CE"
 
 
+def test_build_rsch_report_sanitizes_formula_like_text(tmp_path: Path) -> None:
+    source = tmp_path / "source.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "report.xlsx"
+    _create_template_book(template)
+    _create_source_book_with_rows(
+        source,
+        [
+            [
+                datetime(2026, 4, 13),
+                None,
+                "+79000000000",
+                "+project",
+                "@contractor",
+                100,
+                0,
+                "",
+                "",
+                "Комментарий расход",
+                None,
+                "-40702810",
+            ],
+        ],
+    )
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+    )
+
+    assert written == 1
+    wb = load_workbook(output, data_only=False)
+    ws = wb["13.04"]
+    assert ws.cell(2, 2).value == "'+project"
+    assert ws.cell(2, 3).value == "'@contractor"
+    assert ws.cell(2, 4).value in (None, "")
+    assert ws.cell(2, 5).value == 100
+    assert ws.cell(2, 7).value == "'-40702810"
+    assert ws.cell(2, 8).hyperlink is not None
+
+
+def test_build_rsch_report_uses_previous_date_for_blank_date_rows(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "report.xlsx"
+    _create_template_book(template)
+    _create_source_book_with_rows(
+        source,
+        [
+            [
+                None,
+                None,
+                None,
+                "Before date",
+                "Before contractor",
+                0,
+                999,
+                "",
+                "",
+                None,
+                None,
+                "407-before",
+            ],
+            [
+                datetime(2026, 4, 21),
+                None,
+                None,
+                "Project with date",
+                "Contractor with date",
+                0,
+                100,
+                "",
+                "",
+                "Comment with date",
+                None,
+                "407-date",
+            ],
+            [
+                None,
+                None,
+                None,
+                "",
+                "",
+                0,
+                200,
+                "Project blank date",
+                "Contractor blank date",
+                "Comment blank date",
+                None,
+                "407-blank",
+            ],
+            [
+                datetime(2026, 4, 22),
+                None,
+                None,
+                "Other date",
+                "Other contractor",
+                0,
+                300,
+                "",
+                "",
+                None,
+                None,
+                "407-other",
+            ],
+        ],
+    )
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 21),
+        template_path=template,
+    )
+
+    assert written == 2
+    wb = load_workbook(output, data_only=False)
+    ws = wb["21.04"]
+    assert ws.cell(2, 2).value == "Project with date"
+    assert ws.cell(2, 6).value == 100
+    assert ws.cell(3, 2).value == "Project blank date"
+    assert ws.cell(3, 6).value == 200
+    assert ws.cell(3, 8).value == "source.xlsx | сти рсч | строка 5"
+    assert ws.cell(4, 1).value == "ИТОГО:"
+
+
 def test_build_rsch_report_real_fixture_for_13_04(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     source = repo_root / "РСЧ" / "рсч для инструкции.xlsx"

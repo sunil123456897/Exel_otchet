@@ -1,6 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import openpyxl
 import pytest
 
 from core.infra.ingestion_engine import (
@@ -82,6 +83,55 @@ def test_get_available_dates_worker_result_and_stderr(tmp_path):
 
     assert dates == ["01.04.2026", "02.04.2026"]
     mock_warn.assert_called_once_with("minor worker warning")
+
+
+def test_get_available_dates_reads_xlsx_sheet_metadata_without_worker(tmp_path):
+    engine = IngestionEngine({})
+    file_path = tmp_path / "REPORTS" / "curator.xlsx"
+    file_path.parent.mkdir()
+
+    wb = openpyxl.Workbook()
+    wb.active.title = "Отчет 21.04.2026"
+    wb.create_sheet("_hidden")
+    wb.create_sheet("СВОД")
+    wb.create_sheet("Отчет 22.04.2026")
+    wb.save(file_path)
+
+    with (
+        patch(
+            "core.infra.ingestion_engine._should_isolate_calamine", return_value=True
+        ),
+        patch(
+            "core.infra.ingestion_engine._run_calamine_worker",
+            side_effect=AssertionError("xlsx metadata path should avoid worker"),
+        ),
+    ):
+        dates = engine.get_available_dates(file_path)
+
+    assert dates == ["21.04.2026", "22.04.2026"]
+
+
+def test_get_available_dates_reads_report_xlsx_metadata_before_local_copy(tmp_path):
+    engine = IngestionEngine({})
+    file_path = tmp_path / "REPORTS" / "network-like.xlsx"
+    file_path.parent.mkdir()
+
+    wb = openpyxl.Workbook()
+    wb.active.title = "Отчет 23.04.2026"
+    wb.save(file_path)
+
+    with (
+        patch(
+            "core.infra.ingestion_engine._should_isolate_calamine", return_value=True
+        ),
+        patch(
+            "core.infra.ingestion_engine.get_local_copy",
+            side_effect=AssertionError("xlsx sheet metadata should not copy file"),
+        ),
+    ):
+        dates = engine.get_available_dates(file_path)
+
+    assert dates == ["23.04.2026"]
 
 
 def test_get_available_dates_reraises_keyboardinterrupt(tmp_path):

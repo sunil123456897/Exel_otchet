@@ -14,6 +14,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from core.infra.excel_hyperlinks import apply_cell_hyperlink
+from core.infra.utils import get_local_copy
 
 logger = logging.getLogger(__name__)
 
@@ -223,9 +224,7 @@ def _is_account_optional_row(row: Dict[str, Any]) -> bool:
         _normalize_text(row.get(key))
         for key in ("executor", "customer", "contractor", "comment")
     )
-    return _is_special_customer_label(str(row.get("customer") or "")) or any(
-        marker in searchable for marker in _NO_ACCOUNT_MARKERS
-    )
+    return any(marker in searchable for marker in _NO_ACCOUNT_MARKERS)
 
 
 def _is_problem_row(row: Dict[str, Any]) -> bool:
@@ -307,11 +306,18 @@ def _collect_rows_from_sheet(
     col_map = _detect_columns(ws, header_row_idx)
     executor = _clean_executor_name(ws.title)
     rows: List[Dict[str, Any]] = []
+    current_row_date: Optional[date] = None
 
     for row_idx in range(header_row_idx + 1, ws.max_row + 1):
-        row_date = _as_date(ws.cell(row_idx, col_map["date"]).value)
-        if row_date is None:
+        raw_date = ws.cell(row_idx, col_map["date"]).value
+        explicit_row_date = _as_date(raw_date)
+        if explicit_row_date is not None:
+            current_row_date = explicit_row_date
+        elif raw_date not in (None, "") and str(raw_date).strip():
+            current_row_date = None
+        if current_row_date is None:
             continue
+        row_date = current_row_date
         if target_date and row_date != target_date:
             continue
         if start_date and end_date and not (start_date <= row_date <= end_date):
@@ -657,6 +663,34 @@ def _display_len(value: Any) -> int:
     return len(str(value))
 
 
+def _excel_safe_text(value: Any) -> Any:
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+        return "'" + value
+    return value
+
+
+def _update_column_widths(widths: dict[int, int], values: list[Any]) -> None:
+    for col_idx, value in enumerate(values, start=1):
+        widths[col_idx] = max(widths.get(col_idx, 0), _display_len(value))
+
+
+def _apply_column_widths(
+    ws_out: Worksheet,
+    widths: dict[int, int],
+    min_width: int = 10,
+    max_width: int = 60,
+) -> None:
+    for col_idx in range(1, ws_out.max_column + 1):
+        max_len = widths.get(col_idx, 0)
+        if col_idx in (5, 6):
+            max_len = max(max_len, 14)
+
+        ws_out.column_dimensions[get_column_letter(col_idx)].width = max(
+            min_width,
+            min(max_width, max_len + 2),
+        )
+
+
 def _autosize_all_columns(
     ws_out: Worksheet, min_width: int = 10, max_width: int = 60
 ) -> None:
@@ -724,8 +758,10 @@ def _collect_rows_from_workbook(
     issues_sink: Optional[List[str]] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
+    drive_letters: tuple[str, ...] = ("Q", "Z"),
 ) -> List[Dict[str, Any]]:
-    wb_source = openpyxl.load_workbook(source_path, data_only=True)
+    target_path, temp_file = get_local_copy(str(source_path), drive_letters)
+    wb_source = openpyxl.load_workbook(target_path, data_only=True)
     try:
         rows: List[Dict[str, Any]] = []
         for ws in wb_source.worksheets:
@@ -754,6 +790,8 @@ def _collect_rows_from_workbook(
         return rows
     finally:
         wb_source.close()
+        if temp_file:
+            Path(temp_file).unlink(missing_ok=True)
 
 
 def _create_builtin_template_workbook() -> Workbook:
@@ -811,6 +849,8 @@ def _write_rsch_sheet(
 
     style_layout = _resolve_template_style_layout(template_ws)
     ws_out.append(RSCH_HEADERS)
+    column_widths: dict[int, int] = {}
+    _update_column_widths(column_widths, RSCH_HEADERS)
 
     for col_idx, _ in enumerate(RSCH_HEADERS, start=1):
         header_source = template_ws.cell(1, style_layout["header_cols"][col_idx])
@@ -832,23 +872,27 @@ def _write_rsch_sheet(
     _ensure_header_style(ws_out, style_layout["legacy_template"])
 
     template_data_row_idx = 2 if template_ws.max_row >= 2 else 1
+    data_style_sources = {
+        col_idx: template_ws.cell(template_data_row_idx, style_layout["data_cols"][col_idx])
+        for col_idx in range(1, len(RSCH_HEADERS) + 1)
+    }
     for row in rows:
-        ws_out.append(
-            [
-                row["executor"],
-                row["customer"],
-                row["contractor"],
-                row["comment"],
-                row["income"],
-                row["expense"],
-                row["account"],
-                row["source"],
-            ]
-        )
+        values = [
+            _excel_safe_text(row["executor"]),
+            _excel_safe_text(row["customer"]),
+            _excel_safe_text(row["contractor"]),
+            _excel_safe_text(row["comment"]),
+            row["income"],
+            row["expense"],
+            _excel_safe_text(row["account"]),
+            _excel_safe_text(row["source"]),
+        ]
+        _update_column_widths(column_widths, values)
+        ws_out.append(values)
         curr_idx = ws_out.max_row
         for col_idx in range(1, len(RSCH_HEADERS) + 1):
             _copy_style(
-                template_ws.cell(template_data_row_idx, style_layout["data_cols"][col_idx]),
+                data_style_sources[col_idx],
                 ws_out.cell(curr_idx, col_idx),
             )
         if style_layout["legacy_template"]:
@@ -865,7 +909,7 @@ def _write_rsch_sheet(
             row.get("source_row"),
         )
 
-    _autosize_all_columns(ws_out)
+    _apply_column_widths(ws_out, column_widths)
 
     total_row_idx = ws_out.max_row + 1
     ws_out.cell(total_row_idx, 1, "ИТОГО:")
@@ -906,6 +950,7 @@ def build_rsch_report(
     end_date: Optional[date] = None,
     template_path: Optional[Path] = None,
     issues_sink: Optional[List[str]] = None,
+    drive_letters: tuple[str, ...] = ("Q", "Z"),
 ) -> int:
     source_paths = _normalize_source_paths(source_path)
     output_path = Path(output_path)
@@ -944,6 +989,7 @@ def build_rsch_report(
                 issues,
                 start_date=start_date,
                 end_date=end_date,
+                drive_letters=drive_letters,
             )
         )
 

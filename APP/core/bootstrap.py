@@ -331,6 +331,7 @@ class Bootstrap:
     ):
         drive_letters = tuple(cfg.get("network", {}).get("drive_letters", ["Q", "Z"]))
         ingestion = IngestionEngine(cfg.get("sh1", {}).get("markers", {}), drive_letters)
+        ingestion.config = cfg
         persistence = SQLiteManager(db_path, schema_path, cfg)
         validator = Validator(cfg)
         logic = LogicService(persistence, cfg)

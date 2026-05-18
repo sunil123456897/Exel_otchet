@@ -223,6 +223,14 @@ class Sidebar(ttk.Frame):
         )
         self.reconciliation_btn.pack(fill=tk.X, pady=(0, 3))
 
+        self.auto_reconciliation_btn = ttk.Button(
+            action_frame,
+            text="✅ АВТОСВЕРКА",
+            style="Action.TButton",
+            command=self.controller.run_auto_reconciliation_day,
+        )
+        self.auto_reconciliation_btn.pack(fill=tk.X, pady=(0, 3))
+
         ttk.Label(action_frame, text="Режим РСЧ:").pack(anchor=tk.W, pady=(2, 0))
         self.rsch_mode_var = tk.StringVar(value="Общий файл")
         self.rsch_mode_combo = ttk.Combobox(
@@ -283,6 +291,7 @@ class Sidebar(ttk.Frame):
 
     def set_reconciliation_state(self, state):
         self.reconciliation_btn.config(state=state)
+        self.auto_reconciliation_btn.config(state=state)
 
     def get_rsch_mode(self) -> str:
         return "combined"
