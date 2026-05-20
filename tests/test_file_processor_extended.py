@@ -7,35 +7,29 @@ import pytest
 from core.app.file_processor import process_file_task, date_matches_target, run_engine
 
 
-def test_process_file_task_marks_file_error_when_wait_for_writes_fails():
+def test_run_engine_propagates_wait_for_writes_failure():
     persistence = MagicMock()
-    persistence.save_file_metadata.return_value = [17]
     persistence.wait_for_writes.side_effect = RuntimeError("staging write failed")
 
     ingestion = MagicMock()
-    ingestion.read_file.return_value = [{"date": "01.04.2026", "amount": 100}]
-
     validator = MagicMock()
-    validator.validate_row.return_value = True
 
-    meta = {"path": "C:/reports/a.xlsx"}
+    employees_map = {
+        "Alice": [{"path": "C:/good.xlsx"}],
+    }
 
-    with patch("os.path.exists", return_value=True):
+    with patch("core.app.file_processor.process_file_task", return_value=1) as mock_task:
         with pytest.raises(RuntimeError, match="staging write failed"):
-            process_file_task(
+            run_engine(
                 persistence,
                 ingestion,
                 validator,
-                "Alice",
-                meta,
+                employees_map,
                 "session-1",
                 "01.04.2026",
+                lambda _p: None,
             )
-
-    persistence.update_file_status.assert_any_call(17, "error", "staging write failed")
-    assert (17, "processed") not in [
-        call.args for call in persistence.update_file_status.call_args_list
-    ]
+    persistence.wait_for_writes.assert_called_once()
 
 
 def test_process_file_task_reads_with_strict_io_enabled():

@@ -221,9 +221,16 @@ class SessionRepository(IPersistence):
         return self.source_file_repo.get_file_cache(file_path)
 
     def save_file_cache(
-        self, file_path: str, mtime: float, size: int, dates: List[str]
+        self,
+        file_path: str,
+        mtime: float,
+        size: int,
+        dates: List[str],
+        fingerprint: str | None = None,
     ) -> None:
-        self.source_file_repo.save_file_cache(file_path, mtime, size, dates)
+        self.source_file_repo.save_file_cache(
+            file_path, mtime, size, dates, fingerprint=fingerprint
+        )
 
 
 SQLiteManager = SessionRepository

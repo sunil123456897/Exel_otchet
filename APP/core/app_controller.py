@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 
 from core.infra import DiscoveryService, is_file_writable
+from core.infra.utils import file_content_fingerprint
 from core.infra.utils_logging import scrub_path
 from core.app.file_processor import (
     check_master_lock,
@@ -229,6 +230,13 @@ class AppController:
                 stat_mtime = stat.st_mtime
                 stat_size = stat.st_size
                 cache = self.persistence.get_file_cache(str(p_path))
+                current_fingerprint: str | None = None
+
+                def get_current_fingerprint() -> str | None:
+                    nonlocal current_fingerprint
+                    if current_fingerprint is None:
+                        current_fingerprint = file_content_fingerprint(p_path)
+                    return current_fingerprint
 
                 cache_hit = (
                     cache
@@ -236,7 +244,11 @@ class AppController:
                     and cache["size"] == stat_size
                 )
                 cache_version = int(cache.get("cache_version", 1)) if cache else 1
-                needs_cache_migration = cache_hit and cache_version < 3
+                if cache_hit and cache_version >= 4:
+                    cache_hit = bool(cache.get("fingerprint")) and (
+                        cache.get("fingerprint") == get_current_fingerprint()
+                    )
+                needs_cache_migration = cache_hit and cache_version < 4
 
                 if cache_hit:
                     available = cache.get("dates", [])
@@ -258,7 +270,11 @@ class AppController:
                             remote_size=stat_size,
                         )
                         self.persistence.save_file_cache(
-                            str(p_path), stat_mtime, stat_size, available
+                            str(p_path),
+                            stat_mtime,
+                            stat_size,
+                            available,
+                            fingerprint=get_current_fingerprint(),
                         )
                 else:
                     available = self.ingestion.get_available_dates(
@@ -267,7 +283,11 @@ class AppController:
                         remote_size=stat_size,
                     )
                     self.persistence.save_file_cache(
-                        str(p_path), stat_mtime, stat_size, available
+                        str(p_path),
+                        stat_mtime,
+                        stat_size,
+                        available,
+                        fingerprint=get_current_fingerprint(),
                     )
 
                 if self._has_target_date(available, target_date_obj, today):

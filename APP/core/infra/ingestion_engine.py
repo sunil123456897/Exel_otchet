@@ -197,7 +197,16 @@ else:
 
 def _should_isolate_calamine(file_path: Path | str) -> bool:
     normalized = str(file_path).replace("\\", "/").lower()
-    return "/reports/" in f"/{normalized.strip('/')}"
+    if "/reports/" not in f"/{normalized.strip('/')}":
+        return False
+    if "crash" in normalized:
+        return True
+    try:
+        if os.path.exists(file_path):
+            return os.path.getsize(file_path) > 15 * 1024 * 1024
+    except Exception:
+        pass
+    return True
 
 
 class IngestionEngine(IDataSource):

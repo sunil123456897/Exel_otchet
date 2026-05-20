@@ -83,7 +83,11 @@ class TestFileCache:
 
     def test_save_and_get_cache(self, db_setup):
         db_setup.save_file_cache(
-            "/path/file.xlsx", 1000.0, 5000, ["01.04.2026", "02.04.2026"]
+            "/path/file.xlsx",
+            1000.0,
+            5000,
+            ["01.04.2026", "02.04.2026"],
+            fingerprint="fp",
         )
         db_setup.wait_for_writes()
         result = db_setup.get_file_cache("/path/file.xlsx")
@@ -91,7 +95,8 @@ class TestFileCache:
         assert result is not None
         assert result["mtime"] == 1000.0
         assert result["size"] == 5000
-        assert result["cache_version"] == 3
+        assert result["cache_version"] == 4
+        assert result["fingerprint"] == "fp"
         assert "01.04.2026" in result["dates"]
         assert "02.04.2026" in result["dates"]
 
@@ -107,7 +112,7 @@ class TestFileCache:
         result = db_setup.get_file_cache("/path/f.xlsx")
         assert result["mtime"] == 2000.0
         assert result["size"] == 200
-        assert result["cache_version"] == 3
+        assert result["cache_version"] == 4
         assert result["dates"] == ["02.04.2026"]
 
 

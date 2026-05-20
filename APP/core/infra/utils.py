@@ -37,6 +37,7 @@ _CACHE_CLEANUP_LOCK = threading.Lock()
 _CACHE_CLEANUP_DONE = False
 _CACHE_COPY_LOCK = threading.Lock()
 _CACHE_MIN_DELETE_AGE_SECONDS = 30 * 60
+_DIGEST_CHUNK_SIZE = 1024 * 1024
 
 
 def _is_configured_drive_path(path: str, drive_letters: tuple) -> bool:
@@ -53,6 +54,39 @@ def _is_configured_drive_path(path: str, drive_letters: tuple) -> bool:
 
 def _is_network_path(path: str, drive_letters: tuple) -> bool:
     return path.startswith("\\\\") or _is_configured_drive_path(path, drive_letters)
+
+
+def file_content_fingerprint(path: str | Path) -> str | None:
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(_DIGEST_CHUNK_SIZE), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def _cache_copy_is_fresh(local_path: Path, remote_path: str, remote_stat) -> bool:
+    try:
+        cached_stat = os.stat(local_path)
+    except OSError:
+        return False
+
+    remote_mtime_ns = getattr(
+        remote_stat, "st_mtime_ns", int(float(remote_stat.st_mtime) * 1_000_000_000)
+    )
+    cached_mtime_ns = getattr(
+        cached_stat, "st_mtime_ns", int(float(cached_stat.st_mtime) * 1_000_000_000)
+    )
+    if cached_stat.st_size != remote_stat.st_size or cached_mtime_ns < remote_mtime_ns:
+        return False
+
+    remote_digest = file_content_fingerprint(remote_path)
+    cached_digest = file_content_fingerprint(local_path)
+    if remote_digest is not None and cached_digest is not None:
+        return remote_digest == cached_digest
+    return True
 
 
 def cleanup_local_copy_cache(
@@ -150,25 +184,19 @@ def get_local_copy(
             return network_path, None
 
 
+    stat_mtime_ns = getattr(stat, "st_mtime_ns", int(float(stat.st_mtime) * 1_000_000_000))
     key = hashlib.md5(
-        f"{network_path}_{stat.st_mtime}_{stat.st_size}".encode()
+        f"{network_path}_{stat_mtime_ns}_{stat.st_size}".encode()
     ).hexdigest()
     suffix = Path(network_path).suffix
     local_path = _CACHE_DIR / f"{key}{suffix}"
 
     with _CACHE_COPY_LOCK:
         if local_path.exists():
-            # Validate cached copy against current remote metadata
+            if _cache_copy_is_fresh(local_path, network_path, stat):
+                return str(local_path), None
             try:
-                cached_stat = os.stat(local_path)
-                if cached_stat.st_size != stat.st_size or cached_stat.st_mtime < stat.st_mtime:
-                    # Size or mtime mismatch — stale cache, remove it
-                    try:
-                        os.remove(local_path)
-                    except OSError:
-                        pass
-                else:
-                    return str(local_path), None
+                os.remove(local_path)
             except OSError:
                 pass
 

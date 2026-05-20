@@ -258,6 +258,8 @@ class DiscoveryService:
         self, roots_to_scan: List[Path], all_have_custom: bool
     ) -> List[Dict[str, Any]]:
         discovered_files: List[Dict[str, Any]] = []
+        if not roots_to_scan:
+            return discovered_files
         if all_have_custom:
             logging.info(
                 "[NET] Все сотрудники привязаны, пропускаю полное сканирование сети."
@@ -277,7 +279,7 @@ class DiscoveryService:
         if len(roots_to_scan) == 1:
             return scan_root(roots_to_scan[0])
 
-        max_workers = min(3, len(roots_to_scan))
+        max_workers = min(16, len(roots_to_scan))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             for files in executor.map(scan_root, roots_to_scan):
                 discovered_files.extend(files)

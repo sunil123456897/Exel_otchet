@@ -29,6 +29,7 @@ Version5.rar
 
 
 .gitnexus
+.codegraph/
 .sentrux/
 .opencode/skills/
 .opencode/node_modules/
@@ -45,5 +46,4 @@ APP/output/*_suppressed.xlsx
 **/Отчет_расхождений_*.xlsx
 **/Отчёт_расхождений_*.xlsx
 **/!*.xlsx
-
 

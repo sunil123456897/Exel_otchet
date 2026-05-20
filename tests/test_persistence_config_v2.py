@@ -129,13 +129,14 @@ def test_source_file_repo_cache(temp_db, db_config, schema_path):
     mgr.init_db(schema_path)
     repo = SourceFileRepository(mgr)
 
-    repo.save_file_cache("path1", 123.45, 1000, ["2023-01-01"])
+    repo.save_file_cache("path1", 123.45, 1000, ["2023-01-01"], fingerprint="fp1")
     repo.wait_for_writes()
     cache = repo.get_file_cache("path1")
     assert cache["mtime"] == 123.45
     assert cache["size"] == 1000
     assert cache["dates"] == ["2023-01-01"]
-    assert cache["cache_version"] == 3
+    assert cache["cache_version"] == 4
+    assert cache["fingerprint"] == "fp1"
 
     assert repo.get_file_cache("nonexistent") is None
     repo.close()
@@ -157,6 +158,7 @@ def test_source_file_repo_cache_legacy_payload_backward_compatible(
     cache = repo.get_file_cache("legacy_path")
     assert cache["dates"] == ["18.04.2026"]
     assert cache["cache_version"] == 1
+    assert cache["fingerprint"] is None
     repo.close()
 
 

@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional
 
@@ -124,11 +125,20 @@ class ReconciliationRow:
 def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
-    return " ".join(str(value).replace("\xa0", " ").replace("ё", "е").lower().split())
+    return _normalize_text_cached(str(value))
+
+
+@lru_cache(maxsize=65536)
+def _normalize_text_cached(text: str) -> str:
+    return " ".join(text.replace("\xa0", " ").replace("ё", "е").lower().split())
 
 
 def _canonical_match_text(value: Any) -> str:
-    text = _normalize_text(value)
+    return _canonical_match_text_cached(_normalize_text(value))
+
+
+@lru_cache(maxsize=65536)
+def _canonical_match_text_cached(text: str) -> str:
     text = re.sub(r"([а-я])([a-z])", r"\1 \2", text)
     text = re.sub(r"([a-z])([а-я])", r"\1 \2", text)
     text = text.replace("gabriel", "габриэль")
@@ -140,15 +150,25 @@ def _canonical_match_text(value: Any) -> str:
 
 
 def _compact_text(value: Any) -> str:
-    return "".join(ch for ch in _canonical_match_text(value) if ch.isalnum())
+    return _compact_text_cached(_canonical_match_text(value))
+
+
+@lru_cache(maxsize=65536)
+def _compact_text_cached(text: str) -> str:
+    return "".join(ch for ch in text if ch.isalnum())
 
 
 def _text_tokens(value: Any) -> set[str]:
+    return set(_text_tokens_cached(_canonical_match_text(value)))
+
+
+@lru_cache(maxsize=65536)
+def _text_tokens_cached(text: str) -> frozenset[str]:
     tokens = set()
-    for token in re.split(r"[^0-9a-zа-я]+", _canonical_match_text(value)):
+    for token in re.split(r"[^0-9a-zа-я]+", text):
         if len(token) >= 4 and not token.isdigit() and token not in _MATCH_TOKEN_STOPWORDS:
             tokens.add(token)
-    return tokens
+    return frozenset(tokens)
 
 
 def _weak_customer_tokens(value: Any) -> set[str]:
@@ -165,11 +185,12 @@ def _weak_customer_tokens(value: Any) -> set[str]:
 
 
 def _executor_tokens(value: Any) -> list[str]:
-    return [
-        token
-        for token in re.split(r"[^0-9a-zа-я]+", _canonical_match_text(value))
-        if len(token) >= 2
-    ]
+    return list(_executor_tokens_cached(_canonical_match_text(value)))
+
+
+@lru_cache(maxsize=65536)
+def _executor_tokens_cached(text: str) -> tuple[str, ...]:
+    return tuple(token for token in re.split(r"[^0-9a-zа-я]+", text) if len(token) >= 2)
 
 
 def _executor_alias_keys(value: Any) -> set[str]:

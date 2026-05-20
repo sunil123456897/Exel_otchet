@@ -2,7 +2,12 @@ from pathlib import Path
 from unittest.mock import patch
 import os
 
-from core.infra.utils import cleanup_local_copy_cache, get_local_copy, is_file_writable
+from core.infra.utils import (
+    _cache_copy_is_fresh,
+    cleanup_local_copy_cache,
+    get_local_copy,
+    is_file_writable,
+)
 
 
 def test_is_file_writable_returns_true_for_missing_file(tmp_path):
@@ -164,6 +169,19 @@ def test_get_local_copy_invalidates_stale_cache_and_copies(tmp_path):
     assert temp_file is None
     mock_remove.assert_called_once_with(cache_file)
     mock_copy.assert_called_once_with(network_path, str(cache_file))
+
+
+def test_cache_copy_is_stale_when_content_changes_with_same_size_and_mtime(tmp_path):
+    remote_file = tmp_path / "remote.xlsx"
+    cache_file = tmp_path / "cached.xlsx"
+    remote_file.write_bytes(b"abcdef")
+    cache_file.write_bytes(b"abcdeg")
+    os.utime(remote_file, (1000, 1000))
+    os.utime(cache_file, (1000, 1000))
+
+    remote_stat = os.stat(remote_file)
+
+    assert _cache_copy_is_fresh(cache_file, str(remote_file), remote_stat) is False
 
 
 def test_get_local_copy_fallbacks_to_temp_copy_when_cache_copy_fails(tmp_path):

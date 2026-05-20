@@ -65,7 +65,8 @@ class TestRefreshStatus:
         mock_deps["persistence"].get_file_cache.return_value = {
             "mtime": 1000.0,
             "size": 5000,
-            "cache_version": 3,
+            "cache_version": 4,
+            "fingerprint": "fresh-fingerprint",
             "dates": ["01.04.2026"],
         }
 
@@ -75,6 +76,7 @@ class TestRefreshStatus:
         with (
             patch("os.path.exists", return_value=True),
             patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
+            patch("core.app_controller.file_content_fingerprint", return_value="fresh-fingerprint"),
             patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
@@ -85,6 +87,43 @@ class TestRefreshStatus:
 
         # get_available_dates НЕ должен вызываться — данные в кеше
         mock_deps["ingestion"].get_available_dates.assert_not_called()
+
+    def test_cached_dates_with_stale_fingerprint_are_refreshed(self, app_controller, mock_deps):
+        app_controller.discovery.get_employees_map.return_value = {
+            "Alice": [{"path": "/path/alice.xlsx"}],
+        }
+        mock_deps["persistence"].get_file_cache.return_value = {
+            "mtime": 1000.0,
+            "size": 5000,
+            "cache_version": 4,
+            "fingerprint": "old-fingerprint",
+            "dates": ["01.04.2026"],
+        }
+        mock_deps["ingestion"].get_available_dates.return_value = ["02.04.2026"]
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
+            patch("core.app_controller.file_content_fingerprint", return_value="new-fingerprint"),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.refresh_status(
+                datetime(2026, 4, 2), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        mock_deps["ingestion"].get_available_dates.assert_called_once()
+        mock_deps["persistence"].save_file_cache.assert_called_once_with(
+            str(Path("/path/alice.xlsx")),
+            1000.0,
+            5000,
+            ["02.04.2026"],
+            fingerprint="new-fingerprint",
+        )
 
     def test_cached_dates_with_short_format_do_not_match_target(self, app_controller, mock_deps):
         app_controller.discovery.get_employees_map.return_value = {
@@ -103,6 +142,7 @@ class TestRefreshStatus:
         with (
             patch("os.path.exists", return_value=True),
             patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
+            patch("core.app_controller.file_content_fingerprint", return_value="fresh-fingerprint"),
             patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
@@ -134,6 +174,7 @@ class TestRefreshStatus:
         with (
             patch("os.path.exists", return_value=True),
             patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
+            patch("core.app_controller.file_content_fingerprint", return_value="fresh-fingerprint"),
             patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):
@@ -166,6 +207,7 @@ class TestRefreshStatus:
         with (
             patch("os.path.exists", return_value=True),
             patch("os.stat", return_value=MagicMock(st_mtime=1000.0, st_size=5000)),
+            patch("core.app_controller.file_content_fingerprint", return_value="fresh-fingerprint"),
             patch("core.app_controller.check_master_lock", return_value=True),
             patch("threading.Thread") as mock_thread,
         ):

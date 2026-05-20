@@ -130,6 +130,17 @@ def _is_stale_app_local_path(
     return False
 
 
+def _is_current_app_local_default_path(
+    path_str: str, app_root: Path, default_filename: str
+) -> bool:
+    if not _is_effectively_absolute(path_str):
+        return False
+    try:
+        return Path(path_str).resolve() == (app_root / default_filename).resolve()
+    except OSError:
+        return Path(path_str).name.lower() == default_filename.lower()
+
+
 class Bootstrap:
     """Статический класс для инициализации всех зависимостей приложения."""
 
@@ -290,6 +301,43 @@ class Bootstrap:
         return db_path, schema_path, db_timeout, persist_recovered_paths
 
     @staticmethod
+    def _save_portable_runtime_config(cfg_ctl: ConfigController, app_root: Path) -> None:
+        """Persist app-local defaults as relative values, while keeping runtime cfg absolute."""
+        save_config = getattr(cfg_ctl, "save_config", None)
+        if not callable(save_config):
+            return
+
+        cfg = cfg_ctl.config
+        if not isinstance(cfg, dict):
+            save_config()
+            return
+
+        db_cfg = cfg.get("database")
+        if not isinstance(db_cfg, dict):
+            save_config()
+            return
+
+        original_path = db_cfg.get("path")
+        original_schema = db_cfg.get("schema_path")
+        try:
+            if original_path and (
+                _is_stale_app_local_path(str(original_path), app_root, "cache.db")
+                or _is_current_app_local_default_path(str(original_path), app_root, "cache.db")
+            ):
+                db_cfg["path"] = "cache.db"
+            if original_schema and (
+                _is_stale_app_local_path(str(original_schema), app_root, "db_schema.sql")
+                or _is_current_app_local_default_path(
+                    str(original_schema), app_root, "db_schema.sql"
+                )
+            ):
+                db_cfg["schema_path"] = "db_schema.sql"
+            save_config()
+        finally:
+            db_cfg["path"] = original_path
+            db_cfg["schema_path"] = original_schema
+
+    @staticmethod
     def _resolve_path_config(
         cfg: Dict[str, Any], raw_cfg: Dict[str, Any], app_root: Path, resolve_rel
     ) -> None:
@@ -365,9 +413,7 @@ class Bootstrap:
         )
 
         if persist_recovered_paths:
-            save_config = getattr(cfg_ctl, "save_config", None)
-            if callable(save_config):
-                save_config()
+            Bootstrap._save_portable_runtime_config(cfg_ctl, app_root)
 
         Bootstrap._resolve_path_config(cfg, raw_cfg, app_root, resolve_rel)
         return Bootstrap._build_runtime_components(

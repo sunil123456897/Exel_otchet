@@ -33,8 +33,8 @@ stats_retries = 0
 
 def is_network_path(path) -> bool:
     """Определяет, относится ли путь к удаленной сетевой директории."""
-    p_str = str(path).replace("\\", "/").lower()
-    return "reports" in p_str or "отчет" in p_str or p_str.startswith("//") or p_str.startswith("\\\\")
+    p_str = str(path).replace("\\", "/").upper()
+    return p_str.startswith("Q:") or p_str.startswith("Z:") or p_str.startswith("//") or p_str.startswith("\\\\")
 
 
 def simulated_copy2(src, dst, *args, **kwargs):
@@ -87,6 +87,15 @@ class TestNetworkSimulation:
         # Инициализируем систему
         cfg_ctl, app_ctl, db = Bootstrap.setup(app_root, str(app_root / "config.yaml"))
         assert app_ctl is not None
+
+        # Отключаем изоляцию Calamine на время сетевого теста, чтобы:
+        # 1. Сетевые задержки корректно симулировались в родительском процессе.
+        # 2. Избежать накладных расходов на запуск сотен процессов на Windows.
+        if app_ctl.ingestion.config is None:
+            app_ctl.ingestion.config = {}
+        if "performance" not in app_ctl.ingestion.config:
+            app_ctl.ingestion.config["performance"] = {}
+        app_ctl.ingestion.config["performance"]["isolate_calamine"] = False
 
         # Профили сети: название, latency (сек), bandwidth (байт/сек), failure_rate
         profiles = [

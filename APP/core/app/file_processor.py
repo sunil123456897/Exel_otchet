@@ -1,6 +1,7 @@
 import os
 import logging
 import concurrent.futures
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Callable, Optional
@@ -176,6 +177,8 @@ def process_file_task(
     target_date_str,
     start_date_str=None,
     end_date_str=None,
+    processed_file_ids: Optional[List[int]] = None,
+    processed_file_ids_lock: Optional[Any] = None,
 ) -> int:
     path_str = meta["path"] if isinstance(meta, dict) else meta
     if not os.path.exists(path_str):
@@ -276,11 +279,16 @@ def process_file_task(
 
         if valid_rows:
             persistence.save_staging_data(file_id, valid_rows)
-            persistence.wait_for_writes()
         persistence.update_file_status(
             file_id,
             "processed_with_warnings" if has_template_warnings else "processed",
         )
+        if processed_file_ids is not None:
+            if processed_file_ids_lock is not None:
+                with processed_file_ids_lock:
+                    processed_file_ids.append(file_id)
+            else:
+                processed_file_ids.append(file_id)
         return len(valid_rows)
     except Exception as e:
         persistence.update_file_status(file_id, "error", str(e))
@@ -307,6 +315,9 @@ def run_engine(
     total_rows_processed = 0
     file_errors: List[Dict[str, str]] = []
 
+    processed_file_ids = []
+    processed_file_ids_lock = threading.Lock()
+
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=min(32, (os.cpu_count() or 4) * 2)
     ) as executor:
@@ -324,6 +335,8 @@ def run_engine(
                     target_date_str,
                     start_date_str,
                     end_date_str,
+                    processed_file_ids,
+                    processed_file_ids_lock,
                 )
                 future_to_file[future] = meta
 
@@ -338,6 +351,17 @@ def run_engine(
 
             processed_files += 1
             on_progress((processed_files / total_files) * 50)
+
+    # Ожидаем завершения записи всех данных в БД перед выходом из движка
+    try:
+        persistence.wait_for_writes()
+    except Exception as e:
+        for file_id in processed_file_ids:
+            try:
+                persistence.update_file_status(file_id, "error", str(e))
+            except Exception as update_err:
+                logging.error(f"Failed to update file status for {file_id}: {update_err}")
+        raise
 
     logging.info(
         f"Ingestion complete. Total valid rows processed: {total_rows_processed}"

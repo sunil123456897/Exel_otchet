@@ -12,6 +12,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
+from python_calamine import CalamineWorkbook
 
 from core.infra.excel_hyperlinks import apply_cell_hyperlink
 from core.infra.utils import get_local_copy
@@ -29,6 +30,18 @@ RSCH_HEADERS = [
     "Источник",
 ]
 RSCH_TEMPLATE_HEADERS = RSCH_HEADERS
+
+RSCH_TABLE_HEADERS = [
+    "Дата",
+    "ИСПОЛНИТЕЛЬ",
+    "ЗАКАЗЧИК",
+    "Контрагент",
+    "Комментарий",
+    "Приход",
+    "Расход",
+    "р/с",
+    "Источник",
+]
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RSCH_TEMPLATE_PATH = _REPO_ROOT / "РСЧ" / "шаблон отчета.xlsx"
@@ -142,26 +155,31 @@ def _copy_style(src_cell, dst_cell) -> None:
     dst_cell.protection = copy(src_cell.protection)
 
 
-def _find_header_row(ws: Worksheet) -> Optional[int]:
-    max_scan = min(ws.max_row, 30)
-    for row_idx in range(1, max_scan + 1):
-        values = [
-            _normalize_text(ws.cell(row_idx, col_idx).value) for col_idx in range(1, 33)
-        ]
+def _find_header_row(sheet_data: List[tuple]) -> Optional[int]:
+    max_scan = min(len(sheet_data), 30)
+    for row_idx_0 in range(max_scan):
+        row_values = sheet_data[row_idx_0]
+        values = []
+        for col_idx_0 in range(32):
+            val = row_values[col_idx_0] if col_idx_0 < len(row_values) else None
+            values.append(_normalize_text(val))
         has_date = any(v == "дата" for v in values)
         has_income = any("приход" in v and "рсч" in v for v in values)
         has_expense = any("расход" in v and "рсч" in v for v in values)
         if has_date and has_income and has_expense:
-            return row_idx
+            return row_idx_0 + 1
     return None
 
 
-def _detect_columns(ws: Worksheet, header_row_idx: int) -> Dict[str, Optional[int]]:
-    max_scan = min(ws.max_column, 128)
+def _detect_columns(sheet_data: List[tuple], header_row_idx: int, sheet_title: str) -> Dict[str, Optional[int]]:
+    row_values = sheet_data[header_row_idx - 1]
+    max_scan = min(len(row_values), 128)
     header_values = [
-        _normalize_text(ws.cell(header_row_idx, col_idx).value)
-        for col_idx in range(1, max_scan + 1)
+        _normalize_text(row_values[col_idx_0])
+        for col_idx_0 in range(max_scan)
     ]
+    if len(header_values) < 128:
+        header_values.extend([""] * (128 - len(header_values)))
 
     project_cols = [i + 1 for i, v in enumerate(header_values) if "проект" in v]
     contractor_cols = [i + 1 for i, v in enumerate(header_values) if "контрагент" in v]
@@ -198,15 +216,15 @@ def _detect_columns(ws: Worksheet, header_row_idx: int) -> Dict[str, Optional[in
     missing = [key for key in required if not col_map.get(key)]
     if missing:
         raise ValueError(
-            f"Header columns not found in sheet '{ws.title}': {', '.join(missing)}"
+            f"Header columns not found in sheet '{sheet_title}': {', '.join(missing)}"
         )
     return col_map
 
 
-def _cell_text(ws: Worksheet, row_idx: int, col_idx: Optional[int]) -> str:
+def _cell_text_from_row(row_values: tuple, col_idx: Optional[int]) -> str:
     if not col_idx:
         return ""
-    value = ws.cell(row_idx, col_idx).value
+    value = row_values[col_idx - 1] if col_idx <= len(row_values) else None
     return "" if value is None else str(value).strip()
 
 
@@ -300,16 +318,24 @@ def _collect_rows_from_sheet(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
 ) -> List[Dict[str, Any]]:
-    header_row_idx = _find_header_row(ws)
+    sheet_data = list(ws.iter_rows(values_only=True))
+    if not sheet_data:
+        return []
+
+    header_row_idx = _find_header_row(sheet_data)
     if header_row_idx is None:
         return []
-    col_map = _detect_columns(ws, header_row_idx)
+    col_map = _detect_columns(sheet_data, header_row_idx, ws.title)
     executor = _clean_executor_name(ws.title)
     rows: List[Dict[str, Any]] = []
     current_row_date: Optional[date] = None
 
-    for row_idx in range(header_row_idx + 1, ws.max_row + 1):
-        raw_date = ws.cell(row_idx, col_map["date"]).value
+    for row_idx in range(header_row_idx + 1, len(sheet_data) + 1):
+        row_values = sheet_data[row_idx - 1]
+
+        date_col = col_map["date"]
+        raw_date = row_values[date_col - 1] if date_col and date_col <= len(row_values) else None
+
         explicit_row_date = _as_date(raw_date)
         if explicit_row_date is not None:
             current_row_date = explicit_row_date
@@ -323,19 +349,25 @@ def _collect_rows_from_sheet(
         if start_date and end_date and not (start_date <= row_date <= end_date):
             continue
 
-        income = _to_decimal(ws.cell(row_idx, col_map["income"]).value)
-        expense = _to_decimal(ws.cell(row_idx, col_map["expense"]).value)
+        income_col = col_map["income"]
+        raw_income = row_values[income_col - 1] if income_col and income_col <= len(row_values) else None
+        income = _to_decimal(raw_income)
+
+        expense_col = col_map["expense"]
+        raw_expense = row_values[expense_col - 1] if expense_col and expense_col <= len(row_values) else None
+        expense = _to_decimal(raw_expense)
+
         if income == 0 and expense == 0:
             continue
 
-        account = _cell_text(ws, row_idx, col_map["account"])
-        expense_comment = _cell_text(ws, row_idx, 10)
+        account = _cell_text_from_row(row_values, col_map["account"])
+        expense_comment = _cell_text_from_row(row_values, 10)
         source = _format_source_label(source_name, ws.title, row_idx)
 
-        customer_left = _cell_text(ws, row_idx, col_map["project_left"])
-        customer_right = _cell_text(ws, row_idx, col_map["project_right"])
-        contractor_left = _cell_text(ws, row_idx, col_map["contractor_left"])
-        contractor_right = _cell_text(ws, row_idx, col_map["contractor_right"])
+        customer_left = _cell_text_from_row(row_values, col_map["project_left"])
+        customer_right = _cell_text_from_row(row_values, col_map["project_right"])
+        contractor_left = _cell_text_from_row(row_values, col_map["contractor_left"])
+        contractor_right = _cell_text_from_row(row_values, col_map["contractor_right"])
 
         if income != 0 and expense != 0:
             rows.append(
@@ -491,7 +523,19 @@ def _find_blank_total_col(
     return default_col
 
 
-def _build_header_style_columns(cols: Dict[str, int]) -> Dict[int, int]:
+def _build_header_style_columns(cols: Dict[str, int], is_table: bool = False) -> Dict[int, int]:
+    if is_table:
+        return {
+            1: cols["date"],
+            2: cols["executor"],
+            3: cols["customer"],
+            4: cols["contractor"],
+            5: cols["comment_style"],
+            6: cols["income"],
+            7: cols["expense"],
+            8: cols["account"],
+            9: cols["comment_style"],
+        }
     return {
         1: cols["executor"],
         2: cols["customer"],
@@ -504,7 +548,19 @@ def _build_header_style_columns(cols: Dict[str, int]) -> Dict[int, int]:
     }
 
 
-def _build_data_style_columns(cols: Dict[str, int], blank_total_col: int) -> Dict[int, int]:
+def _build_data_style_columns(cols: Dict[str, int], blank_total_col: int, is_table: bool = False) -> Dict[int, int]:
+    if is_table:
+        return {
+            1: cols["date"],
+            2: cols["executor"],
+            3: cols["customer"],
+            4: cols["contractor"],
+            5: cols["comment_style"],
+            6: cols["income"] or blank_total_col,
+            7: cols["expense"] or blank_total_col,
+            8: cols["account"],
+            9: cols["comment_style"],
+        }
     return {
         1: cols["executor"],
         2: cols["customer"],
@@ -517,7 +573,19 @@ def _build_data_style_columns(cols: Dict[str, int], blank_total_col: int) -> Dic
     }
 
 
-def _build_total_style_columns(cols: Dict[str, int], blank_total_col: int) -> Dict[int, int]:
+def _build_total_style_columns(cols: Dict[str, int], blank_total_col: int, is_table: bool = False) -> Dict[int, int]:
+    if is_table:
+        return {
+            1: 1,
+            2: blank_total_col,
+            3: blank_total_col,
+            4: blank_total_col,
+            5: blank_total_col,
+            6: cols["income"] or blank_total_col,
+            7: cols["expense"] or blank_total_col,
+            8: blank_total_col,
+            9: blank_total_col,
+        }
     return {
         1: 1,
         2: blank_total_col,
@@ -540,28 +608,31 @@ def _is_legacy_template(header_values: Sequence[str]) -> bool:
     )
 
 
-def _resolve_template_style_layout(template_ws: Worksheet) -> Dict[str, Any]:
+def _resolve_template_style_layout(template_ws: Worksheet, is_table: bool = False) -> Dict[str, Any]:
     max_scan = max(8, min(template_ws.max_column, 32))
     header_values = _template_header_values(template_ws, max_scan)
     cols = _resolve_template_semantic_columns(header_values)
     total_row_idx = _find_total_row(template_ws)
     blank_total_col = _find_blank_total_col(template_ws, max_scan, total_row_idx)
-    data_cols = _build_data_style_columns(cols, blank_total_col)
-    total_cols = _build_total_style_columns(cols, blank_total_col)
+    data_cols = _build_data_style_columns(cols, blank_total_col, is_table)
+    total_cols = _build_total_style_columns(cols, blank_total_col, is_table)
+
+    income_col_idx = 6 if is_table else 5
+    expense_col_idx = 7 if is_table else 6
 
     return {
-        "header_cols": _build_header_style_columns(cols),
+        "header_cols": _build_header_style_columns(cols, is_table),
         "width_cols": data_cols,
         "data_cols": data_cols,
         "total_cols": total_cols,
         "legacy_template": _is_legacy_template(header_values),
         "detail_amount_formats": {
-            5: _resolve_amount_number_format(template_ws, data_cols[5], 2, total_row_idx, 1),
-            6: _resolve_amount_number_format(template_ws, data_cols[6], 2, total_row_idx, 1),
+            income_col_idx: _resolve_amount_number_format(template_ws, data_cols[income_col_idx], 2, total_row_idx, 1),
+            expense_col_idx: _resolve_amount_number_format(template_ws, data_cols[expense_col_idx], 2, total_row_idx, 1),
         },
         "total_amount_formats": {
-            5: _resolve_amount_number_format(template_ws, total_cols[5], total_row_idx, 2, 1),
-            6: _resolve_amount_number_format(template_ws, total_cols[6], total_row_idx, 2, 1),
+            income_col_idx: _resolve_amount_number_format(template_ws, total_cols[income_col_idx], total_row_idx, 2, 1),
+            expense_col_idx: _resolve_amount_number_format(template_ws, total_cols[expense_col_idx], total_row_idx, 2, 1),
         },
     }
 
@@ -578,10 +649,11 @@ def _resolve_amount_number_format(
     return _DEFAULT_AMOUNT_NUMBER_FORMAT
 
 
-def _ensure_header_style(ws: Worksheet, force_normalize: bool) -> None:
+def _ensure_header_style(ws: Worksheet, force_normalize: bool, is_table: bool = False) -> None:
     if not force_normalize:
         return
-    for col_idx in range(1, len(RSCH_HEADERS) + 1):
+    headers = RSCH_TABLE_HEADERS if is_table else RSCH_HEADERS
+    for col_idx in range(1, len(headers) + 1):
         cell = ws.cell(1, col_idx)
         cell.fill = copy(_HEADER_FILL)
         cell.font = copy(_HEADER_FONT)
@@ -613,13 +685,21 @@ def _ensure_date_cell_style(cell) -> None:
 
 
 def _normalize_legacy_data_row(
-    ws_out: Worksheet, row_idx: int, amount_formats: Dict[int, str]
+    ws_out: Worksheet, row_idx: int, amount_formats: Dict[int, str], is_table: bool = False
 ) -> None:
-    _ensure_comment_cell_style(ws_out.cell(row_idx, 4))
-    _ensure_amount_cell_style(ws_out.cell(row_idx, 5), amount_formats[5])
-    _ensure_amount_cell_style(ws_out.cell(row_idx, 6), amount_formats[6])
-    _ensure_account_cell_style(ws_out.cell(row_idx, 7))
-    _ensure_comment_cell_style(ws_out.cell(row_idx, 8))
+    if is_table:
+        _ensure_date_cell_style(ws_out.cell(row_idx, 1))
+        _ensure_comment_cell_style(ws_out.cell(row_idx, 5))
+        _ensure_amount_cell_style(ws_out.cell(row_idx, 6), amount_formats[6])
+        _ensure_amount_cell_style(ws_out.cell(row_idx, 7), amount_formats[7])
+        _ensure_account_cell_style(ws_out.cell(row_idx, 8))
+        _ensure_comment_cell_style(ws_out.cell(row_idx, 9))
+    else:
+        _ensure_comment_cell_style(ws_out.cell(row_idx, 4))
+        _ensure_amount_cell_style(ws_out.cell(row_idx, 5), amount_formats[5])
+        _ensure_amount_cell_style(ws_out.cell(row_idx, 6), amount_formats[6])
+        _ensure_account_cell_style(ws_out.cell(row_idx, 7))
+        _ensure_comment_cell_style(ws_out.cell(row_idx, 8))
 
 
 def _ensure_total_row_style(
@@ -628,23 +708,29 @@ def _ensure_total_row_style(
     amount_formats: Dict[int, str],
     *,
     force_normalize: bool,
+    is_table: bool = False,
 ) -> None:
     if not force_normalize:
         return
+
+    headers = RSCH_TABLE_HEADERS if is_table else RSCH_HEADERS
+    income_col = 6 if is_table else 5
+    expense_col = 7 if is_table else 6
 
     label = ws_out.cell(row_idx, 1)
     label.fill = copy(_TOTAL_FILL)
     label.font = Font(bold=True)
     label.border = copy(_TOTAL_BORDER)
 
-    for col_idx in (2, 3, 4, 7, 8):
+    non_amount_cols = [c for c in range(2, len(headers) + 1) if c not in (income_col, expense_col)]
+    for col_idx in non_amount_cols:
         cell = ws_out.cell(row_idx, col_idx)
         cell.fill = copy(_TOTAL_FILL)
         cell.font = Font(bold=True)
         cell.border = copy(_TOTAL_BORDER)
         cell.number_format = "General"
 
-    for col_idx in (5, 6):
+    for col_idx in (income_col, expense_col):
         cell = ws_out.cell(row_idx, col_idx)
         cell.fill = copy(_TOTAL_FILL)
         cell.font = Font(bold=True)
@@ -714,9 +800,12 @@ def _apply_amount_highlighting(
     row_idx: int,
     income: Decimal,
     expense: Decimal,
+    is_table: bool = False,
 ) -> None:
-    income_cell = ws_out.cell(row_idx, 5)
-    expense_cell = ws_out.cell(row_idx, 6)
+    income_col = 6 if is_table else 5
+    expense_col = 7 if is_table else 6
+    income_cell = ws_out.cell(row_idx, income_col)
+    expense_cell = ws_out.cell(row_idx, expense_col)
 
     if income != 0:
         income_cell.fill = _INCOME_FILL
@@ -727,8 +816,9 @@ def _apply_amount_highlighting(
         expense_cell.font = copy(_EXPENSE_FONT)
 
 
-def _apply_warning_row_highlighting(ws_out: Worksheet, row_idx: int) -> None:
-    for col_idx in range(1, len(RSCH_HEADERS) + 1):
+def _apply_warning_row_highlighting(ws_out: Worksheet, row_idx: int, is_table: bool = False) -> None:
+    headers = RSCH_TABLE_HEADERS if is_table else RSCH_HEADERS
+    for col_idx in range(1, len(headers) + 1):
         ws_out.cell(row_idx, col_idx).fill = copy(_WARNING_FILL)
 
 
@@ -752,16 +842,24 @@ def _normalize_source_paths(source_paths: Any) -> List[Path]:
     return normalized
 
 
-def _collect_rows_from_workbook(
+class _CalamineWorksheetAdapter:
+    def __init__(self, title: str, sheet: Any) -> None:
+        self.title = title
+        self._sheet = sheet
+
+    def iter_rows(self, values_only: bool = True):
+        return self._sheet.iter_rows()
+
+
+def _collect_rows_from_openpyxl_workbook(
+    target_path: str,
     source_path: Path,
     target_date: Optional[date],
     issues_sink: Optional[List[str]] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    drive_letters: tuple[str, ...] = ("Q", "Z"),
 ) -> List[Dict[str, Any]]:
-    target_path, temp_file = get_local_copy(str(source_path), drive_letters)
-    wb_source = openpyxl.load_workbook(target_path, data_only=True)
+    wb_source = openpyxl.load_workbook(target_path, read_only=True, data_only=True)
     try:
         rows: List[Dict[str, Any]] = []
         for ws in wb_source.worksheets:
@@ -790,6 +888,77 @@ def _collect_rows_from_workbook(
         return rows
     finally:
         wb_source.close()
+
+
+def _collect_rows_from_calamine_workbook(
+    target_path: str,
+    source_path: Path,
+    target_date: Optional[date],
+    issues_sink: Optional[List[str]] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> List[Dict[str, Any]]:
+    wb_source = CalamineWorkbook.from_path(target_path)
+    rows: List[Dict[str, Any]] = []
+    for sheet_name in wb_source.sheet_names:
+        if sheet_name.startswith("_"):
+            continue
+        if not _is_rsch_sheet_title(sheet_name):
+            continue
+        try:
+            sheet = wb_source.get_sheet_by_name(sheet_name)
+            rows.extend(
+                _collect_rows_from_sheet(
+                    _CalamineWorksheetAdapter(sheet_name, sheet),
+                    target_date,
+                    source_path.name,
+                    source_path,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+            )
+        except Exception as e:
+            issue = f"Лист '{sheet_name}' в файле '{source_path.name}' пропущен: {e}"
+            logger.warning(issue)
+            if issues_sink is not None:
+                issues_sink.append(issue)
+    return rows
+
+
+def _collect_rows_from_workbook(
+    source_path: Path,
+    target_date: Optional[date],
+    issues_sink: Optional[List[str]] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    drive_letters: tuple[str, ...] = ("Q", "Z"),
+) -> List[Dict[str, Any]]:
+    target_path, temp_file = get_local_copy(str(source_path), drive_letters)
+    try:
+        try:
+            return _collect_rows_from_calamine_workbook(
+                target_path,
+                source_path,
+                target_date,
+                issues_sink=issues_sink,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except Exception as e:
+            logger.warning(
+                "Calamine failed for RSC source '%s', falling back to openpyxl: %s",
+                source_path,
+                e,
+            )
+            return _collect_rows_from_openpyxl_workbook(
+                target_path,
+                source_path,
+                target_date,
+                issues_sink=issues_sink,
+                start_date=start_date,
+                end_date=end_date,
+            )
+    finally:
         if temp_file:
             Path(temp_file).unlink(missing_ok=True)
 
@@ -843,16 +1012,18 @@ def _write_rsch_sheet(
     rows: List[Dict[str, Any]],
     *,
     first_sheet: bool,
+    is_table: bool = False,
 ) -> None:
     ws_out = wb_out.active if first_sheet else wb_out.create_sheet()
     ws_out.title = sheet_name
 
-    style_layout = _resolve_template_style_layout(template_ws)
-    ws_out.append(RSCH_HEADERS)
+    style_layout = _resolve_template_style_layout(template_ws, is_table)
+    headers = RSCH_TABLE_HEADERS if is_table else RSCH_HEADERS
+    ws_out.append(headers)
     column_widths: dict[int, int] = {}
-    _update_column_widths(column_widths, RSCH_HEADERS)
+    _update_column_widths(column_widths, headers)
 
-    for col_idx, _ in enumerate(RSCH_HEADERS, start=1):
+    for col_idx, _ in enumerate(headers, start=1):
         header_source = template_ws.cell(1, style_layout["header_cols"][col_idx])
         _copy_style(header_source, ws_out.cell(1, col_idx))
         col = get_column_letter(col_idx)
@@ -869,41 +1040,64 @@ def _write_rsch_sheet(
     if header_height:
         ws_out.row_dimensions[1].height = header_height
 
-    _ensure_header_style(ws_out, style_layout["legacy_template"])
+    _ensure_header_style(ws_out, style_layout["legacy_template"], is_table)
 
     template_data_row_idx = 2 if template_ws.max_row >= 2 else 1
     data_style_sources = {
         col_idx: template_ws.cell(template_data_row_idx, style_layout["data_cols"][col_idx])
-        for col_idx in range(1, len(RSCH_HEADERS) + 1)
+        for col_idx in range(1, len(headers) + 1)
     }
+
+    income_col = 6 if is_table else 5
+    expense_col = 7 if is_table else 6
+    source_col = 9 if is_table else 8
+
     for row in rows:
-        values = [
-            _excel_safe_text(row["executor"]),
-            _excel_safe_text(row["customer"]),
-            _excel_safe_text(row["contractor"]),
-            _excel_safe_text(row["comment"]),
-            row["income"],
-            row["expense"],
-            _excel_safe_text(row["account"]),
-            _excel_safe_text(row["source"]),
-        ]
+        if is_table:
+            values = [
+                row["date"],
+                _excel_safe_text(row["executor"]),
+                _excel_safe_text(row["customer"]),
+                _excel_safe_text(row["contractor"]),
+                _excel_safe_text(row["comment"]),
+                row["income"],
+                row["expense"],
+                _excel_safe_text(row["account"]),
+                _excel_safe_text(row["source"]),
+            ]
+        else:
+            values = [
+                _excel_safe_text(row["executor"]),
+                _excel_safe_text(row["customer"]),
+                _excel_safe_text(row["contractor"]),
+                _excel_safe_text(row["comment"]),
+                row["income"],
+                row["expense"],
+                _excel_safe_text(row["account"]),
+                _excel_safe_text(row["source"]),
+            ]
         _update_column_widths(column_widths, values)
         ws_out.append(values)
         curr_idx = ws_out.max_row
-        for col_idx in range(1, len(RSCH_HEADERS) + 1):
+        for col_idx in range(1, len(headers) + 1):
             _copy_style(
                 data_style_sources[col_idx],
                 ws_out.cell(curr_idx, col_idx),
             )
+
+        if is_table:
+            ws_out.cell(curr_idx, 1).number_format = "dd.mm.yyyy"
+            ws_out.cell(curr_idx, 1).alignment = copy(_DATE_ALIGNMENT)
+
         if style_layout["legacy_template"]:
             _normalize_legacy_data_row(
-                ws_out, curr_idx, style_layout["detail_amount_formats"]
+                ws_out, curr_idx, style_layout["detail_amount_formats"], is_table
             )
         if _is_problem_row(row):
-            _apply_warning_row_highlighting(ws_out, curr_idx)
-        _apply_amount_highlighting(ws_out, curr_idx, row["income"], row["expense"])
+            _apply_warning_row_highlighting(ws_out, curr_idx, is_table)
+        _apply_amount_highlighting(ws_out, curr_idx, row["income"], row["expense"], is_table)
         apply_cell_hyperlink(
-            ws_out.cell(curr_idx, 8),
+            ws_out.cell(curr_idx, source_col),
             row.get("source_path"),
             row.get("source_sheet"),
             row.get("source_row"),
@@ -913,16 +1107,20 @@ def _write_rsch_sheet(
 
     total_row_idx = ws_out.max_row + 1
     ws_out.cell(total_row_idx, 1, "ИТОГО:")
+
+    income_letter = get_column_letter(income_col)
+    expense_letter = get_column_letter(expense_col)
+
     if total_row_idx > 2:
-        ws_out.cell(total_row_idx, 5, f"=SUM(E2:E{total_row_idx - 1})")
-        ws_out.cell(total_row_idx, 6, f"=SUM(F2:F{total_row_idx - 1})")
+        ws_out.cell(total_row_idx, income_col, f"=SUM({income_letter}2:{income_letter}{total_row_idx - 1})")
+        ws_out.cell(total_row_idx, expense_col, f"=SUM({expense_letter}2:{expense_letter}{total_row_idx - 1})")
     else:
-        ws_out.cell(total_row_idx, 5, Decimal("0"))
-        ws_out.cell(total_row_idx, 6, Decimal("0"))
+        ws_out.cell(total_row_idx, income_col, Decimal("0"))
+        ws_out.cell(total_row_idx, expense_col, Decimal("0"))
 
     template_total_row_idx = _find_total_row(template_ws)
     if template_total_row_idx:
-        for col_idx in range(1, len(RSCH_HEADERS) + 1):
+        for col_idx in range(1, len(headers) + 1):
             _copy_style(
                 template_ws.cell(
                     template_total_row_idx,
@@ -935,9 +1133,10 @@ def _write_rsch_sheet(
         total_row_idx,
         style_layout["total_amount_formats"],
         force_normalize=style_layout["legacy_template"],
+        is_table=is_table,
     )
     ws_out.auto_filter.ref = (
-        f"A1:{get_column_letter(len(RSCH_HEADERS))}{max(1, total_row_idx - 1)}"
+        f"A1:{get_column_letter(len(headers))}{max(1, total_row_idx - 1)}"
     )
 
 
@@ -1016,6 +1215,16 @@ def build_rsch_report(
                 rows_by_date[row_date],
                 first_sheet=idx == 1,
             )
+        # Сводная таблица за весь период на последнем листе
+        sorted_all_rows = sorted(rows, key=lambda r: r["date"])
+        _write_rsch_sheet(
+            wb_out,
+            template_ws,
+            "Период",
+            sorted_all_rows,
+            first_sheet=False,
+            is_table=True,
+        )
     else:
         sheet_date = target_date or start_date
         sheet_name = sheet_date.strftime("%d.%m") if sheet_date else template_ws.title

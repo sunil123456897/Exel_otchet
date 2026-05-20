@@ -81,9 +81,11 @@ class SourceFileRepository:
                 if isinstance(raw_payload, dict):
                     dates = raw_payload.get("dates", [])
                     cache_version = int(raw_payload.get("cache_version", 1) or 1)
+                    fingerprint = raw_payload.get("fingerprint")
                 else:
                     dates = raw_payload
                     cache_version = 1
+                    fingerprint = None
                 if not isinstance(dates, list):
                     dates = []
                 return {
@@ -91,13 +93,19 @@ class SourceFileRepository:
                     "size": row["size"],
                     "dates": dates,
                     "cache_version": cache_version,
+                    "fingerprint": fingerprint if isinstance(fingerprint, str) else None,
                 }
             return None
         finally:
             conn.close()
 
     def save_file_cache(
-        self, file_path: str, mtime: float, size: int, dates: List[str]
+        self,
+        file_path: str,
+        mtime: float,
+        size: int,
+        dates: List[str],
+        fingerprint: str | None = None,
     ) -> None:
         def _save():
             conn = self.connection_manager.get_connection()
@@ -111,8 +119,9 @@ class SourceFileRepository:
                         size,
                         json.dumps(
                             {
-                                "cache_version": 3,
+                                "cache_version": 4,
                                 "dates": dates,
+                                "fingerprint": fingerprint,
                             },
                             ensure_ascii=False,
                         ),

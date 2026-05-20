@@ -128,12 +128,14 @@ def _create_template_book(path: Path) -> None:
             "Источник",
         ]
     )
-    ws.append([datetime(2026, 4, 13), "", "", "", "", 0, 0, "", ""])
+    ws.append(["", "", "", "", 0, 0, "", ""])
     ws.append(
-        ["ИТОГО:", None, None, None, None, "=SUM(F2:F2)", "=SUM(G2:G2)", None, None]
+        ["ИТОГО:", None, None, None, "=SUM(E2:E2)", "=SUM(F2:F2)", None, None]
     )
+    ws["E2"].number_format = "#,##0.00"
     ws["F2"].number_format = "#,##0.00"
-    ws["G2"].number_format = "#,##0.00"
+    ws["E3"].number_format = "#,##0.00"
+    ws["F3"].number_format = "#,##0.00"
     wb.save(path)
 
 
@@ -619,7 +621,7 @@ def test_build_rsch_report_period_creates_one_sheet_per_row_date(tmp_path: Path)
     assert written == 2
 
     wb = load_workbook(output, data_only=False)
-    assert wb.sheetnames == ["13.04", "14.04"]
+    assert wb.sheetnames == ["13.04", "14.04", "Период"]
 
     ws_13 = wb["13.04"]
     assert ws_13.cell(2, 2).value == "Project 13"
@@ -905,3 +907,108 @@ def test_build_rsch_report_combines_five_sources_with_expected_warning_rows(
     assert ws.cell(7, 1).value == "ИТОГО:"
     assert ws.cell(7, 5).value == "=SUM(E2:E6)"
     assert ws.cell(7, 6).value == "=SUM(F2:F6)"
+
+
+def test_build_rsch_report_period_creates_summary_sheet(tmp_path: Path) -> None:
+    source = tmp_path / "source.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "report_period_with_summary.xlsx"
+
+    _create_source_book_with_rows(
+        source,
+        [
+            [
+                datetime(2026, 4, 13),
+                None,
+                "Комментарий 13",
+                "Project 13",
+                "Contractor 13",
+                100,
+                0,
+                "",
+                "",
+                None,
+                None,
+                "40700013",
+            ],
+            [
+                "14.04.2026",
+                None,
+                None,
+                "Project 14 income",
+                "Contractor 14 income",
+                0,
+                200,
+                "Project 14 expense",
+                "Contractor 14 expense",
+                "Комментарий 14",
+                None,
+                "40700014",
+            ],
+        ],
+    )
+    _create_template_book(template)
+
+    written = build_rsch_report(
+        source,
+        output,
+        start_date=date(2026, 4, 13),
+        end_date=date(2026, 4, 14),
+        template_path=template,
+    )
+
+    assert written == 2
+
+    wb = load_workbook(output, data_only=False)
+    # Должен быть лист 13.04, 14.04 и сводный лист "Период" последним
+    assert wb.sheetnames == ["13.04", "14.04", "Период"]
+
+    ws_period = wb["Период"]
+
+    # Заголовки сводного листа (9 колонок)
+    assert [ws_period.cell(1, c).value for c in range(1, 10)] == [
+        "Дата",
+        "ИСПОЛНИТЕЛЬ",
+        "ЗАКАЗЧИК",
+        "Контрагент",
+        "Комментарий",
+        "Приход",
+        "Расход",
+        "р/с",
+        "Источник",
+    ]
+
+    # Строка 1 (13.04)
+    val_date_1 = ws_period.cell(2, 1).value
+    assert isinstance(val_date_1, (date, datetime))
+    assert ws_period.cell(2, 2).value == "СТИ"
+    assert ws_period.cell(2, 3).value == "Project 13"
+    assert ws_period.cell(2, 4).value == "Contractor 13"
+    assert ws_period.cell(2, 6).value == 100
+    assert ws_period.cell(2, 7).value == 0
+    assert ws_period.cell(2, 8).value == "40700013"
+    assert ws_period.cell(2, 9).value == "source.xlsx | сти рсч | строка 3"
+
+    # Строка 2 (14.04)
+    val_date_2 = ws_period.cell(3, 1).value
+    assert isinstance(val_date_2, (date, datetime))
+    assert ws_period.cell(3, 2).value == "СТИ"
+    assert ws_period.cell(3, 3).value == "Project 14 expense"
+    assert ws_period.cell(3, 5).value == "Комментарий 14"
+    assert ws_period.cell(3, 6).value == 0
+    assert ws_period.cell(3, 7).value == 200
+    assert ws_period.cell(3, 8).value == "40700014"
+    assert ws_period.cell(3, 9).value == "source.xlsx | сти рсч | строка 4"
+
+    # Строка ИТОГО (4 строка)
+    assert ws_period.cell(4, 1).value == "ИТОГО:"
+    # Приход теперь в колонке 6 (F), Расход в колонке 7 (G)
+    assert ws_period.cell(4, 6).value == "=SUM(F2:F3)"
+    assert ws_period.cell(4, 7).value == "=SUM(G2:G3)"
+
+    # Проверим форматы
+    assert ws_period.cell(2, 1).number_format == "dd.mm.yyyy"
+    assert ws_period.cell(2, 6).number_format == "#,##0.00"
+    assert ws_period.cell(2, 7).number_format == "#,##0.00"
+    assert ws_period.cell(4, 6).number_format == "#,##0.00"
+    assert ws_period.cell(4, 7).number_format == "#,##0.00"
