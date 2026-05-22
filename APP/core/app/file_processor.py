@@ -211,6 +211,16 @@ def process_file_task(
         for row in rows:
             row_date = row.get("date")
             if not row_date:
+                template_errors.append(
+                    {
+                        "file_path": path_str,
+                        "sheet_name": row.get("_sheet_name"),
+                        "row_index": row.get("_row_index"),
+                        "error_type": "missing_date",
+                        "details": "missing date skipped",
+                        "raw_data": row,
+                    }
+                )
                 continue
             row_year_hint = row.get("_sheet_year_hint")
             resolved_date, skip_reason = _resolve_row_date_for_filters(

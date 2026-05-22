@@ -304,6 +304,48 @@ def test_process_file_task_skips_future_and_invalid_dates_with_template_errors()
     assert saved_rows[0]["amount"] == 200
 
 
+def test_process_file_task_records_missing_date_rows_as_template_errors():
+    persistence = MagicMock()
+    persistence.save_file_metadata.return_value = [34]
+
+    ingestion = MagicMock()
+    ingestion.read_file.return_value = [
+        {
+            "amount": 100,
+            "customer": "Client A",
+            "_sheet_name": "NoDate",
+            "_row_index": 5,
+        },
+        {"date": "01.04.2026", "amount": 200, "customer": "Client B"},
+    ]
+
+    validator = MagicMock()
+    validator.validate_row.return_value = True
+
+    meta = {"path": "C:/reports/missing_date.xlsx"}
+
+    with patch("os.path.exists", return_value=True):
+        processed = process_file_task(
+            persistence,
+            ingestion,
+            validator,
+            "Alice",
+            meta,
+            "session-1",
+            None,
+        )
+
+    assert processed == 1
+    saved_rows = persistence.save_staging_data.call_args.args[1]
+    assert len(saved_rows) == 1
+    assert saved_rows[0]["customer"] == "Client B"
+    persistence.save_template_error.assert_called_once()
+    saved_error = persistence.save_template_error.call_args.args[1]
+    assert saved_error["error_type"] == "missing_date"
+    assert saved_error["sheet_name"] == "NoDate"
+    assert saved_error["row_index"] == 5
+
+
 def test_run_engine_reports_failed_files_via_callback():
     persistence = MagicMock()
     ingestion = MagicMock()
