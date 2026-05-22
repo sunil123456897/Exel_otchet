@@ -345,7 +345,45 @@ class TestRefreshStatus:
             run_thread_task(mock_thread)
 
         mock_deps["ingestion"].get_available_dates.assert_called_once_with(
-            Path("/path/alice.xlsx"), remote_mtime=1234.5, remote_size=678
+            Path("/path/alice.xlsx"),
+            remote_mtime=1234.5,
+            remote_size=678,
+            strict_io=True,
+        )
+
+    def test_date_read_error_marks_employee_status_as_error(
+        self, app_controller, mock_deps
+    ):
+        app_controller.discovery.get_employees_map.return_value = {
+            "Alice": [{"path": "/path/alice.xlsx"}],
+        }
+        mock_deps["persistence"].get_file_cache.return_value = None
+        mock_deps["ingestion"].get_available_dates.side_effect = RuntimeError(
+            "corrupt workbook"
+        )
+
+        on_progress = MagicMock()
+        on_complete = MagicMock()
+
+        fake_stat = MagicMock(st_mtime=1234.5, st_size=678)
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.stat", return_value=fake_stat),
+            patch("core.app_controller.check_master_lock", return_value=True),
+            patch("threading.Thread") as mock_thread,
+        ):
+            app_controller.refresh_status(
+                datetime(2026, 4, 1), on_progress, on_complete
+            )
+            run_thread_task(mock_thread)
+
+        statuses = on_complete.call_args[0][0]
+        assert statuses == [("Alice", "[ERR] ОШИБКА", "alice.xlsx", "missing")]
+        mock_deps["ingestion"].get_available_dates.assert_called_once_with(
+            Path("/path/alice.xlsx"),
+            remote_mtime=1234.5,
+            remote_size=678,
+            strict_io=True,
         )
 
     def test_progress_reported(self, app_controller, mock_deps):

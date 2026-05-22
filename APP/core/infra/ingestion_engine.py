@@ -254,6 +254,7 @@ class IngestionEngine(IDataSource):
         file_path: Path,
         remote_mtime: float | None = None,
         remote_size: int | None = None,
+        strict_io: bool = False,
     ) -> List[str]:
         dates = set()
         f_path_abs = os.path.abspath(str(file_path))
@@ -295,6 +296,8 @@ class IngestionEngine(IDataSource):
             if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
                 raise
             logger.error(f"Error getting dates from {file_path}: {e}")
+            if strict_io:
+                raise
         finally:
             if temp_file and os.path.exists(temp_file):
                 try:

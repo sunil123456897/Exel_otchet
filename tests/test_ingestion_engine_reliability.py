@@ -113,3 +113,26 @@ def test_read_file_raises_after_retries_in_strict_mode(tmp_path):
     with patch("time.sleep"):
         with pytest.raises(OSError, match="network lost"):
             engine.read_file(test_file, strict_io=True)
+
+
+def test_get_available_dates_raises_worker_error_in_strict_mode(tmp_path):
+    engine = IngestionEngine({})
+    test_file = tmp_path / "REPORTS" / "broken.xlsb"
+    test_file.parent.mkdir()
+    test_file.touch()
+
+    with (
+        patch(
+            "core.infra.ingestion_engine.get_local_copy",
+            return_value=(str(test_file), None),
+        ),
+        patch(
+            "core.infra.ingestion_engine._should_isolate_calamine", return_value=True
+        ),
+        patch(
+            "core.infra.ingestion_engine._run_calamine_worker",
+            return_value={"ok": False, "error": "worker failed to read dates"},
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="worker failed to read dates"):
+            engine.get_available_dates(test_file, strict_io=True)

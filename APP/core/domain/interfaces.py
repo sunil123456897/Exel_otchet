@@ -28,11 +28,13 @@ class IDataSource(ABC):
         file_path: Path,
         remote_mtime: float | None = None,
         remote_size: int | None = None,
+        strict_io: bool = False,
     ) -> List[str]:
         """Returns detected sheet dates from a source workbook.
 
         Optional remote_mtime/remote_size allow callers to avoid duplicate
         network stat calls when metadata is already known.
+        strict_io=True may raise read errors instead of degrading to [].
         """
         pass
 

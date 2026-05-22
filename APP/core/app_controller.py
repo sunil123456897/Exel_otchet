@@ -268,6 +268,7 @@ class AppController:
                             p_path,
                             remote_mtime=stat_mtime,
                             remote_size=stat_size,
+                            strict_io=True,
                         )
                         self.persistence.save_file_cache(
                             str(p_path),
@@ -281,6 +282,7 @@ class AppController:
                         p_path,
                         remote_mtime=stat_mtime,
                         remote_size=stat_size,
+                        strict_io=True,
                     )
                     self.persistence.save_file_cache(
                         str(p_path),

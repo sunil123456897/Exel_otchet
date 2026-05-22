@@ -32,6 +32,8 @@ def test_idata_source_get_available_dates_signature_supports_remote_metadata_hin
     assert sig.parameters["remote_mtime"].default is None
     assert "remote_size" in sig.parameters
     assert sig.parameters["remote_size"].default is None
+    assert "strict_io" in sig.parameters
+    assert sig.parameters["strict_io"].default is False
 
 
 def test_ipersistence_has_expected_core_methods():
