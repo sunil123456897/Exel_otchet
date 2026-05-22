@@ -288,6 +288,33 @@ def test_calamine_reader_network_copy_optimization(
         assert len(res) == 1
 
 
+def test_calamine_reader_strict_mode_raises_workbook_open_error(tmp_path):
+    reader = CalamineReader({"amount": "сумма"}, {"amount": ["сумма"]})
+    file_path = tmp_path / "broken.xlsx"
+    file_path.touch()
+
+    with patch(
+        "core.infra.ingestion_reader.CalamineWorkbook.from_path",
+        side_effect=ValueError("broken workbook"),
+    ):
+        with pytest.raises(ValueError, match="broken workbook"):
+            reader.read(file_path, strict_io=True)
+
+
+def test_calamine_reader_lenient_mode_keeps_empty_result_on_workbook_open_error(
+    tmp_path,
+):
+    reader = CalamineReader({"amount": "сумма"}, {"amount": ["сумма"]})
+    file_path = tmp_path / "broken.xlsx"
+    file_path.touch()
+
+    with patch(
+        "core.infra.ingestion_reader.CalamineWorkbook.from_path",
+        side_effect=ValueError("broken workbook"),
+    ):
+        assert reader.read(file_path, strict_io=False) == []
+
+
 def test_ingestion_engine_get_available_dates(tmp_path, create_temp_xlsx):
     engine = IngestionEngine({"amount": "сумма"})
     file_path = tmp_path / "test_dates.xlsx"

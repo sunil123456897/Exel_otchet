@@ -953,6 +953,8 @@ class CalamineReader:
             logger.error(f"Calamine error {f_path_abs}: {e}")
             return all_rows
         except Exception as e:
+            if strict_io:
+                raise
             logger.error(f"Calamine error {f_path_abs}: {e}")
             return all_rows
 
@@ -976,9 +978,13 @@ class CalamineReader:
                 raise
             logger.error(f"Calamine error {f_path_abs}: {e}")
         except Exception as e:
+            if strict_io:
+                raise
             logger.error(f"Calamine error {f_path_abs}: {e}")
         except BaseException as e:
             if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                raise
+            if strict_io:
                 raise
             logger.error(f"Calamine PanicException {f_path_abs}: {e}")
         finally:
