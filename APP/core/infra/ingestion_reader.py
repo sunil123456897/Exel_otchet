@@ -648,7 +648,18 @@ class CalamineReader:
             return d_val, d_val != 0, False
         except Exception:
             if key == "amount":
-                return val, False, False
+                normalized_value = _normalize_header_text(val)
+                amount_header_terms = {
+                    term
+                    for term in (
+                        self._normalized_markers.get(key, [])
+                        + self._normalized_aliases.get(key, [])
+                    )
+                    if term
+                }
+                if normalized_value in amount_header_terms:
+                    return val, False, False
+                return val, True, True
             return None, False, True
 
     @staticmethod

@@ -87,6 +87,46 @@ def test_read_marks_text_total_as_template_warning(reader, temp_xlsx):
     assert rows[0]["total"] is None
 
 
+def test_read_keeps_invalid_amount_text_for_logic_error_row(reader, temp_xlsx):
+    f = temp_xlsx(
+        "text_amount.xlsx",
+        {
+            "07.04.26": [
+                [
+                    "Заказчик",
+                    "Исполнитель",
+                    "Сумма платежа",
+                    "Комиссия",
+                    "Итог",
+                    "% посредника",
+                    "посредник 1(кэш)",
+                    "посредник 2",
+                    "Фильтры",
+                ],
+                [
+                    "ООО Ромашка",
+                    "ИП Иванов",
+                    "не число",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ],
+            ]
+        },
+    )
+
+    rows = reader.read(f)
+
+    assert len(rows) == 1
+    assert rows[0]["customer"] == "ООО Ромашка"
+    assert rows[0]["amount"] == "не число"
+    assert rows[0]["is_template_warning"] is True
+    assert rows[0]["_template_warning_reason"] == "text in numeric field: amount"
+
+
 def test_read_realigns_shifted_amount_bank_row_as_warning(reader, temp_xlsx):
     f = temp_xlsx(
         "shifted_amount.xlsx",
