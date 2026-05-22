@@ -67,6 +67,13 @@ _MATCH_TOKEN_STOPWORDS = {
     "реестр",
 }
 _COMBINED_SHEET_PRIORITY = {"Общий": 0, "Борис": 1, "Иван": 2}
+_EXCLUDED_MASTER_FILTER_KEYWORDS = (
+    "доп сф",
+    "касса",
+    "зачет",
+    "посредник",
+    "корректировка",
+)
 _SUMMARY_REASON_LABELS = {
     REASON_NO_CURATOR: "Нет у кураторов",
     REASON_NO_RSCH: "Нет в РСЧ",
@@ -221,6 +228,11 @@ def _executor_alias_keys(value: Any) -> set[str]:
 
 def _is_filter_header(value: Any) -> bool:
     return _normalize_text(value) in {"фильтр", "фильтры", "filter", "filters"}
+
+
+def _is_excluded_master_filter(value: Any) -> bool:
+    normalized = _normalize_text(value)
+    return any(keyword in normalized for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS)
 
 
 def _is_excluded_master_header(value: Any) -> bool:
@@ -529,7 +541,9 @@ def _cell_display_value(ws: Worksheet, row_idx: int, col_idx: int) -> Any:
     return value
 
 
-def _collect_master_rows(ws: Worksheet) -> tuple[list[str], list[MasterReconciliationRow]]:
+def _collect_master_rows(
+    ws: Worksheet,
+) -> tuple[list[str], list[MasterReconciliationRow], list[MasterReconciliationRow]]:
     headers = _header_map(ws)
     output_headers = _master_output_headers(ws)
     source_col = _header_index(headers, "Источник")
@@ -537,7 +551,9 @@ def _collect_master_rows(ws: Worksheet) -> tuple[list[str], list[MasterReconcili
     executor_col = _header_index(headers, "ИСПОЛНИТЕЛЬ")
     income_col = _header_index(headers, "Приход")
     expense_col = _header_index(headers, "Расход")
+    filter_col = _header_index(headers, "Фильтры", required=False)
     rows: list[MasterReconciliationRow] = []
+    excluded_rows: list[MasterReconciliationRow] = []
     for row_idx in range(2, ws.max_row + 1):
         source = _cell_display_value(ws, row_idx, source_col)
         if _is_total_row(source):
@@ -553,18 +569,22 @@ def _collect_master_rows(ws: Worksheet) -> tuple[list[str], list[MasterReconcili
         values = [
             _master_cell_value(ws, row_idx, headers, header) for header in output_headers
         ]
-        rows.append(
-            MasterReconciliationRow(
-                values=values,
-                source=source,
-                source_link=_cell_hyperlink_target(ws, row_idx, source_col),
-                customer=customer,
-                executor=executor,
-                income=income,
-                expense=expense,
-            )
+        row = MasterReconciliationRow(
+            values=values,
+            source=source,
+            source_link=_cell_hyperlink_target(ws, row_idx, source_col),
+            customer=customer,
+            executor=executor,
+            income=income,
+            expense=expense,
         )
-    return output_headers, rows
+        if filter_col is not None and _is_excluded_master_filter(
+            _cell_display_value(ws, row_idx, filter_col)
+        ):
+            excluded_rows.append(row)
+        else:
+            rows.append(row)
+    return output_headers, rows, excluded_rows
 
 
 def _collect_rsch_rows(ws: Worksheet) -> list[RschReconciliationRow]:
@@ -820,6 +840,38 @@ def _build_reconciliation_rows(
     return result
 
 
+def _suppress_rsch_rows_matched_by_excluded_master_filters(
+    rsch_rows: list[RschReconciliationRow],
+    excluded_master_rows: list[MasterReconciliationRow],
+) -> list[RschReconciliationRow]:
+    if not excluded_master_rows:
+        return rsch_rows
+
+    suppressed_indexes: set[int] = set()
+    for master_row in excluded_master_rows:
+        candidates = [
+            (idx, row)
+            for idx, row in enumerate(rsch_rows)
+            if idx not in suppressed_indexes
+            and _rsch_customer_matches(master_row.customer, row)
+        ]
+        match_idx, _rsch_row = _find_best_rsch_match(
+            master_row,
+            candidates,
+            suppressed_indexes,
+        )
+        if match_idx is not None:
+            suppressed_indexes.add(match_idx)
+
+    if not suppressed_indexes:
+        return rsch_rows
+    return [
+        row
+        for idx, row in enumerate(rsch_rows)
+        if idx not in suppressed_indexes
+    ]
+
+
 def _rsch_values(row: Optional[RschReconciliationRow]) -> list[Any]:
     if row is None:
         return [None, None, None, None, None, None]
@@ -983,8 +1035,12 @@ def _build_reconciliation_sheet_data(
     effective_date = _resolve_target_date(master_wb, rsch_wb, target_date)
     master_ws = _find_sheet(master_wb, effective_date)
     rsch_ws = _find_sheet(rsch_wb, effective_date)
-    master_headers, master_rows = _collect_master_rows(master_ws)
-    rows = _build_reconciliation_rows(master_rows, _collect_rsch_rows(rsch_ws))
+    master_headers, master_rows, excluded_master_rows = _collect_master_rows(master_ws)
+    rsch_rows = _suppress_rsch_rows_matched_by_excluded_master_filters(
+        _collect_rsch_rows(rsch_ws),
+        excluded_master_rows,
+    )
+    rows = _build_reconciliation_rows(master_rows, rsch_rows)
     return effective_date, master_headers, rows
 
 

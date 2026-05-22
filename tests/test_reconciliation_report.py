@@ -2128,6 +2128,77 @@ def test_build_reconciliation_report_skips_master_rows_without_income_or_expense
     assert ws.max_row == 1
 
 
+@pytest.mark.parametrize(
+    "filter_value",
+    ["Доп сф", "Касса", "Зачет", "Посредник", "Корректировка"],
+)
+def test_build_reconciliation_report_skips_curator_rows_with_excluded_filters(
+    tmp_path: Path,
+    filter_value: str,
+) -> None:
+    master_path = tmp_path / "curator.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "reconciliation.xlsx"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "21.04.2026"
+    ws.append(
+        [
+            "Источник",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
+            "Комиссия",
+            "ИТОГ",
+            "Фильтры",
+        ]
+    )
+    ws.append(
+        [
+            "Отчет Бориса.xlsx : Строка 10",
+            "ООО Ромашка",
+            "СТИ",
+            0,
+            500,
+            0,
+            -500,
+            filter_value,
+        ]
+    )
+    wb.save(master_path)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "21.04"
+    ws.append(
+        [
+            "ИСПОЛНИТЕЛЬ",
+            "ЗАКАЗЧИК",
+            "Контрагент",
+            "Комментарий",
+            "Приход",
+            "Расход",
+            "Источник",
+        ]
+    )
+    ws.append(["СТИ", "ООО Ромашка", "", "", 0, 500, "rsch row 1"])
+    wb.save(rsch_path)
+
+    written = build_reconciliation_report(
+        master_path,
+        rsch_path,
+        output_path,
+        target_date=date(2026, 4, 21),
+    )
+
+    assert written == 0
+    wb = load_workbook(output_path, data_only=False)
+    ws = wb["21.04.2026"]
+    assert ws.max_row == 1
+
+
 def test_build_reconciliation_report_rejects_invalid_master_amount(
     tmp_path: Path,
 ) -> None:
