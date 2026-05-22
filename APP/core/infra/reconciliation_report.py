@@ -283,7 +283,7 @@ def _to_decimal(value: Any) -> Decimal:
     try:
         return Decimal(text)
     except (InvalidOperation, ValueError):
-        return Decimal("0")
+        raise ValueError(f"Некорректное числовое значение в сверке: {value}") from None
 
 
 def _amount_equal(left: Decimal, right: Decimal) -> bool:

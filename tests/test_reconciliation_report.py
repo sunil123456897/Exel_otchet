@@ -2126,3 +2126,74 @@ def test_build_reconciliation_report_skips_master_rows_without_income_or_expense
     wb = load_workbook(output_path, data_only=False)
     ws = wb["21.04.2026"]
     assert ws.max_row == 1
+
+
+def test_build_reconciliation_report_rejects_invalid_master_amount(
+    tmp_path: Path,
+) -> None:
+    master_path = tmp_path / "master.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "reconciliation.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "21.04.2026"
+    ws.append(
+        [
+            "Источник",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
+            "Комиссия",
+            "ИТОГ",
+        ]
+    )
+    ws.append(["master row", "Илон", "СТИНГ", 0, "не число", 0, 0])
+    wb.save(master_path)
+    _create_single_rsch_book(rsch_path)
+
+    with pytest.raises(ValueError, match="Некорректное числовое значение"):
+        build_reconciliation_report(
+            master_path,
+            rsch_path,
+            output_path,
+            target_date=date(2026, 4, 21),
+        )
+
+    assert not output_path.exists()
+
+
+def test_build_reconciliation_report_rejects_invalid_rsch_amount(
+    tmp_path: Path,
+) -> None:
+    master_path = tmp_path / "master.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "reconciliation.xlsx"
+    _create_single_master_book(master_path)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "21.04"
+    ws.append(
+        [
+            "ИСПОЛНИТЕЛЬ",
+            "ЗАКАЗЧИК",
+            "Контрагент",
+            "Комментарий",
+            "Приход",
+            "Расход",
+            "Источник",
+        ]
+    )
+    ws.append(["СТИНГ", "илон", "реестр зп", "", 0, "не число", "rsch row 1"])
+    wb.save(rsch_path)
+
+    with pytest.raises(ValueError, match="Некорректное числовое значение"):
+        build_reconciliation_report(
+            master_path,
+            rsch_path,
+            output_path,
+            target_date=date(2026, 4, 21),
+        )
+
+    assert not output_path.exists()
