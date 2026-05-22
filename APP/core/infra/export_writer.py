@@ -153,6 +153,11 @@ class MasterWriter(IExporter):
             "транзит",
             "сумма",
         ]
+        wide_text_keywords = ["заказчик", "исполнитель", "источник", "комментар"]
+        compact_text_min_widths = {
+            "статус": 14,
+            "фильтры": 16,
+        }
         for i in range(1, ws.max_column + 1):
             max_len = 0
             for row in ws.iter_rows(
@@ -168,8 +173,14 @@ class MasterWriter(IExporter):
             header = str(ws.cell(1, i).value or "").lower()
             if any(kw in header for kw in numeric_keywords):
                 ws.column_dimensions[let].width = max((max_len * 1.1) + 6, 18)
+            elif any(kw in header for kw in wide_text_keywords):
+                ws.column_dimensions[let].width = min(max(max_len + 4, 18), 60)
             else:
-                ws.column_dimensions[let].width = min(max_len + 4, 35)
+                min_width = max(
+                    [width for key, width in compact_text_min_widths.items() if key in header],
+                    default=10,
+                )
+                ws.column_dimensions[let].width = min(max(max_len + 4, min_width), 60)
 
     def _append_data_rows(self, ws, date, rows, curator=None):
         warning_rows = {}

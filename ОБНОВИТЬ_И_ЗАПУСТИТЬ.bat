@@ -1,0 +1,24 @@
+@echo off
+setlocal EnableExtensions
+chcp 65001 >nul
+
+title Master Report Updater
+
+set "ROOT=%~dp0"
+set "SCRIPT=%ROOT%tools\update_from_github.ps1"
+
+if not exist "%SCRIPT%" (
+    echo [ERROR] Не найден updater: %SCRIPT%
+    pause
+    exit /b 1
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%" -Launch
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Обновление не выполнено. Подробности выше и в update_log.txt.
+    pause
+    exit /b 1
+)
+
+exit /b 0

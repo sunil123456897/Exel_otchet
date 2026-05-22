@@ -923,11 +923,22 @@ def _update_column_widths(widths: dict[int, int], values: list[Any]) -> None:
 
 
 def _apply_column_widths(ws: Worksheet, widths: dict[int, int]) -> None:
+    wide_text_headers = ("заказчик", "исполнитель", "контрагент", "комментар", "источник")
+    compact_min_widths = {
+        "статус": 14,
+        "причина": 18,
+    }
     for col_idx in range(1, ws.max_column + 1):
+        header = _normalize_text(ws.cell(1, col_idx).value)
         max_len = widths.get(col_idx, 0)
+        min_width = 18 if _is_numeric_header(header) else 10
+        for key, width in compact_min_widths.items():
+            if key in header:
+                min_width = max(min_width, width)
+        max_width = 70 if any(key in header for key in wide_text_headers) else 45
         ws.column_dimensions[get_column_letter(col_idx)].width = max(
-            10,
-            min(45, max_len + 2),
+            min_width,
+            min(max_width, max_len + 2),
         )
 
 

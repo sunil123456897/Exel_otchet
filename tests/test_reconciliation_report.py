@@ -355,6 +355,40 @@ def test_build_reconciliation_report_matches_rows_and_places_missing_curator_fir
     assert ws.auto_filter.ref == "A1:R4"
 
 
+def test_build_reconciliation_report_sets_readable_column_widths(tmp_path: Path) -> None:
+    master_path = tmp_path / "master.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "reconciliation.xlsx"
+    _create_single_master_book(
+        master_path,
+        customer="Очень длинное название заказчика которое должно быть видно без ручного расширения",
+        executor="СТИ",
+        income=1234567890,
+        expense=0,
+    )
+    _create_single_rsch_book(rsch_path)
+
+    build_reconciliation_report(
+        master_path,
+        rsch_path,
+        output_path,
+        target_date=date(2026, 4, 21),
+    )
+
+    wb = load_workbook(output_path)
+    try:
+        ws = wb["21.04.2026"]
+        status_col = _find_header_col(ws, "Статус")
+        income_col = _find_header_col(ws, "Приход")
+        customer_col = _find_header_col(ws, "ЗАКАЗЧИК")
+
+        assert ws.column_dimensions[ws.cell(1, status_col).column_letter].width >= 14
+        assert ws.column_dimensions[ws.cell(1, income_col).column_letter].width >= 18
+        assert ws.column_dimensions[ws.cell(1, customer_col).column_letter].width > 45
+    finally:
+        wb.close()
+
+
 def test_build_reconciliation_report_sanitizes_formula_like_master_text(
     tmp_path: Path,
 ) -> None:

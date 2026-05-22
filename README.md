@@ -17,6 +17,12 @@ Windows-приложение для сборки финансовых Excel-от
 ЗАПУСК.bat
 ```
 
+Обновить программу с GitHub и сразу запустить:
+
+```bat
+ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat
+```
+
 Запуск напрямую через Python:
 
 ```bash
@@ -39,6 +45,8 @@ python -m mypy APP tests
 ```
 
 В репозитории также есть Windows CI gate: `.github/workflows/quality-gate.yml`. Он ставит зависимости из `requirements-dev.txt` на чистом runner-е и запускает `pytest`, `ruff`, `mypy`, `compileall`.
+
+`ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat` использует `tools/update_from_github.ps1`: проверяет `sunil123456897/Exel_otchet`, сохраняет локальные `APP/config.yaml` и `APP/employees.yaml`, обновляет файлы программы, возвращает настройки и запускает обычный `ЗАПУСК.bat`. Если Git установлен и папка является git-клоном, используется `git pull --ff-only`; иначе скачивается zip ветки `main`.
 
 ## Главные Файлы
 

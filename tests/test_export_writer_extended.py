@@ -932,7 +932,7 @@ class TestAutoAdjust:
         assert ws.column_dimensions[income_col].width > 15
 
     def test_text_columns_capped(self, master_writer):
-        """Текстовые колонки не должны превышать 35 символов."""
+        """Текстовые колонки не должны становиться чрезмерно широкими."""
         wb = Workbook()
         ws = wb.create_sheet("test")
         ws.append(["Очень длинный текст который превышает лимит ширины колонки"])
@@ -941,7 +941,24 @@ class TestAutoAdjust:
         master_writer._auto_adjust(ws)
 
         width = ws.column_dimensions["A"].width
-        assert width <= 35
+        assert width <= 60
+
+    def test_business_text_columns_allow_readable_width(self, master_writer):
+        """Заказчик и статусные текстовые колонки не должны быть узкими."""
+        wb = Workbook()
+        ws = wb.create_sheet("test")
+        ws.append(["ЗАКАЗЧИК", "Статус", "Приход"])
+        ws.append([
+            "Очень длинное название заказчика которое должно быть читаемо",
+            "ПРОВЕРИТЬ",
+            1234567890,
+        ])
+
+        master_writer._auto_adjust(ws)
+
+        assert ws.column_dimensions["A"].width > 35
+        assert ws.column_dimensions["B"].width >= 14
+        assert ws.column_dimensions["C"].width >= 18
 
 
 class TestSaveWorkbook:
