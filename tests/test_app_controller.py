@@ -2,8 +2,10 @@ import pytest
 import threading
 import os
 from unittest.mock import MagicMock, patch
+from openpyxl import load_workbook
 from core.app_controller import AppController
-from datetime import datetime
+from core.infra.export_writer import MasterWriter
+from datetime import date, datetime
 from pathlib import Path
 
 
@@ -240,6 +242,111 @@ def test_run_auto_reconciliation_day_rebuilds_reports_rsch_and_combined_output(
     on_complete.assert_called_once()
     assert on_complete.call_args.args[0] is True
     assert on_complete.call_args.args[2] == Path("out/Отчет_расхождений_21.04.2026.xlsx")
+
+
+def test_run_auto_reconciliation_day_allows_empty_curator_report(
+    app_controller,
+    mock_deps,
+    mocker,
+):
+    mock_deps["config_controller"].config = {
+        "curators": {
+            "boris": {"enabled": True, "output_path": "output/boris_report.xlsx"},
+            "ivan": {"enabled": True, "output_path": "output/ivan_report.xlsx"},
+        }
+    }
+    mock_deps["config_controller"].resolve_path.side_effect = lambda p: Path(p)
+    report_paths = {
+        None: Path("Master_Report.xlsx"),
+        "ivan": Path("output/ivan_report.xlsx"),
+    }
+
+    def run_blocking(**kwargs):
+        if kwargs["curator"] == "boris":
+            raise RuntimeError("Нет данных за дату")
+        return report_paths[kwargs["curator"]]
+
+    mocker.patch.object(
+        app_controller,
+        "_run_consolidation_blocking",
+        side_effect=run_blocking,
+    )
+    write_empty = mocker.patch.object(
+        app_controller,
+        "_write_empty_auto_reconciliation_report",
+        return_value=Path("output/boris_report.xlsx"),
+        create=True,
+    )
+    build_rsch = mocker.patch("core.app_controller.build_rsch_report", return_value=42)
+    build_combined = mocker.patch(
+        "core.app_controller.build_combined_reconciliation_report",
+        return_value={"Общий": 10, "Борис": 0, "Иван": 30},
+    )
+    on_complete = MagicMock()
+
+    with patch("threading.Thread") as mock_thread:
+        app_controller.run_auto_reconciliation_day(
+            [Path("rsch_source.xlsx")],
+            Path("out/Отчет_расхождений_21.04.2026.xlsx"),
+            datetime(2026, 4, 21),
+            on_complete,
+        )
+        task = mock_thread.call_args.kwargs["target"]
+        task()
+
+    write_empty.assert_called_once_with("boris", datetime(2026, 4, 21).date())
+    build_rsch.assert_called_once()
+    build_combined.assert_called_once_with(
+        {
+            "Общий": Path("Master_Report.xlsx"),
+            "Борис": Path("output/boris_report.xlsx"),
+            "Иван": Path("output/ivan_report.xlsx"),
+        },
+        Path("out/РСЧ_отчет_21.04.2026.xlsx"),
+        Path("out/Отчет_расхождений_21.04.2026.xlsx"),
+        target_date=datetime(2026, 4, 21).date(),
+        drive_letters=("Q", "Z"),
+    )
+    on_complete.assert_called_once()
+    assert on_complete.call_args.args[0] is True
+
+
+def test_write_empty_auto_reconciliation_report_creates_dated_workbook(
+    app_controller,
+    mock_deps,
+    tmp_path,
+):
+    headers = ["Источник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход", "Фильтры"]
+    output_path = tmp_path / "output" / "boris_report.xlsx"
+    config = {
+        "curators": {
+            "boris": {
+                "enabled": True,
+                "output_path": "output/boris_report.xlsx",
+                "headers": headers,
+            }
+        }
+    }
+    mock_deps["config_controller"].config = config
+    mock_deps["config_controller"].resolve_path.side_effect = lambda p: tmp_path / p
+    app_controller.writer = MasterWriter(
+        config,
+        config_path=str(tmp_path / "config.yaml"),
+    )
+
+    result = app_controller._write_empty_auto_reconciliation_report(
+        "boris",
+        date(2026, 4, 21),
+    )
+
+    assert result == output_path
+    wb = load_workbook(output_path, data_only=False)
+    try:
+        ws = wb["21.04.2026"]
+        assert [cell.value for cell in ws[1]] == headers
+        assert ws["A2"].value == "ИТОГО:"
+    finally:
+        wb.close()
 
 
 def test_run_reconciliation_report_builds_in_background(app_controller, mocker):

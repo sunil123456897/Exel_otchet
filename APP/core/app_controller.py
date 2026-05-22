@@ -729,6 +729,64 @@ class AppController:
             raise RuntimeError("Отчет собран, но путь к файлу не получен")
         return Path(path)
 
+    @staticmethod
+    def _is_empty_daily_data_error(error: Exception) -> bool:
+        return str(error).strip() == "Нет данных за дату"
+
+    def _write_empty_auto_reconciliation_report(self, curator: str, target_date) -> Path:
+        curator_config = self._get_curator_config(curator)
+        if not curator_config:
+            raise RuntimeError(f"Не настроен отчет куратора {curator}")
+        if not self._is_report_writable(curator_config):
+            raise RuntimeError(f"Файл отчета {curator} занят в Excel! Закройте его и повторите.")
+
+        output_path = self._resolve_report_path(curator_config)
+        workbook_factory = getattr(self.writer, "_get_workbook", None)
+        write_daily_data = getattr(self.writer, "write_daily_data", None)
+        save_workbook = getattr(self.writer, "_save_workbook", None)
+        if not (
+            callable(workbook_factory)
+            and callable(write_daily_data)
+            and callable(save_workbook)
+        ):
+            raise RuntimeError("Экспортер не поддерживает пустой отчет для автосверки")
+
+        wb = workbook_factory(path=str(output_path))
+        if wb is None:
+            raise RuntimeError(f"Не удалось открыть отчет куратора {curator}: {output_path}")
+        headers = curator_config.get("headers") if isinstance(curator_config, dict) else None
+        write_daily_data(
+            target_date,
+            [],
+            wb=wb,
+            curator=curator,
+            headers=headers,
+        )
+        if not save_workbook(wb, path=str(output_path)):
+            raise RuntimeError(f"Ошибка записи пустого отчета куратора {curator}")
+        return output_path
+
+    def _run_auto_master_report(
+        self,
+        *,
+        label: str,
+        curator: Optional[str],
+        date_suffix: str,
+        target_date,
+    ) -> Path:
+        try:
+            return self._run_consolidation_blocking(
+                target_date_str=date_suffix,
+                start_date_str=None,
+                end_date_str=None,
+                session_type="daily",
+                curator=curator,
+            )
+        except RuntimeError as exc:
+            if curator and self._is_empty_daily_data_error(exc):
+                return self._write_empty_auto_reconciliation_report(curator, target_date)
+            raise RuntimeError(f"{label}: {exc}") from exc
+
     def run_auto_reconciliation_day(
         self,
         source_paths: Path | Sequence[Path],
@@ -746,26 +804,23 @@ class AppController:
                 rsch_output = output_path_resolved.parent / f"РСЧ_отчет_{date_suffix}.xlsx"
 
                 master_paths = {
-                    "Общий": self._run_consolidation_blocking(
-                        target_date_str=date_suffix,
-                        start_date_str=None,
-                        end_date_str=None,
-                        session_type="daily",
+                    "Общий": self._run_auto_master_report(
+                        label="Общий",
                         curator=None,
+                        date_suffix=date_suffix,
+                        target_date=target_date,
                     ),
-                    "Борис": self._run_consolidation_blocking(
-                        target_date_str=date_suffix,
-                        start_date_str=None,
-                        end_date_str=None,
-                        session_type="daily",
+                    "Борис": self._run_auto_master_report(
+                        label="Борис",
                         curator="boris",
+                        date_suffix=date_suffix,
+                        target_date=target_date,
                     ),
-                    "Иван": self._run_consolidation_blocking(
-                        target_date_str=date_suffix,
-                        start_date_str=None,
-                        end_date_str=None,
-                        session_type="daily",
+                    "Иван": self._run_auto_master_report(
+                        label="Иван",
                         curator="ivan",
+                        date_suffix=date_suffix,
+                        target_date=target_date,
                     ),
                 }
 
