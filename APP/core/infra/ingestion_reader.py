@@ -502,7 +502,12 @@ class CalamineReader:
             return sheet_date_meta.get("date"), sheet_date_meta.get("year_hint")
         return sheet_date_meta, None
 
-    def _load_sheet_sample_rows(self, sheet, sheet_name: str) -> tuple[Optional[List[Any]], bool]:
+    def _load_sheet_sample_rows(
+        self,
+        sheet,
+        sheet_name: str,
+        strict_io: bool = False,
+    ) -> tuple[Optional[List[Any]], bool]:
         use_to_python = False
         try:
             rows_sample = []
@@ -524,10 +529,14 @@ class CalamineReader:
             rows_sample = sheet.to_python()[:MAX_HEADER_SCAN_ROWS]
             return rows_sample, use_to_python
         except Exception as e:
+            if strict_io:
+                raise
             logger.debug(f"Could not read sheet {sheet_name}: {e}")
             return None, use_to_python
         except BaseException as e:
             if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                raise
+            if strict_io:
                 raise
             logger.debug(f"PanicException reading sheet {sheet_name}: {e}")
             return None, use_to_python
@@ -839,15 +848,23 @@ class CalamineReader:
         try:
             sheet = wb.get_sheet_by_name(sheet_name)
         except Exception as e:
+            if strict_io:
+                raise
             logger.debug(f"Could not load sheet {sheet_name}: {e}")
             return
         except BaseException as e:
             if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
                 raise
+            if strict_io:
+                raise
             logger.debug(f"PanicException loading sheet {sheet_name}: {e}")
             return
 
-        rows_sample, use_to_python = self._load_sheet_sample_rows(sheet, sheet_name)
+        rows_sample, use_to_python = self._load_sheet_sample_rows(
+            sheet,
+            sheet_name,
+            strict_io=strict_io,
+        )
         if not rows_sample:
             return
 

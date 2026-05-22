@@ -369,6 +369,76 @@ def test_calamine_reader_lenient_mode_keeps_rows_before_second_pass_error(tmp_pa
     assert rows[0]["customer"] == "Client A"
 
 
+def test_calamine_reader_strict_mode_raises_sheet_load_error(tmp_path):
+    reader = CalamineReader({"amount": "сумма", "customer": "заказчик"}, {})
+    file_path = tmp_path / "missing_sheet.xlsx"
+    file_path.touch()
+    mock_wb = MagicMock()
+    mock_wb.sheet_names = ["01.01.2026"]
+    mock_wb.get_sheet_by_name.side_effect = RuntimeError("sheet cannot be loaded")
+
+    with patch(
+        "core.infra.ingestion_reader.CalamineWorkbook.from_path",
+        return_value=mock_wb,
+    ):
+        with pytest.raises(RuntimeError, match="sheet cannot be loaded"):
+            reader.read(file_path, strict_io=True)
+
+
+def test_calamine_reader_lenient_mode_skips_sheet_load_error(tmp_path):
+    reader = CalamineReader({"amount": "сумма", "customer": "заказчик"}, {})
+    file_path = tmp_path / "missing_sheet.xlsx"
+    file_path.touch()
+    mock_wb = MagicMock()
+    mock_wb.sheet_names = ["01.01.2026"]
+    mock_wb.get_sheet_by_name.side_effect = RuntimeError("sheet cannot be loaded")
+
+    with patch(
+        "core.infra.ingestion_reader.CalamineWorkbook.from_path",
+        return_value=mock_wb,
+    ):
+        assert reader.read(file_path, strict_io=False) == []
+
+
+def test_calamine_reader_strict_mode_raises_sample_read_error(tmp_path):
+    reader = CalamineReader({"amount": "сумма", "customer": "заказчик"}, {})
+    file_path = tmp_path / "sample_error.xlsx"
+    file_path.touch()
+
+    mock_sheet = MagicMock()
+    mock_sheet.iter_rows.side_effect = RuntimeError("iter_rows failed")
+    mock_sheet.to_python.side_effect = RuntimeError("to_python failed")
+    mock_wb = MagicMock()
+    mock_wb.sheet_names = ["01.01.2026"]
+    mock_wb.get_sheet_by_name.return_value = mock_sheet
+
+    with patch(
+        "core.infra.ingestion_reader.CalamineWorkbook.from_path",
+        return_value=mock_wb,
+    ):
+        with pytest.raises(RuntimeError, match="to_python failed"):
+            reader.read(file_path, strict_io=True)
+
+
+def test_calamine_reader_lenient_mode_skips_sample_read_error(tmp_path):
+    reader = CalamineReader({"amount": "сумма", "customer": "заказчик"}, {})
+    file_path = tmp_path / "sample_error.xlsx"
+    file_path.touch()
+
+    mock_sheet = MagicMock()
+    mock_sheet.iter_rows.side_effect = RuntimeError("iter_rows failed")
+    mock_sheet.to_python.side_effect = RuntimeError("to_python failed")
+    mock_wb = MagicMock()
+    mock_wb.sheet_names = ["01.01.2026"]
+    mock_wb.get_sheet_by_name.return_value = mock_sheet
+
+    with patch(
+        "core.infra.ingestion_reader.CalamineWorkbook.from_path",
+        return_value=mock_wb,
+    ):
+        assert reader.read(file_path, strict_io=False) == []
+
+
 def test_ingestion_engine_get_available_dates(tmp_path, create_temp_xlsx):
     engine = IngestionEngine({"amount": "сумма"})
     file_path = tmp_path / "test_dates.xlsx"
