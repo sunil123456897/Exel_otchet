@@ -419,18 +419,17 @@ def _resolve_target_date(master_wb, rsch_wb, target_date: date | None) -> date:
             target_date,
         ):
             return target_date
+        raise ValueError(
+            f"Не найден лист за дату {target_date.strftime('%d.%m.%Y')} "
+            "в выбранной паре мастер- и РСЧ-файлов"
+        )
 
     common_dates = _common_sheet_dates(master_wb, rsch_wb)
     if len(common_dates) == 1:
         return common_dates[0]
 
     if not common_dates:
-        if target_date is None:
-            raise ValueError("Не найдена общая дата в выбранных мастер- и РСЧ-файлах")
-        raise ValueError(
-            f"Не найден лист за дату {target_date.strftime('%d.%m.%Y')} "
-            "в выбранной паре мастер- и РСЧ-файлов"
-        )
+        raise ValueError("Не найдена общая дата в выбранных мастер- и РСЧ-файлах")
 
     raise ValueError(
         "В выбранных файлах найдено несколько общих дат: "
@@ -1039,6 +1038,39 @@ def _ordered_combined_master_items(
     )
 
 
+def _resolve_combined_target_date(
+    master_paths: list[tuple[str, Path | str]],
+    rsch_wb,
+    target_date: date | None,
+    drive_letters: tuple[str, ...],
+) -> date | None:
+    if target_date is not None:
+        return _coerce_date(target_date)
+
+    common_dates: set[date] = set()
+    for sheet_name, master_path_value in master_paths:
+        master_path = Path(master_path_value)
+        if not master_path.exists():
+            raise FileNotFoundError(f"Не найден мастер-отчет {sheet_name}: {master_path}")
+        with _local_read_path(master_path, drive_letters) as master_read_path:
+            master_wb = None
+            try:
+                master_wb = load_workbook(master_read_path, data_only=False)
+                common_dates.update(_common_sheet_dates(master_wb, rsch_wb))
+            finally:
+                if master_wb is not None:
+                    master_wb.close()
+
+    if len(common_dates) == 1:
+        return next(iter(common_dates))
+    if not common_dates:
+        raise ValueError("Не найдена общая дата в выбранных мастер- и РСЧ-файлах")
+    raise ValueError(
+        "В выбранных файлах найдено несколько общих дат: "
+        f"{_format_dates(sorted(common_dates))}. Выберите нужную дату в панели слева."
+    )
+
+
 @contextmanager
 def _local_read_path(path: Path, drive_letters: tuple[str, ...] = ("Q", "Z")):
     target_path, temp_file = get_local_copy(str(path), drive_letters)
@@ -1110,11 +1142,18 @@ def build_combined_reconciliation_report(
     default_ws = wb_out.active
     counts: dict[str, int] = {}
     sheet_rows: list[tuple[str, list[str], list[ReconciliationRow]]] = []
+    ordered_master_paths = _ordered_combined_master_items(master_paths)
     with _local_read_path(rsch_path, drive_letters) as rsch_read_path:
         rsch_wb = None
         try:
             rsch_wb = load_workbook(rsch_read_path, data_only=True)
-            for sheet_name, master_path_value in _ordered_combined_master_items(master_paths):
+            effective_target_date = _resolve_combined_target_date(
+                ordered_master_paths,
+                rsch_wb,
+                target_date,
+                drive_letters,
+            )
+            for sheet_name, master_path_value in ordered_master_paths:
                 master_path = Path(master_path_value)
                 if not master_path.exists():
                     raise FileNotFoundError(f"Не найден мастер-отчет {sheet_name}: {master_path}")
@@ -1129,7 +1168,7 @@ def build_combined_reconciliation_report(
                         ) = _build_reconciliation_sheet_data(
                             master_wb,
                             rsch_wb,
-                            target_date,
+                            effective_target_date,
                         )
                     finally:
                         if master_wb is not None:

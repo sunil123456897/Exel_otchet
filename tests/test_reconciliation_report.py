@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from openpyxl import Workbook, load_workbook
 
 from core.infra.reconciliation_report import (
@@ -566,7 +567,7 @@ def test_build_reconciliation_report_preserves_later_exact_amount_match(
     assert ws.cell(3, 12).value is None
 
 
-def test_build_reconciliation_report_falls_back_to_single_common_date(
+def test_build_reconciliation_report_falls_back_to_single_common_date_when_date_is_not_selected(
     tmp_path: Path,
 ) -> None:
     master_path = tmp_path / "master.xlsx"
@@ -579,13 +580,31 @@ def test_build_reconciliation_report_falls_back_to_single_common_date(
         master_path,
         rsch_path,
         output_path,
-        target_date=date(2026, 5, 1),
+        target_date=None,
     )
 
     assert written == 3
 
     wb = load_workbook(output_path, data_only=False)
     assert wb.sheetnames == ["21.04.2026"]
+
+
+def test_build_reconciliation_report_rejects_missing_selected_date_even_with_single_common_date(
+    tmp_path: Path,
+) -> None:
+    master_path = tmp_path / "master.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "reconciliation.xlsx"
+    _create_master_book(master_path)
+    _create_rsch_book(rsch_path)
+
+    with pytest.raises(ValueError, match="Не найден лист за дату 01.05.2026"):
+        build_reconciliation_report(
+            master_path,
+            rsch_path,
+            output_path,
+            target_date=date(2026, 5, 1),
+        )
 
 
 def test_build_reconciliation_report_accepts_boris_master_headers(
@@ -1049,6 +1068,66 @@ def test_combined_reconciliation_uses_stable_sheet_priority_for_suppression(
     assert counts == {"Общий": 1, "Борис": 0, "Иван": 0}
     wb = load_workbook(output_path, data_only=False)
     assert wb.sheetnames == ["Общий", "Борис", "Иван"]
+
+
+def test_combined_reconciliation_requires_date_when_candidate_dates_differ(
+    tmp_path: Path,
+) -> None:
+    general_path = tmp_path / "general.xlsx"
+    boris_path = tmp_path / "boris.xlsx"
+    ivan_path = tmp_path / "ivan.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "combined.xlsx"
+
+    _create_single_master_book(general_path)
+    _create_single_master_book(ivan_path)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "22.04.2026"
+    ws.append(["Источник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход", "Комиссия", "ИТОГ"])
+    ws.append(["boris row", "Илон", "СТИНГ", 0, 500000, 0, -500000])
+    wb.save(boris_path)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "21.04"
+    ws.append(["ИСПОЛНИТЕЛЬ", "ЗАКАЗЧИК", "Контрагент", "Комментарий", "Приход", "Расход", "Источник"])
+    ws.append(["СТИНГ", "илон", "реестр зп", "", 0, 500000, "rsch row 21"])
+    ws = wb.create_sheet("22.04")
+    ws.append(["ИСПОЛНИТЕЛЬ", "ЗАКАЗЧИК", "Контрагент", "Комментарий", "Приход", "Расход", "Источник"])
+    ws.append(["СТИНГ", "илон", "реестр зп", "", 0, 500000, "rsch row 22"])
+    wb.save(rsch_path)
+
+    with pytest.raises(ValueError, match="несколько общих дат"):
+        build_combined_reconciliation_report(
+            {"Общий": general_path, "Борис": boris_path, "Иван": ivan_path},
+            rsch_path,
+            output_path,
+            target_date=None,
+        )
+
+
+def test_combined_reconciliation_reports_missing_master_label_when_date_is_not_selected(
+    tmp_path: Path,
+) -> None:
+    general_path = tmp_path / "general.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "combined.xlsx"
+    _create_single_master_book(general_path)
+    _create_single_rsch_book(rsch_path)
+
+    with pytest.raises(FileNotFoundError, match="Не найден мастер-отчет Борис"):
+        build_combined_reconciliation_report(
+            {
+                "Общий": general_path,
+                "Борис": tmp_path / "missing_boris.xlsx",
+                "Иван": general_path,
+            },
+            rsch_path,
+            output_path,
+            target_date=None,
+        )
 
 
 def test_build_reconciliation_report_matches_rsch_comment_when_customer_is_short(

@@ -9,7 +9,7 @@ The project currently supports four major reporting flows:
 - Master report consolidation for all employees.
 - Dedicated curator reports for Boris and Ivan.
 - RSCH bank-account report generation.
-- Reconciliation report generation between an existing master report and an existing RSCH report.
+- Reconciliation report generation between existing master/curator reports and an existing RSCH report.
 
 This document is the main operating guide for future maintainers and AI agents. Read it before changing code.
 
@@ -200,10 +200,18 @@ The reconciliation report is implemented in `APP/core/infra/reconciliation_repor
 
 It intentionally reads already-generated files:
 
-- master report sheet for the selected date;
+- general master report sheet for the selected date;
+- Boris curator report sheet for the selected date;
+- Ivan curator report sheet for the selected date;
 - RSCH report sheet for the selected date.
 
-It writes a separate workbook and does not mutate either source workbook.
+It writes one separate workbook and does not mutate any source workbook. The GUI and automatic flow use `build_combined_reconciliation_report(...)` to create exactly three sheets in stable order:
+
+```text
+Общий, Борис, Иван
+```
+
+`build_reconciliation_report(...)` remains as the single-master helper for focused tests and compatibility. If a date is explicitly selected, reconciliation must use that date only. If no date is provided, auto-selection is allowed only when the selected workbooks have one unambiguous common date.
 
 Output layout:
 

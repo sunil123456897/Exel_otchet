@@ -1027,8 +1027,8 @@ def _write_rsch_sheet(
         header_source = template_ws.cell(1, style_layout["header_cols"][col_idx])
         _copy_style(header_source, ws_out.cell(1, col_idx))
         col = get_column_letter(col_idx)
-        source_col = get_column_letter(style_layout["width_cols"][col_idx])
-        src_dim = template_ws.column_dimensions.get(source_col)
+        width_source_col = get_column_letter(style_layout["width_cols"][col_idx])
+        src_dim = template_ws.column_dimensions.get(width_source_col)
         if src_dim and src_dim.width:
             ws_out.column_dimensions[col].width = src_dim.width
 
@@ -1050,7 +1050,7 @@ def _write_rsch_sheet(
 
     income_col = 6 if is_table else 5
     expense_col = 7 if is_table else 6
-    source_col = 9 if is_table else 8
+    hyperlink_source_col = 9 if is_table else 8
 
     for row in rows:
         if is_table:
@@ -1097,7 +1097,7 @@ def _write_rsch_sheet(
             _apply_warning_row_highlighting(ws_out, curr_idx, is_table)
         _apply_amount_highlighting(ws_out, curr_idx, row["income"], row["expense"], is_table)
         apply_cell_hyperlink(
-            ws_out.cell(curr_idx, source_col),
+            ws_out.cell(curr_idx, hyperlink_source_col),
             row.get("source_path"),
             row.get("source_sheet"),
             row.get("source_row"),
