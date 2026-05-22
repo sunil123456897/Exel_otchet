@@ -112,13 +112,13 @@ def _to_decimal(value: Any) -> Decimal:
         return value
     if isinstance(value, (int, float)):
         return Decimal(str(value))
-    text = str(value).strip().replace(" ", "").replace(",", ".")
+    text = str(value).strip().replace(" ", "").replace("\xa0", "").replace(",", ".")
     if not text:
         return Decimal("0")
     try:
         return Decimal(text)
     except (InvalidOperation, ValueError):
-        return Decimal("0")
+        raise ValueError(f"Некорректное числовое значение в РСЧ: {value}") from None
 
 
 def _as_date(value: Any) -> Optional[date]:

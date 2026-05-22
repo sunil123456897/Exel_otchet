@@ -842,6 +842,68 @@ def test_zero_amount_row_with_only_account_is_still_skipped(tmp_path: Path) -> N
     assert written == 0
 
 
+def test_invalid_numeric_amount_reports_sheet_issue_instead_of_zeroing(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source_invalid_amount.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "out_invalid_amount.xlsx"
+    issues: list[str] = []
+    _make_template(template)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "тест рсч"
+    ws.append(["x"])
+    ws.append(
+        [
+            "дата",
+            "b",
+            "c",
+            "проект",
+            "контрагент",
+            "приход на рсч, су",
+            "расход с рсч, су",
+            "проект",
+            "контрагент",
+            "j",
+            "k",
+            "р/с",
+        ]
+    )
+    ws.append(
+        [
+            datetime(2026, 4, 13),
+            None,
+            None,
+            "Проект",
+            "Контрагент",
+            "не число",
+            0,
+            "",
+            "",
+            None,
+            None,
+            "4070",
+        ]
+    )
+    wb.save(source)
+
+    with pytest.raises(RuntimeError, match="Некорректное числовое значение в РСЧ"):
+        build_rsch_report(
+            source,
+            output,
+            target_date=date(2026, 4, 13),
+            template_path=template,
+            issues_sink=issues,
+        )
+
+    assert output.exists() is False
+    assert len(issues) == 1
+    assert "тест рсч" in issues[0]
+    assert "не число" in issues[0]
+
+
 def test_empty_sources_raises_value_error(tmp_path: Path) -> None:
     template = tmp_path / "template.xlsx"
     _make_template(template)
