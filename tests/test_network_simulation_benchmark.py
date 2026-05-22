@@ -8,7 +8,8 @@ from datetime import datetime
 import pytest
 
 # Настройка системного пути для импорта из папки APP
-app_root = Path("E:/Dlia Dashi/Version5/APP").absolute()
+repo_root = Path(__file__).resolve().parents[1]
+app_root = repo_root / "APP"
 if str(app_root) not in sys.path:
     sys.path.insert(0, str(app_root))
 
@@ -80,7 +81,7 @@ os.stat = simulated_stat
 class TestNetworkSimulation:
 
     @pytest.mark.parametrize("dummy", [1])
-    def test_run_network_benchmarks(self, dummy):
+    def test_run_network_benchmarks(self, dummy, tmp_path):
         """Запуск бенчмарка для различных сетевых профилей."""
         print("\n\n=== НАЧАЛО БЕНЧМАРКИНГА СЕТЕВОЙ СРЕДЫ ===")
 
@@ -241,7 +242,7 @@ class TestNetworkSimulation:
         ])
 
         report_content = "\n".join(report_lines)
-        report_path = Path("E:/Dlia Dashi/Version5/NETWORK_STABILITY_REPORT.md")
+        report_path = tmp_path / "NETWORK_STABILITY_REPORT.md"
         report_path.write_text(report_content, encoding="utf-8")
         print("\n=== NETWORK_STABILITY_REPORT.md CREATED ===")
         safe_content = report_content.replace("📊", "[Stats]").replace("🟢", "[OK]").replace("🔴", "[ERR]").replace("🔍", "[Analysis]")
@@ -250,4 +251,3 @@ class TestNetworkSimulation:
             print(safe_content.encode(encoding, errors='replace').decode(encoding))
         except Exception:
             print("Report created successfully, but console output could not be encoded.")
-

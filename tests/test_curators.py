@@ -7,6 +7,8 @@ from core.infra.export_writer import MasterWriter, DEFAULT_HEADERS
 from core.domain.logic_service import LogicService
 from core.infra.export_formatting import detect_header_columns
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 @pytest.fixture
 def writer():
@@ -199,7 +201,7 @@ def test_ivan_empty_data(writer, ivan_config, tmp_path):
 def test_ivan_template_headers(tmp_path):
     import openpyxl
 
-    tpl_path = Path(r"E:\Dlia Dashi\Version5\APP\templates\master_ivan.xlsx")
+    tpl_path = REPO_ROOT / "APP" / "templates" / "master_ivan.xlsx"
     wb = openpyxl.load_workbook(str(tpl_path))
     ws = wb.active
     headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]

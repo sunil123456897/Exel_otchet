@@ -18,6 +18,8 @@ from core.app_controller import AppController
 from core.infra.session_repo import SQLiteManager
 from core.infra.export_writer import MasterWriter
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 @pytest.fixture
 def temp_dir():
@@ -143,7 +145,7 @@ def test_pre_flight_lock_check(temp_dir, mocker):
 # 5. Test Transaction Integrity
 def test_transaction_integrity(temp_dir):
     db_path = temp_dir / "test.db"
-    schema_path = Path("E:/Dlia Dashi/Version5/APP/db_schema.sql")
+    schema_path = REPO_ROOT / "APP" / "db_schema.sql"
     manager = SQLiteManager(str(db_path), str(schema_path), {})
 
     # Mock sqlite3.connect to return a mock connection
@@ -228,7 +230,7 @@ def test_sqlite_connection_management_no_leaks(temp_dir):
     from unittest.mock import call
     
     db_path = temp_dir / "test_leaks.db"
-    schema_path = Path("E:/Dlia Dashi/Version5/APP/db_schema.sql")
+    schema_path = REPO_ROOT / "APP" / "db_schema.sql"
     
     # We create connection manager and repository
     repo = SessionRepository(str(db_path), str(schema_path), {})

@@ -118,13 +118,14 @@ def test_run_rsch_report_uses_saved_sources_when_confirmed(commands_fixture):
 
 def test_run_rsch_report_resolves_relative_saved_sources(commands_fixture):
     cmd, _root, sidebar = commands_fixture
+    app_root = Path("C:/Project/APP")
     cmd.config_controller.config = {
         "rsch": {
             "recent_sources": ["../рсч всех/РСЧ Моника.xlsx"],
             "last_output_dir": "../РСЧ",
         }
     }
-    cmd.config_controller.resolve_path.side_effect = lambda p: Path("E:/Dlia Dashi/Version5/APP") / p
+    cmd.config_controller.resolve_path.side_effect = lambda p: app_root / p
 
     with (
         patch("core.ui.gui_commands.Path.exists", return_value=True),
@@ -132,7 +133,7 @@ def test_run_rsch_report_resolves_relative_saved_sources(commands_fixture):
         patch("core.ui.gui_commands.filedialog.askopenfilenames") as ask_many,
         patch(
             "core.ui.gui_commands.filedialog.asksaveasfilename",
-            return_value="E:/Dlia Dashi/Version5/РСЧ/out.xlsx",
+            return_value="C:/Project/РСЧ/out.xlsx",
         ),
     ):
         cmd.run_rsch_report()
@@ -140,7 +141,7 @@ def test_run_rsch_report_resolves_relative_saved_sources(commands_fixture):
     ask_many.assert_not_called()
     sidebar.set_rsch_state.assert_called_once_with("disabled")
     args = cmd.app_controller.run_rsch_report.call_args[0]
-    assert args[0] == [Path("E:/Dlia Dashi/Version5/APP/../рсч всех/РСЧ Моника.xlsx")]
+    assert args[0] == [app_root / "../рсч всех/РСЧ Моника.xlsx"]
 
 
 def test_run_rsch_report_collects_sources_from_multiple_dirs(commands_fixture):

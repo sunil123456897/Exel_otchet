@@ -24,9 +24,9 @@ paths:
   archive_dir: ../backups
   master_file: output/Master_Report_april_2026_test.xlsx
   source_roots:
-    - E:/Dlia Dashi/Version5/REPORTS/Отчет кураторов 1
-    - E:/Dlia Dashi/Version5/REPORTS/Отчет кураторов 2
-    - E:/Dlia Dashi/Version5/REPORTS/Отчет кураторов 3
+    - ../REPORTS/Отчет кураторов 1
+    - ../REPORTS/Отчет кураторов 2
+    - ../REPORTS/Отчет кураторов 3
 sh1:
   markers:
     amount: сумма платежа
