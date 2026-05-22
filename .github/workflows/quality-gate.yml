@@ -9,8 +9,10 @@ on:
 jobs:
   windows-quality-gate:
     name: Windows quality gate
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 20
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
     steps:
       - name: Check out repository
