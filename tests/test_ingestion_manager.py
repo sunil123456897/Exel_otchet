@@ -315,6 +315,60 @@ def test_calamine_reader_lenient_mode_keeps_empty_result_on_workbook_open_error(
         assert reader.read(file_path, strict_io=False) == []
 
 
+def test_calamine_reader_strict_mode_raises_second_pass_row_iteration_error(tmp_path):
+    reader = CalamineReader({"amount": "сумма", "customer": "заказчик"}, {})
+    file_path = tmp_path / "interrupted.xlsx"
+    file_path.touch()
+    data = [["сумма", "заказчик"], [100, "Client A"]]
+
+    def interrupted_rows():
+        yield data[0]
+        yield data[1]
+        raise RuntimeError("network lost during rows")
+
+    mock_sheet = MagicMock()
+    mock_sheet.iter_rows.side_effect = [iter(data), interrupted_rows()]
+    mock_sheet.to_python.return_value = data
+    mock_wb = MagicMock()
+    mock_wb.sheet_names = ["01.01.2026"]
+    mock_wb.get_sheet_by_name.return_value = mock_sheet
+
+    with patch(
+        "core.infra.ingestion_reader.CalamineWorkbook.from_path",
+        return_value=mock_wb,
+    ):
+        with pytest.raises(RuntimeError, match="network lost during rows"):
+            reader.read(file_path, strict_io=True)
+
+
+def test_calamine_reader_lenient_mode_keeps_rows_before_second_pass_error(tmp_path):
+    reader = CalamineReader({"amount": "сумма", "customer": "заказчик"}, {})
+    file_path = tmp_path / "interrupted.xlsx"
+    file_path.touch()
+    data = [["сумма", "заказчик"], [100, "Client A"]]
+
+    def interrupted_rows():
+        yield data[0]
+        yield data[1]
+        raise RuntimeError("network lost during rows")
+
+    mock_sheet = MagicMock()
+    mock_sheet.iter_rows.side_effect = [iter(data), interrupted_rows()]
+    mock_sheet.to_python.return_value = data
+    mock_wb = MagicMock()
+    mock_wb.sheet_names = ["01.01.2026"]
+    mock_wb.get_sheet_by_name.return_value = mock_sheet
+
+    with patch(
+        "core.infra.ingestion_reader.CalamineWorkbook.from_path",
+        return_value=mock_wb,
+    ):
+        rows = reader.read(file_path, strict_io=False)
+
+    assert len(rows) == 1
+    assert rows[0]["customer"] == "Client A"
+
+
 def test_ingestion_engine_get_available_dates(tmp_path, create_temp_xlsx):
     engine = IngestionEngine({"amount": "сумма"})
     file_path = tmp_path / "test_dates.xlsx"

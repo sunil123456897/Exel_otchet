@@ -784,7 +784,13 @@ class CalamineReader:
         raw_data["_source_info"] = f"{file_basename} | {sheet_name} | Row {i + 1}"
         return raw_data
 
-    def _iter_sheet_rows_safe(self, sheet, use_to_python: bool, sheet_name: str):
+    def _iter_sheet_rows_safe(
+        self,
+        sheet,
+        use_to_python: bool,
+        sheet_name: str,
+        strict_io: bool = False,
+    ):
         row_iterator = enumerate(sheet.to_python() if use_to_python else sheet.iter_rows())
         while True:
             try:
@@ -793,6 +799,8 @@ class CalamineReader:
                 return
             except BaseException as second_pass_err:
                 if isinstance(second_pass_err, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                    raise
+                if strict_io:
                     raise
                 logger.warning(
                     f"Error during second pass in sheet {sheet_name}: "
@@ -811,6 +819,7 @@ class CalamineReader:
         target_date_str: Optional[str] = None,
         start_date_str: Optional[str] = None,
         end_date_str: Optional[str] = None,
+        strict_io: bool = False,
     ) -> None:
         if self._should_skip_sheet(sheet_name):
             return
@@ -864,7 +873,12 @@ class CalamineReader:
         current_warning_kind = None
         current_warning_reason = None
 
-        for i, row in self._iter_sheet_rows_safe(sheet, use_to_python, sheet_name):
+        for i, row in self._iter_sheet_rows_safe(
+            sheet,
+            use_to_python,
+            sheet_name,
+            strict_io=strict_io,
+        ):
             if not self._row_has_values(row):
                 continue
 
@@ -971,6 +985,7 @@ class CalamineReader:
                     target_date_str=target_date_str,
                     start_date_str=start_date_str,
                     end_date_str=end_date_str,
+                    strict_io=strict_io,
                 )
 
         except (OSError, IOError, PermissionError) as e:
