@@ -12,7 +12,7 @@ tags: [architecture, design, patterns]
 ## 1. Domain Layer (`APP/core/domain/`)
 "Сердце" системы, содержащее только бизнес-логику и правила.
 - **`logic_service.py`**: Реализация финансовых правил расчета прибыли, комиссий и маршрутизации транзакций.
-- **`data_schemas.py`**: Строгие модели данных на базе **Pydantic**. Гарантируют, что некорректные данные не попадут в систему.
+- **`data_schemas.py`**: Вспомогательные модели данных на базе **Pydantic**. В рабочем ingestion-потоке основной validation boundary находится в `Validator` и `LogicService`, поэтому нельзя считать Pydantic-схему единственной защитой от некорректных финансовых данных.
 - **`interfaces.py`**: Определения контрактов для компонентов инфраструктуры (Dependency Inversion).
 
 ## 2. Infrastructure Layer (`APP/core/infra/`)

@@ -625,6 +625,162 @@ def test_zero_rows_still_writes_total(tmp_path: Path) -> None:
     assert written == 0
 
 
+def test_zero_amount_business_row_is_kept_as_warning(tmp_path: Path) -> None:
+    source = tmp_path / "source_zero_business_row.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "out_zero_business_row.xlsx"
+    _make_template(template)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "тест рсч"
+    ws.append(["x"])
+    ws.append(
+        [
+            "дата",
+            "b",
+            "c",
+            "проект",
+            "контрагент",
+            "приход на рсч, су",
+            "расход с рсч, су",
+            "проект",
+            "контрагент",
+            "j",
+            "k",
+            "р/с",
+        ]
+    )
+    ws.append(
+        [
+            datetime(2026, 4, 13),
+            None,
+            None,
+            "Нулевой проект",
+            "Нулевой контрагент",
+            0,
+            0,
+            "",
+            "",
+            None,
+            None,
+            "4070",
+        ]
+    )
+    wb.save(source)
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+    )
+
+    assert written == 1
+
+    out_wb = load_workbook(output)
+    out_ws = out_wb[out_wb.sheetnames[0]]
+    assert out_ws.cell(2, 2).value == "Нулевой проект"
+    assert out_ws.cell(2, 3).value == "Нулевой контрагент"
+    assert out_ws.cell(2, 5).value == 0
+    assert out_ws.cell(2, 6).value == 0
+    for col_idx in (1, 2, 3, 4, 8):
+        assert _is_warning(out_ws, 2, col_idx) is True
+
+
+def test_blank_zero_amount_row_is_still_skipped(tmp_path: Path) -> None:
+    source = tmp_path / "source_blank_zero_row.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "out_blank_zero_row.xlsx"
+    _make_template(template)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "тест рсч"
+    ws.append(["x"])
+    ws.append(
+        [
+            "дата",
+            "b",
+            "c",
+            "проект",
+            "контрагент",
+            "приход на рсч, су",
+            "расход с рсч, су",
+            "проект",
+            "контрагент",
+            "j",
+            "k",
+            "р/с",
+        ]
+    )
+    ws.append([datetime(2026, 4, 13), None, None, "", "", 0, 0, "", "", None, None, ""])
+    wb.save(source)
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+    )
+
+    assert written == 0
+
+
+def test_zero_amount_row_with_only_account_is_still_skipped(tmp_path: Path) -> None:
+    source = tmp_path / "source_account_only_zero_row.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "out_account_only_zero_row.xlsx"
+    _make_template(template)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "тест рсч"
+    ws.append(["x"])
+    ws.append(
+        [
+            "дата",
+            "b",
+            "c",
+            "проект",
+            "контрагент",
+            "приход на рсч, су",
+            "расход с рсч, су",
+            "проект",
+            "контрагент",
+            "j",
+            "k",
+            "р/с",
+        ]
+    )
+    ws.append(
+        [
+            datetime(2026, 4, 13),
+            None,
+            None,
+            "",
+            "",
+            0,
+            0,
+            "",
+            "",
+            None,
+            None,
+            "4070",
+        ]
+    )
+    wb.save(source)
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+    )
+
+    assert written == 0
+
+
 def test_empty_sources_raises_value_error(tmp_path: Path) -> None:
     template = tmp_path / "template.xlsx"
     _make_template(template)

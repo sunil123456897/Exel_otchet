@@ -65,6 +65,28 @@ def test_process_file_task_reads_with_strict_io_enabled():
     )
 
 
+def test_process_file_task_raises_when_source_file_is_missing():
+    persistence = MagicMock()
+    ingestion = MagicMock()
+    validator = MagicMock()
+    meta = {"path": "C:/reports/missing.xlsx"}
+
+    with patch("os.path.exists", return_value=False):
+        with pytest.raises(FileNotFoundError, match="missing.xlsx"):
+            process_file_task(
+                persistence,
+                ingestion,
+                validator,
+                "Alice",
+                meta,
+                "session-1",
+                "01.04.2026",
+            )
+
+    ingestion.read_file.assert_not_called()
+    persistence.save_file_metadata.assert_not_called()
+
+
 def test_process_file_task_passes_date_scope_to_reader():
     persistence = MagicMock()
     persistence.save_file_metadata.return_value = [6]
@@ -312,3 +334,35 @@ def test_run_engine_reports_failed_files_via_callback():
     assert ok is True
     assert len(errors) == 1
     assert errors[0]["path"] == "C:/bad.xlsx"
+
+
+def test_run_engine_reports_missing_files_via_callback():
+    persistence = MagicMock()
+    ingestion = MagicMock()
+    validator = MagicMock()
+    errors = []
+
+    def on_file_error(items):
+        errors.extend(items)
+
+    employees_map = {
+        "Alice": [{"path": "C:/reports/missing.xlsx"}],
+    }
+
+    with patch("os.path.exists", return_value=False):
+        ok = run_engine(
+            persistence,
+            ingestion,
+            validator,
+            employees_map,
+            "session-1",
+            "01.04.2026",
+            lambda _p: None,
+            on_file_error=on_file_error,
+        )
+
+    assert ok is True
+    assert len(errors) == 1
+    assert errors[0]["path"] == "C:/reports/missing.xlsx"
+    assert "missing.xlsx" in errors[0]["error"]
+    ingestion.read_file.assert_not_called()

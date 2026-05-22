@@ -357,6 +357,8 @@ class IngestionEngine(IDataSource):
     ) -> List[Dict[str, Any]]:
         """Read Excel file with retry logic for transient network errors."""
         if not file_path.exists():
+            if strict_io:
+                raise FileNotFoundError(f"Не найден файл отчета: {file_path}")
             return []
         last_err = None
         for attempt in range(_FILE_READ_RETRIES):

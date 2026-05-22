@@ -404,3 +404,53 @@ def test_transit_only_row_is_not_dropped_for_ivan_layout(logic_service):
     assert res[0]["курс"] == Decimal("23.2")
     assert res[0]["сумма"] == Decimal("14480")
     assert res[0]["валюта"] == "риал"
+
+
+def test_invalid_transit_amount_becomes_critical_row(logic_service):
+    raw_rows = [
+        {
+            "customer": "Бекхем",
+            "contractor": "Доха Катар",
+            "amount": "0",
+            "total": "0",
+            "transit_obligation": "not-a-number",
+            "exchange_rate": "23.2",
+            "currency_amount": "14480",
+            "currency": "риал",
+            "_source_info": "ivan.xlsx | 13.04.2026 | Row 4",
+        }
+    ]
+
+    res = logic_service.apply_financial_rules(raw_rows, curator="ivan", curator_config={})
+
+    assert len(res) == 1
+    assert res[0]["is_critical"] is True
+    assert res[0]["Источник"] == "ivan.xlsx | 13.04.2026 | Row 4"
+
+
+def test_invalid_fx_amount_does_not_abort_following_rows(logic_service):
+    raw_rows = [
+        {
+            "customer": "Бекхем",
+            "contractor": "Доха Катар",
+            "amount": "100",
+            "total": "100",
+            "currency_amount": "#REF!",
+            "_source_info": "ivan.xlsx | 13.04.2026 | Row 5",
+        },
+        {
+            "customer": "Нормальный заказчик",
+            "contractor": "Нормальный исполнитель",
+            "amount": "200",
+            "total": "200",
+            "_source_info": "ivan.xlsx | 13.04.2026 | Row 6",
+        },
+    ]
+
+    res = logic_service.apply_financial_rules(raw_rows, curator="ivan", curator_config={})
+
+    assert len(res) == 2
+    assert res[0]["is_critical"] is True
+    assert res[0]["Источник"] == "ivan.xlsx | 13.04.2026 | Row 5"
+    assert res[1]["is_critical"] is False
+    assert res[1]["сумма платежа ПРИХОД"] == Decimal("200.00")

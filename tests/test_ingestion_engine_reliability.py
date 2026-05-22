@@ -20,6 +20,23 @@ def test_read_file_raises_on_reader_os_error_for_retry_visibility(tmp_path):
     assert rows == []
 
 
+def test_read_file_raises_missing_file_in_strict_mode(tmp_path):
+    engine = IngestionEngine({})
+    missing_file = tmp_path / "missing.xlsx"
+
+    with pytest.raises(FileNotFoundError, match="missing.xlsx"):
+        engine.read_file(missing_file, strict_io=True)
+
+
+def test_read_file_returns_empty_for_missing_file_in_lenient_mode(tmp_path):
+    engine = IngestionEngine({})
+    missing_file = tmp_path / "missing.xlsx"
+
+    rows = engine.read_file(missing_file, strict_io=False)
+
+    assert rows == []
+
+
 def test_process_file_task_marks_error_when_reader_returns_exception(tmp_path):
     from core.app.file_processor import process_file_task
 

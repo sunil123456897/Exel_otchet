@@ -182,7 +182,9 @@ def process_file_task(
 ) -> int:
     path_str = meta["path"] if isinstance(meta, dict) else meta
     if not os.path.exists(path_str):
-        return 0
+        raise FileNotFoundError(
+            f"Не найден файл отчета для сотрудника {emp_name}: {path_str}"
+        )
 
     logging.info("Processing file %s", safe_file_label(path_str))
     file_ids = persistence.save_file_metadata(session_id, [meta])

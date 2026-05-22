@@ -216,10 +216,11 @@ class LogicService(ILogicService):
 
     @staticmethod
     def _has_transit_values(r: Dict[str, Any]) -> bool:
-        return any(
-            to_decimal(r.get(field, 0)) != 0
+        values = [
+            to_decimal(r.get(field, 0))
             for field in ("transit_obligation", "exchange_rate", "currency_amount")
-        ) or bool(str(r.get("currency", "")).strip())
+        ]
+        return any(value != 0 for value in values) or bool(str(r.get("currency", "")).strip())
 
     @staticmethod
     def _resolve_flow(amount: Decimal, is_add: bool, is_ret: bool) -> tuple[Decimal, Decimal]:
@@ -342,7 +343,14 @@ class LogicService(ILogicService):
             is_warn = is_warn or broker1_warn or broker2_warn
 
             has_broker_values = raw_b1 != 0 or raw_b2 != 0
-            has_transit_values = self._has_transit_values(r)
+            try:
+                has_transit_values = self._has_transit_values(r)
+            except (NumericParsingError, ValueError) as e:
+                logger.error(
+                    f"DATA INTEGRITY ERROR (Logic): {e} | Source: {r.get('_source_info')}"
+                )
+                res.append(self._build_error_row(r, is_critical=True))
+                continue
 
             if (
                 amt == 0

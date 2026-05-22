@@ -38,6 +38,8 @@ python -m ruff check APP tests
 python -m mypy APP tests
 ```
 
+В репозитории также есть Windows CI gate: `.github/workflows/quality-gate.yml`. Он ставит зависимости из `requirements-dev.txt` на чистом runner-е и запускает `pytest`, `ruff`, `mypy`, `compileall`.
+
 ## Главные Файлы
 
 ```text

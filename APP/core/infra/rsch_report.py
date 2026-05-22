@@ -357,9 +357,6 @@ def _collect_rows_from_sheet(
         raw_expense = row_values[expense_col - 1] if expense_col and expense_col <= len(row_values) else None
         expense = _to_decimal(raw_expense)
 
-        if income == 0 and expense == 0:
-            continue
-
         account = _cell_text_from_row(row_values, col_map["account"])
         expense_comment = _cell_text_from_row(row_values, 10)
         source = _format_source_label(source_name, ws.title, row_idx)
@@ -368,6 +365,21 @@ def _collect_rows_from_sheet(
         customer_right = _cell_text_from_row(row_values, col_map["project_right"])
         contractor_left = _cell_text_from_row(row_values, col_map["contractor_left"])
         contractor_right = _cell_text_from_row(row_values, col_map["contractor_right"])
+        has_business_text = any(
+            (
+                expense_comment,
+                customer_left,
+                customer_right,
+                contractor_left,
+                contractor_right,
+            )
+        )
+        if (
+            income == 0
+            and expense == 0
+            and not has_business_text
+        ):
+            continue
 
         if income != 0 and expense != 0:
             rows.append(
@@ -424,6 +436,25 @@ def _collect_rows_from_sheet(
                     expense_comment,
                     Decimal("0"),
                     expense,
+                )
+            )
+        else:
+            rows.append(
+                _build_row(
+                    row_date,
+                    executor,
+                    account,
+                    source,
+                    source_path,
+                    ws.title,
+                    row_idx,
+                    customer_left,
+                    customer_right,
+                    contractor_left,
+                    contractor_right,
+                    expense_comment,
+                    Decimal("0"),
+                    Decimal("0"),
                 )
             )
 
