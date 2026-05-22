@@ -1231,6 +1231,14 @@ def build_rsch_report(
             "РСЧ: обнаружены проблемы в листах (%s). Сборка продолжена по валидным листам.",
             len(issues),
         )
+        if not rows:
+            preview = "; ".join(issues[:3])
+            if len(issues) > 3:
+                preview += " ..."
+            raise RuntimeError(
+                "РСЧ: не удалось собрать строки из выбранных файлов. "
+                f"Проблемы: {preview}"
+            )
 
     use_period = start_date is not None and end_date is not None
     wb_out = Workbook()
