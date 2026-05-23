@@ -8,6 +8,7 @@ from core.ui.ui_sidebar import Sidebar
 from core.ui.ui_employee_table import EmployeeTable
 from core.ui.ui_stats_panel import StatsPanel
 from core.ui.ui_log_panel import LogPanel
+from core.ui.ui_dashboard import DashboardTabs
 from core.ui.theme import ThemeManager
 from core.infra import ConfigController, setup_gui_logging, open_path
 from core.app_controller import AppController
@@ -76,6 +77,7 @@ class GuiMaster:
             self.sidebar,
             self.employee_table,
             self.stats_panel,
+            self.dashboard_tabs,
         )
 
         self.root.after(100, self.commands.refresh_status)
@@ -93,8 +95,18 @@ class GuiMaster:
         self.log_panel = LogPanel(self.sidebar, self)
         self.log_panel.pack(fill=tk.BOTH, expand=True)
 
-        self.employee_table = EmployeeTable(self.main_area, self)
+        self.notebook = ttk.Notebook(self.main_area)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        self.dashboard_tabs = DashboardTabs(
+            self.notebook,
+            self,
+            self.config_controller,
+        )
+
+        self.employee_table = EmployeeTable(self.dashboard_tabs.employees_tab, self)
         self.employee_table.pack(fill=tk.BOTH, expand=True)
+        self.dashboard_tabs.refresh()
 
     def _on_employee_vm_update(self):
         self.root.after(0, self.commands._sync_employee_ui)
@@ -113,12 +125,14 @@ class GuiMaster:
 
             if ok:
                 logging.info(f"Успешно: {msg}")
+                self.dashboard_tabs.record_result("Master", ok, msg, path)
                 if path and messagebox.askyesno(
                     "Успех", "Консолидация завершена. Открыть файл?"
                 ):
                     open_path(str(path))
             else:
                 logging.error(f"Ошибка: {msg}")
+                self.dashboard_tabs.record_result("Master", ok, msg, path)
                 messagebox.showerror("Ошибка", msg)
 
         self.root.after(0, fin)

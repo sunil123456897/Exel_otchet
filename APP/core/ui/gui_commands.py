@@ -19,6 +19,7 @@ class GuiCommands:
         sidebar,
         employee_table,
         stats_panel,
+        dashboard_tabs=None,
     ):
         self.root = root
         self.config_controller = config_controller
@@ -28,6 +29,7 @@ class GuiCommands:
         self.sidebar = sidebar
         self.employee_table = employee_table
         self.stats_panel = stats_panel
+        self.dashboard_tabs = dashboard_tabs
         self._apply_saved_rsch_mode()
 
     def refresh_status(self):
@@ -556,18 +558,21 @@ class GuiCommands:
         )
         self.stats_panel.set_progress(self.employee_vm.get_progress_percent())
         self.sidebar.set_refresh_state("normal")
+        self._refresh_dashboard()
 
     def _on_rsch_complete(self, ok: bool, msg: str, path: Optional[Path]):
         def fin():
             self.sidebar.set_rsch_state("normal")
             if ok:
                 logging.info(f"Успешно: {msg}")
+                self._record_dashboard_result("РСЧ", ok, msg, path)
                 if path and messagebox.askyesno(
                     "Успех", "РСЧ отчет собран. Открыть файл?"
                 ):
                     open_path(str(path))
             else:
                 logging.error(f"Ошибка: {msg}")
+                self._record_dashboard_result("РСЧ", ok, msg, path)
                 messagebox.showerror("Ошибка", msg)
 
         self.root.after(0, fin)
@@ -582,12 +587,14 @@ class GuiCommands:
             self.sidebar.set_rsch_state("normal")
             if ok:
                 logging.info(f"Успешно: {msg}")
+                self._record_dashboard_result("РСЧ период", ok, msg, output_dir)
                 if output_dir and messagebox.askyesno(
                     "Успех", "РСЧ отчеты собраны. Открыть папку?"
                 ):
                     open_path(str(output_dir))
             else:
                 logging.error(f"Ошибка: {msg}")
+                self._record_dashboard_result("РСЧ период", ok, msg, output_dir)
                 messagebox.showerror("Ошибка", msg)
 
         self.root.after(0, fin)
@@ -602,12 +609,14 @@ class GuiCommands:
             self.sidebar.set_reconciliation_state("normal")
             if ok:
                 logging.info(f"Успешно: {msg}")
+                self._record_dashboard_result("Автосверка", ok, msg, path)
                 if path and messagebox.askyesno(
                     "Успех", "Автоматический отчет расхождений собран. Открыть файл?"
                 ):
                     open_path(str(path))
             else:
                 logging.error(f"Ошибка: {msg}")
+                self._record_dashboard_result("Автосверка", ok, msg, path)
                 messagebox.showerror("Ошибка", msg)
 
         self.root.after(0, fin)
@@ -622,12 +631,28 @@ class GuiCommands:
             self.sidebar.set_reconciliation_state("normal")
             if ok:
                 logging.info(f"Успешно: {msg}")
+                self._record_dashboard_result("Сверка", ok, msg, path)
                 if path and messagebox.askyesno(
                     "Успех", "Отчет расхождений собран. Открыть файл?"
                 ):
                     open_path(str(path))
             else:
                 logging.error(f"Ошибка: {msg}")
+                self._record_dashboard_result("Сверка", ok, msg, path)
                 messagebox.showerror("Ошибка", msg)
 
         self.root.after(0, fin)
+
+    def _refresh_dashboard(self) -> None:
+        if self.dashboard_tabs is not None:
+            self.dashboard_tabs.refresh()
+
+    def _record_dashboard_result(
+        self,
+        label: str,
+        ok: bool,
+        msg: str,
+        path: Optional[Path],
+    ) -> None:
+        if self.dashboard_tabs is not None:
+            self.dashboard_tabs.record_result(label, ok, msg, path)

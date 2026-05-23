@@ -36,6 +36,14 @@ def test_gui_init(gui_app):
     assert "Master-Report" in gui_app.root.title()
     assert gui_app.employee_vm is not None
     assert gui_app.consolidation_vm is not None
+    assert [gui_app.notebook.tab(tab_id, "text") for tab_id in gui_app.notebook.tabs()] == [
+        "Главная",
+        "Сотрудники",
+        "Отчеты",
+        "Диагностика",
+        "Логи",
+        "Настройки",
+    ]
 
 
 def test_fit_window_geometry_caps_size_to_screen():
