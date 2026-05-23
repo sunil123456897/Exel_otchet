@@ -943,6 +943,10 @@ class AppController:
                     issues_sink=issues,
                     drive_letters=self._get_network_drive_letters(),
                 )
+                if written_rows == 0:
+                    if output_path.exists():
+                        output_path.unlink()
+                    raise ValueError("РСЧ: нет строк за выбранную дату")
 
                 if issues:
                     msg = (
@@ -994,6 +998,10 @@ class AppController:
                     issues_sink=issues,
                     drive_letters=self._get_network_drive_letters(),
                 )
+                if written_rows == 0:
+                    if output_path.exists():
+                        output_path.unlink()
+                    raise ValueError("РСЧ: нет строк за выбранный период")
 
                 if issues:
                     msg = (
@@ -1056,6 +1064,9 @@ class AppController:
                         output_path.unlink()
                     current += timedelta(days=1)
 
+                if files_written == 0:
+                    raise ValueError("РСЧ: нет строк за выбранный период")
+
                 if issues:
                     msg = (
                         f"РСЧ отчеты за период собраны: {files_written} файлов, {total_rows} строк. "
@@ -1101,17 +1112,23 @@ class AppController:
                 total_rows = 0
                 issues: List[str] = []
                 for src, out in zip(normalized_sources, normalized_outputs, strict=True):
-                    total_rows += build_rsch_report(
+                    written_rows = build_rsch_report(
                         src,
                         out,
                         target_date=target_date,
                         issues_sink=issues,
                         drive_letters=self._get_network_drive_letters(),
                     )
+                    if written_rows:
+                        total_rows += written_rows
+                    elif out.exists():
+                        out.unlink()
 
                 output_dir = (
                     normalized_outputs[0].parent if normalized_outputs else None
                 )
+                if total_rows == 0:
+                    raise ValueError("РСЧ: нет строк за выбранную дату")
 
                 if issues:
                     msg = (
