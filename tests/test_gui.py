@@ -37,13 +37,14 @@ def test_gui_init(gui_app):
     assert gui_app.employee_vm is not None
     assert gui_app.consolidation_vm is not None
     assert [gui_app.notebook.tab(tab_id, "text") for tab_id in gui_app.notebook.tabs()] == [
-        "Главная",
         "Сотрудники",
+        "Панель",
         "Отчеты",
         "Диагностика",
         "Логи",
         "Настройки",
     ]
+    assert gui_app.notebook.tab(gui_app.notebook.select(), "text") == "Сотрудники"
 
 
 def test_fit_window_geometry_caps_size_to_screen():

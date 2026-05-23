@@ -37,12 +37,13 @@ class DashboardTabs:
         self.logs_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
         self.settings_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
 
-        notebook.add(self.home_tab, text="Главная")
         notebook.add(self.employees_tab, text="Сотрудники")
+        notebook.add(self.home_tab, text="Панель")
         notebook.add(self.reports_tab, text="Отчеты")
         notebook.add(self.diagnostics_tab, text="Диагностика")
         notebook.add(self.logs_tab, text="Логи")
         notebook.add(self.settings_tab, text="Настройки")
+        notebook.select(self.employees_tab)
 
         self._setup_home()
         self._setup_reports()
