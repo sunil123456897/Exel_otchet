@@ -257,6 +257,7 @@ def apply_cell_styling(
                     st,
                     warning_target_col,
                     warning_info.get("kind") if warning_info else None,
+                    is_math_err,
                 )
             else:
                 _apply_non_numeric_warning_fill(
@@ -281,15 +282,16 @@ def format_numeric_cell(
     st: ExcelStyles,
     warning_target_col=None,
     warning_kind=None,
+    is_math_err=False,
 ):
     val = cell.value or 0
 
     if c_idx == cols["приход"] and isinstance(val, (int, float)) and val > 0.01:
-        if not is_critical:
+        if not is_critical and not is_math_err:
             cell.fill = st.fill_income
         cell.font = st.font_income
     elif c_idx == cols["расход"] and isinstance(val, (int, float)) and abs(val) > 0.01:
-        if not is_critical:
+        if not is_critical and not is_math_err:
             cell.fill = st.fill_expense
         cell.font = st.font_expense
 

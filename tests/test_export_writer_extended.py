@@ -1041,6 +1041,25 @@ class TestEdgeCases:
         assert source_cell.value == "total_only.xlsx : 7"
         assert "FFFF00" in str(source_cell.fill.start_color.rgb or "")
 
+    def test_money_cells_keep_yellow_fill_for_math_error(self, master_writer):
+        rows = [
+            {
+                "Источник": "math_error.xlsx : 8",
+                "сумма платежа ПРИХОД": 1000,
+                "сумма платежа РАСХОД": 0,
+                "комиссия": 0,
+                "ИТОГ": 1,
+                "фильтры": "",
+            }
+        ]
+        wb = Workbook()
+        master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        ws = wb["01.04.2026"]
+
+        income_cell = ws.cell(2, 4)
+        assert income_cell.value == 1000
+        assert "FFFF00" in str(income_cell.fill.start_color.rgb or "")
+
     def test_return_row_not_marked_yellow_math_error(self, master_writer):
         rows = [
             {
