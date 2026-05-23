@@ -354,7 +354,28 @@ def run_report(args: argparse.Namespace) -> list[StageTiming]:
     return timings
 
 
-def print_markdown(timings: list[StageTiming]) -> None:
+def timing_to_dict(item: StageTiming) -> dict[str, Any]:
+    return {
+        "stage": item.stage,
+        "location": item.location,
+        "ok": item.ok,
+        "message": item.message,
+        "files": item.files,
+        "rows": item.rows,
+        "scan_s": item.scan_s,
+        "read_s": item.read_s,
+        "sqlite_s": item.sqlite_s,
+        "logic_s": item.logic_s,
+        "excel_s": item.excel_s,
+        "total_s": item.total_s,
+        "details": item.details,
+    }
+
+
+def timings_to_markdown(
+    timings: list[StageTiming],
+    regressions: list[dict[str, Any]] | None = None,
+) -> str:
     headers = [
         "stage",
         "location",
@@ -369,8 +390,10 @@ def print_markdown(timings: list[StageTiming]) -> None:
         "total_s",
         "message",
     ]
-    print("| " + " | ".join(headers) + " |")
-    print("|" + "|".join(["---"] * len(headers)) + "|")
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "|" + "|".join(["---"] * len(headers)) + "|",
+    ]
     for item in timings:
         values = [
             item.stage,
@@ -386,10 +409,85 @@ def print_markdown(timings: list[StageTiming]) -> None:
             f"{item.total_s:.3f}",
             item.message.replace("|", "/")[:180],
         ]
-        print("| " + " | ".join(values) + " |")
-    print("\n```json")
-    print(json.dumps([item.__dict__ for item in timings], ensure_ascii=False, indent=2))
-    print("```")
+        lines.append("| " + " | ".join(values) + " |")
+    if regressions:
+        lines.append("")
+        lines.append("## Regressions")
+        lines.append("| stage | previous_total_s | current_total_s | change |")
+        lines.append("|---|---:|---:|---:|")
+        for item in regressions:
+            lines.append(
+                "| {stage} | {previous_total_s:.3f} | {current_total_s:.3f} | {change_pct:.1f}% |".format(
+                    **item
+                )
+            )
+    lines.append("")
+    lines.append("```json")
+    lines.append(json.dumps([timing_to_dict(item) for item in timings], ensure_ascii=False, indent=2))
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def load_previous_benchmark(output_dir: Path, current_json: Path | None = None) -> list[dict[str, Any]]:
+    candidates = sorted(output_dir.glob("timing_*.json"), key=lambda path: path.stat().st_mtime)
+    if current_json is not None:
+        candidates = [path for path in candidates if path.resolve() != current_json.resolve()]
+    if not candidates:
+        return []
+    try:
+        return json.loads(candidates[-1].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def compare_with_previous(
+    timings: list[StageTiming],
+    previous: list[dict[str, Any]],
+    threshold: float,
+) -> list[dict[str, Any]]:
+    previous_by_stage = {
+        str(item.get("stage")): item
+        for item in previous
+        if isinstance(item, dict) and item.get("ok", True)
+    }
+    regressions: list[dict[str, Any]] = []
+    for item in timings:
+        if not item.ok:
+            continue
+        prev = previous_by_stage.get(item.stage)
+        if not prev:
+            continue
+        prev_total = float(prev.get("total_s") or 0)
+        if prev_total <= 0:
+            continue
+        change = (item.total_s - prev_total) / prev_total
+        if change >= threshold:
+            regressions.append(
+                {
+                    "stage": item.stage,
+                    "previous_total_s": prev_total,
+                    "current_total_s": item.total_s,
+                    "change_pct": change * 100,
+                }
+            )
+    return regressions
+
+
+def save_report(
+    timings: list[StageTiming],
+    output_dir: Path,
+    threshold: float,
+) -> tuple[Path, Path, list[dict[str, Any]]]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    json_path = output_dir / f"timing_{stamp}.json"
+    md_path = output_dir / f"timing_{stamp}.md"
+    previous = load_previous_benchmark(output_dir)
+    regressions = compare_with_previous(timings, previous, threshold)
+    payload = [timing_to_dict(item) for item in timings]
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    md_path.write_text(timings_to_markdown(timings, regressions), encoding="utf-8")
+    return md_path, json_path, regressions
 
 
 def main() -> int:
@@ -400,10 +498,22 @@ def main() -> int:
     parser.add_argument("--location", default="local")
     parser.add_argument("--timeout", type=float, default=900)
     parser.add_argument("--keep-outputs", action="store_true")
+    parser.add_argument("--output-dir", default=str(REPO_ROOT / "benchmarks"))
+    parser.add_argument("--regression-threshold", type=float, default=0.20)
+    parser.add_argument("--no-save", action="store_true")
     args = parser.parse_args()
 
     timings = run_report(args)
-    print_markdown(timings)
+    regressions: list[dict[str, Any]] = []
+    if not args.no_save:
+        md_path, json_path, regressions = save_report(
+            timings,
+            Path(args.output_dir),
+            args.regression_threshold,
+        )
+        print(f"Saved benchmark markdown: {md_path}")
+        print(f"Saved benchmark json: {json_path}")
+    print(timings_to_markdown(timings, regressions))
     return 1 if any(not item.ok for item in timings if item.stage != "qz_discovery_scan") else 0
 
 

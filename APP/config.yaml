@@ -104,3 +104,6 @@ rsch:
 
 performance:
   isolate_calamine: true
+  max_workers:
+backup:
+  excel_keep: 10

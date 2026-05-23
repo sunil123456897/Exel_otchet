@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Callable, Optional
 
+from core.app.performance import resolve_max_workers
 from core.infra import is_file_writable
 from core.infra.utils_logging import safe_file_label, scrub_path
 
@@ -331,7 +332,7 @@ def run_engine(
     processed_file_ids_lock = threading.Lock()
 
     with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(32, (os.cpu_count() or 4) * 2)
+        max_workers=resolve_max_workers(getattr(ingestion, "config", None))
     ) as executor:
         future_to_file = {}
         for emp_name, metas in employees_map.items():

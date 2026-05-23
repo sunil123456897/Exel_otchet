@@ -15,6 +15,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from python_calamine import CalamineWorkbook
 
 from core.infra.excel_hyperlinks import apply_cell_hyperlink
+from core.infra.excel_backup import backup_existing_excel_output
 from core.infra.utils import get_local_copy
 
 logger = logging.getLogger(__name__)
@@ -1276,6 +1277,7 @@ def build_rsch_report(
         )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    backup_existing_excel_output(output_path)
     wb_out.save(output_path)
     wb_template.close()
     logger.info(

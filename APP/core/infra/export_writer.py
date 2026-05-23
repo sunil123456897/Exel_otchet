@@ -7,6 +7,7 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 from core.domain import IExporter
 from core.infra import is_file_writable
+from core.infra.excel_backup import backup_existing_excel_output
 from core.infra.export_formatting import ExcelStyles
 from core.infra.export_formatting import (
     detect_header_columns,
@@ -112,6 +113,20 @@ class MasterWriter(IExporter):
         path_abs = os.path.abspath(path or self.master_path)
         Path(path_abs).parent.mkdir(parents=True, exist_ok=True)
         preflight_output_path(Path(path_abs))
+        if os.path.exists(path_abs):
+            backup_cfg = self.config.get("backup", {}) if isinstance(self.config, dict) else {}
+            paths_cfg = self.config.get("paths", {}) if isinstance(self.config, dict) else {}
+            backup_root = paths_cfg.get("archive_dir")
+            if backup_root:
+                backup_root = Path(backup_root)
+                if not backup_root.is_absolute():
+                    backup_root = self.config_dir / backup_root
+            backup_keep = int(backup_cfg.get("excel_keep", 10))
+            try:
+                backup_existing_excel_output(path_abs, backup_root, keep=backup_keep)
+            except Exception as e:
+                logger.error("Could not create backup before overwriting %s: %s", path_abs, e)
+                return False
         tmp = path_abs + ".tmp"
 
         if os.name == "nt" and len(tmp) > 250:

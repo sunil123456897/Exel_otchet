@@ -16,6 +16,7 @@ from core.app.file_processor import (
     run_engine,
     date_matches_target,
 )
+from core.app.performance import default_max_workers, resolve_max_workers
 from core.app.controller_messages import (
     build_empty_data_message as build_controller_empty_data_message,
     build_issue_preview,
@@ -26,7 +27,7 @@ from core.app.controller_messages import (
 from core.infra.reconciliation_report import build_combined_reconciliation_report
 from core.infra.rsch_report import build_rsch_report
 
-_ADAPTIVE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
+_ADAPTIVE_WORKERS = default_max_workers()
 
 
 class ConsolidationRunError(RuntimeError):
@@ -55,6 +56,9 @@ class AppController:
         self.writer = writer
 
         self.discovery = DiscoveryService(config_controller, ingestion)
+        self._max_workers = resolve_max_workers(
+            getattr(config_controller, "config", None)
+        )
         self._lock = threading.Lock()
         self._cached_employees = {}
         self._active_threads: List[threading.Thread] = []
@@ -327,7 +331,7 @@ class AppController:
             total_count = len(unique_names)
             local_data: List[tuple] = []
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=_ADAPTIVE_WORKERS) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers) as executor:
                 futures = {
                     executor.submit(
                         self._check_employee_refresh_status,

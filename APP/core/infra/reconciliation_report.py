@@ -19,6 +19,7 @@ from core.infra.excel_hyperlinks import (
     apply_cell_hyperlink,
     extract_hyperlink_formula_parts,
 )
+from core.infra.excel_backup import backup_existing_excel_output
 from core.infra.utils import get_local_copy
 
 MASTER_HEADERS = [
@@ -1181,6 +1182,7 @@ def build_reconciliation_report(
             )
             wb_out = _build_workbook(effective_date, rows, master_headers)
             output_path.parent.mkdir(parents=True, exist_ok=True)
+            backup_existing_excel_output(output_path)
             wb_out.save(output_path)
             return len(rows)
         finally:
@@ -1261,6 +1263,7 @@ def build_combined_reconciliation_report(
                 counts[sheet_name] = len(rows)
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
+            backup_existing_excel_output(output_path)
             wb_out.save(output_path)
             return counts
         finally:

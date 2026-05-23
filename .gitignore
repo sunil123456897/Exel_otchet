@@ -23,6 +23,8 @@ docs/maestro/state/active-session.md
 docs/maestro/.workspace-root
 temp_destructive_env/
 benchmark_*.xlsx
+benchmarks/
+backups/
 ultra_large_*.xlsx
 Version5.rar
 .cleanup_quarantine/
@@ -46,4 +48,3 @@ APP/output/*_suppressed.xlsx
 **/Отчет_расхождений_*.xlsx
 **/Отчёт_расхождений_*.xlsx
 **/!*.xlsx
-
