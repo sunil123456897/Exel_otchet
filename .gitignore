@@ -13,6 +13,7 @@ APP/DEEP_AUDIT_REPORT.txt
 APP/DEEP_AUDIT_REPORT.txt.1
 APP/src/consolidation.log
 APP/cache.db
+APP/runtime_state.json
 APP/*.log
 *.log
 startup_log.txt

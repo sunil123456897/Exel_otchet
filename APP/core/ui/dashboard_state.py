@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -32,6 +33,13 @@ class RuntimeResult:
     path: Path | None = None
     rows: int | None = None
     created_at: datetime | None = None
+
+
+STATUS_MARKERS = {
+    "ok": "✅ OK",
+    "warning": "⚠️ Внимание",
+    "error": "❌ Ошибка",
+}
 
 
 def format_file_size(path: Path | None) -> str:
@@ -97,6 +105,121 @@ def safe_open_existing_path(
 
     opener(str(resolved))
     return True
+
+
+def status_text(status: str) -> str:
+    return STATUS_MARKERS.get(status, f"❌ {status}")
+
+
+def load_runtime_results(state_path: Path | str) -> list[RuntimeResult]:
+    path = Path(state_path)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    results: list[RuntimeResult] = []
+    for item in raw[:10]:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        message = str(item.get("message") or "").strip()
+        if not label or not message:
+            continue
+        created_at = None
+        raw_created = item.get("created_at")
+        if isinstance(raw_created, str) and raw_created:
+            try:
+                created_at = datetime.fromisoformat(raw_created)
+            except ValueError:
+                created_at = None
+        raw_path = item.get("path")
+        raw_rows = item.get("rows")
+        rows = raw_rows if isinstance(raw_rows, int) else None
+        results.append(
+            RuntimeResult(
+                label=label,
+                ok=bool(item.get("ok")),
+                message=message,
+                path=Path(str(raw_path)) if raw_path else None,
+                rows=rows,
+                created_at=created_at,
+            )
+        )
+    return results
+
+
+def save_runtime_results(
+    state_path: Path | str,
+    results: Iterable[RuntimeResult],
+) -> None:
+    path = Path(state_path)
+    payload = []
+    for result in list(results)[:10]:
+        payload.append(
+            {
+                "label": result.label,
+                "ok": result.ok,
+                "message": result.message,
+                "path": str(result.path) if result.path else "",
+                "rows": result.rows,
+                "created_at": result.created_at.isoformat()
+                if result.created_at
+                else "",
+            }
+        )
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+
+
+def build_diagnostic_summary(
+    diagnostics: Iterable[DiagnosticItem | tuple[str, str, str, Path | None]],
+    results: Iterable[RuntimeResult],
+    log_errors: Iterable[str],
+) -> str:
+    lines = ["Диагностика Master-Report", ""]
+    lines.append("Система:")
+    for item in diagnostics:
+        if isinstance(item, DiagnosticItem):
+            label = item.label
+            state = status_text(item.status)
+            detail = item.detail
+            path = item.path
+        else:
+            label, state, detail, path = item
+        suffix = f" | {path}" if path else ""
+        lines.append(f"- {label}: {state} | {detail}{suffix}")
+
+    lines.extend(["", "Последние результаты:"])
+    result_list = list(results)
+    if result_list:
+        for result in result_list[:10]:
+            state = "✅ успех" if result.ok else "❌ ошибка"
+            time_text = (
+                result.created_at.strftime("%d.%m.%Y %H:%M")
+                if result.created_at
+                else "-"
+            )
+            path_text = f" | {result.path}" if result.path else ""
+            lines.append(f"- {time_text} | {result.label}: {state} | {result.message}{path_text}")
+    else:
+        lines.append("- нет сохраненных результатов")
+
+    lines.extend(["", "Последние ошибки логов:"])
+    errors = list(log_errors)
+    if errors:
+        lines.extend(f"- {line}" for line in errors)
+    else:
+        lines.append("- не найдены")
+    return "\n".join(lines)
 
 
 def describe_path(label: str, path: Path | str | None, kind: str = "file") -> PathInfo:
@@ -221,7 +344,11 @@ def read_recent_log_errors(log_paths: Iterable[Path | str], limit: int = 5) -> l
     return lines[-limit:]
 
 
-def run_light_diagnostics(config_controller, app_root: Path | None = None) -> list[DiagnosticItem]:
+def run_light_diagnostics(
+    config_controller,
+    app_root: Path | None = None,
+    include_network: bool = True,
+) -> list[DiagnosticItem]:
     cfg = _config(config_controller)
     app_root = app_root or Path(getattr(config_controller, "config_path", ".")).parent
     repo_root = app_root.parent
@@ -247,51 +374,69 @@ def run_light_diagnostics(config_controller, app_root: Path | None = None) -> li
         _path_diagnostic("employees.yaml", employees_path, require_file=True),
         _writable_diagnostic("cache.db", db_path),
         _writable_diagnostic("Master output", master_path.parent if master_path else None, require_dir=True),
-        _path_diagnostic("Backup folder", backup_path, require_file=False),
+        _path_diagnostic(
+            "Backup folder",
+            backup_path,
+            require_file=False,
+            missing_status="warning",
+        ),
         _path_diagnostic("Logs", repo_root / "startup_log.txt", require_file=True),
-        _path_diagnostic("Benchmarks", repo_root / "benchmarks", require_file=False),
+        _path_diagnostic(
+            "Benchmarks",
+            repo_root / "benchmarks",
+            require_file=False,
+            missing_status="warning",
+        ),
     ]
 
-    source_roots = paths_cfg.get("source_roots") or [paths_cfg.get("source_root")]
-    for raw in source_roots:
-        if not raw:
-            continue
-        path = Path(str(raw))
-        diagnostics.append(
-            DiagnosticItem(
-                str(raw),
-                "ok" if path.exists() else "warning",
-                "доступен" if path.exists() else "не найден или недоступен",
-                path,
+    if include_network:
+        source_roots = paths_cfg.get("source_roots") or [paths_cfg.get("source_root")]
+        for raw in source_roots:
+            if not raw:
+                continue
+            path = Path(str(raw))
+            diagnostics.append(
+                DiagnosticItem(
+                    str(raw),
+                    "ok" if path.exists() else "warning",
+                    "доступен" if path.exists() else "не найден или недоступен",
+                    path,
+                )
             )
-        )
 
-    for raw_letter in network_cfg.get("drive_letters", []):
-        letter = str(raw_letter).strip().rstrip(":\\/")
-        if not letter:
-            continue
-        root = Path(f"{letter}:\\")
-        label = f"{letter}:\\"
-        if any(item.label == label for item in diagnostics):
-            continue
-        diagnostics.append(
-            DiagnosticItem(
-                label,
-                "ok" if root.exists() else "warning",
-                "доступен" if root.exists() else "не найден или недоступен",
-                root,
+        for raw_letter in network_cfg.get("drive_letters", []):
+            letter = str(raw_letter).strip().rstrip(":\\/")
+            if not letter:
+                continue
+            root = Path(f"{letter}:\\")
+            label = f"{letter}:\\"
+            if any(item.label == label for item in diagnostics):
+                continue
+            diagnostics.append(
+                DiagnosticItem(
+                    label,
+                    "ok" if root.exists() else "warning",
+                    "доступен" if root.exists() else "не найден или недоступен",
+                    root,
+                )
             )
-        )
     return diagnostics
 
 
-def _path_diagnostic(label: str, path: Path | None, require_file: bool) -> DiagnosticItem:
+def _path_diagnostic(
+    label: str,
+    path: Path | None,
+    require_file: bool,
+    missing_status: str | None = None,
+) -> DiagnosticItem:
     if not path:
         return DiagnosticItem(label, "error", "путь не задан", None)
     exists = path.is_file() if require_file else path.exists()
+    if missing_status is None:
+        missing_status = "error" if require_file else "warning"
     return DiagnosticItem(
         label,
-        "ok" if exists else "error" if require_file else "warning",
+        "ok" if exists else missing_status,
         "найден" if exists else "не найден",
         path,
     )

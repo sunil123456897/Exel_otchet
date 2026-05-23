@@ -6,11 +6,15 @@ from tkinter import messagebox, ttk
 from core.infra import open_path
 from core.ui.dashboard_state import (
     RuntimeResult,
+    build_diagnostic_summary,
     collect_report_paths,
     collect_settings_lines,
+    load_runtime_results,
     read_recent_log_errors,
     run_light_diagnostics,
     safe_open_existing_path,
+    save_runtime_results,
+    status_text,
 )
 
 
@@ -21,7 +25,10 @@ class DashboardTabs:
         self.config_controller = config_controller
         self.app_root = Path(getattr(config_controller, "config_path", "APP/config.yaml")).parent
         self.repo_root = self.app_root.parent
-        self._last_results: list[RuntimeResult] = []
+        self.runtime_state_path = self.app_root / "runtime_state.json"
+        self._last_results: list[RuntimeResult] = load_runtime_results(
+            self.runtime_state_path
+        )
 
         self.home_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
         self.employees_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
@@ -48,6 +55,29 @@ class DashboardTabs:
         summary_frame.pack(fill=tk.X, pady=(0, 8))
         self.state_label = ttk.Label(summary_frame, text="", justify=tk.LEFT)
         self.state_label.pack(fill=tk.X)
+
+        quick_frame = ttk.LabelFrame(self.home_tab, text="Быстрые действия", padding=8)
+        quick_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Button(
+            quick_frame,
+            text="Открыть последний Master",
+            command=lambda: self._open_report_by_label("Master_Report.xlsx"),
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            quick_frame,
+            text="Открыть последнюю сверку",
+            command=lambda: self._open_report_by_label("Последняя сверка"),
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(
+            quick_frame,
+            text="Открыть backup",
+            command=self._open_backup_folder,
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(
+            quick_frame,
+            text="Открыть логи",
+            command=lambda: self._open_path(self.repo_root),
+        ).pack(side=tk.LEFT, padx=(6, 0))
 
         last_frame = ttk.LabelFrame(self.home_tab, text="Последние результаты", padding=8)
         last_frame.pack(fill=tk.BOTH, expand=True)
@@ -111,6 +141,11 @@ class DashboardTabs:
             command=self.run_diagnostics,
             style="Action.TButton",
         ).pack(side=tk.LEFT)
+        ttk.Button(
+            action_frame,
+            text="Скопировать диагностику",
+            command=self.copy_diagnostics,
+        ).pack(side=tk.LEFT, padx=(6, 0))
 
         self.diagnostics_tree = ttk.Treeview(
             self.diagnostics_tab,
@@ -182,12 +217,28 @@ class DashboardTabs:
                 tk.END,
                 values=(
                     item.label,
-                    self._status_text(item.status),
+                    status_text(item.status),
                     item.detail,
                     str(item.path) if item.path else "",
                 ),
             )
         self._refresh_home()
+
+    def copy_diagnostics(self) -> None:
+        diagnostics = run_light_diagnostics(
+            self.config_controller,
+            self.app_root,
+            include_network=False,
+        )
+        log_errors = self._recent_log_errors()
+        summary = build_diagnostic_summary(
+            diagnostics,
+            self._last_results,
+            log_errors,
+        )
+        self.notebook.clipboard_clear()
+        self.notebook.clipboard_append(summary)
+        messagebox.showinfo("Диагностика", "Диагностика скопирована в буфер обмена")
 
     def record_result(
         self,
@@ -202,6 +253,7 @@ class DashboardTabs:
             RuntimeResult(label, ok, message, path, rows, datetime.now()),
         )
         self._last_results = self._last_results[:10]
+        save_runtime_results(self.runtime_state_path, self._last_results)
         self.refresh()
 
     def _refresh_reports(self) -> None:
@@ -214,7 +266,7 @@ class DashboardTabs:
                 tk.END,
                 values=(
                     item.label,
-                    status,
+                    f"✅ {status}" if item.exists else f"⚠️ {status}",
                     item.mtime,
                     item.size,
                     str(item.path) if item.path else "",
@@ -247,7 +299,7 @@ class DashboardTabs:
                 tk.END,
                 values=(
                     result.label,
-                    "успех" if result.ok else "ошибка",
+                    "✅ успех" if result.ok else "❌ ошибка",
                     time_text,
                     str(result.path) if result.path else "",
                     message,
@@ -255,9 +307,7 @@ class DashboardTabs:
             )
 
     def _refresh_logs(self) -> None:
-        errors = read_recent_log_errors(
-            [self.repo_root / "startup_log.txt", self.repo_root / "gui_error_log.txt"]
-        )
+        errors = self._recent_log_errors()
         self.log_errors.configure(state="normal")
         self.log_errors.delete("1.0", tk.END)
         if errors:
@@ -312,16 +362,20 @@ class DashboardTabs:
                 return
         self._show_missing("Backup-папка не настроена")
 
+    def _open_report_by_label(self, label: str) -> None:
+        for item in collect_report_paths(self.config_controller, self.app_root):
+            if item.label == label:
+                self._open_path(item.path)
+                return
+        self._show_missing(f"Путь не найден: {label}")
+
+    def _recent_log_errors(self) -> list[str]:
+        return read_recent_log_errors(
+            [self.repo_root / "startup_log.txt", self.repo_root / "gui_error_log.txt"]
+        )
+
     def _open_path(self, path: Path | None) -> None:
         safe_open_existing_path(path, open_path, self._show_missing)
 
     def _show_missing(self, message: str) -> None:
         messagebox.showwarning("Путь не найден", message)
-
-    @staticmethod
-    def _status_text(status: str) -> str:
-        if status == "ok":
-            return "OK"
-        if status == "warning":
-            return "Внимание"
-        return "Ошибка"

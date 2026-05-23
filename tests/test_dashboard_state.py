@@ -3,11 +3,15 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from core.ui.dashboard_state import (
+    RuntimeResult,
+    build_diagnostic_summary,
     format_file_size,
     format_mtime,
     find_latest_file,
+    load_runtime_results,
     run_light_diagnostics,
     safe_open_existing_path,
+    save_runtime_results,
 )
 
 
@@ -78,3 +82,94 @@ def test_run_light_diagnostics_marks_missing_config_path(tmp_path: Path) -> None
     assert by_label["employees.yaml"].status == "ok"
     assert by_label["cache.db"].status in {"ok", "warning"}
     assert by_label["Q:/missing"].status == "warning"
+
+
+def test_run_light_diagnostics_can_skip_network_paths(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    employees_path = tmp_path / "employees.yaml"
+    config_path.write_text("{}", encoding="utf-8")
+    employees_path.write_text("{}", encoding="utf-8")
+    controller = DummyConfigController(
+        config_path,
+        employees_path,
+        {
+            "paths": {"source_roots": ["Q:/missing"]},
+            "network": {"drive_letters": ["Q"]},
+        },
+    )
+
+    diagnostics = run_light_diagnostics(controller, tmp_path, include_network=False)
+
+    labels = {item.label for item in diagnostics}
+    assert "Q:/missing" not in labels
+    assert "Q:\\" not in labels
+
+
+def test_runtime_state_round_trip_keeps_latest_ten(tmp_path: Path) -> None:
+    state_path = tmp_path / "runtime_state.json"
+    results = [
+        RuntimeResult("Master", True, f"ok {idx}", tmp_path / f"{idx}.xlsx")
+        for idx in range(12)
+    ]
+
+    save_runtime_results(state_path, results)
+    loaded = load_runtime_results(state_path)
+
+    assert len(loaded) == 10
+    assert loaded[0].message == "ok 0"
+    assert loaded[-1].message == "ok 9"
+    assert loaded[0].path == tmp_path / "0.xlsx"
+
+
+def test_runtime_state_ignores_broken_json(tmp_path: Path) -> None:
+    state_path = tmp_path / "runtime_state.json"
+    state_path.write_text("{broken", encoding="utf-8")
+
+    assert load_runtime_results(state_path) == []
+
+
+def test_build_diagnostic_summary_contains_key_sections(tmp_path: Path) -> None:
+    diagnostics = [
+        RuntimeResult("Master", True, "готово", tmp_path / "Master_Report.xlsx")
+    ]
+    log_path = tmp_path / "startup_log.txt"
+    log_path.write_text("2026 ERROR bad file", encoding="utf-8")
+
+    summary = build_diagnostic_summary(
+        [
+            ("Python", "✅ OK", "3.12", Path("python.exe")),
+            (".venv", "⚠️ Внимание", "degraded", Path("C:/Python")),
+            ("Q:\\", "⚠️ Внимание", "не найден или недоступен", Path("Q:/")),
+        ],
+        diagnostics,
+        ["2026 ERROR bad file"],
+    )
+
+    assert "Python" in summary
+    assert ".venv" in summary
+    assert "Q:\\" in summary
+    assert "Master" in summary
+    assert "2026 ERROR bad file" in summary
+
+
+def test_missing_backup_and_benchmark_are_non_critical(tmp_path: Path) -> None:
+    config_path = tmp_path / "APP" / "config.yaml"
+    employees_path = tmp_path / "APP" / "employees.yaml"
+    config_path.parent.mkdir()
+    config_path.write_text("{}", encoding="utf-8")
+    employees_path.write_text("{}", encoding="utf-8")
+    (tmp_path / "Master_Report.xlsx").write_text("x", encoding="utf-8")
+    controller = DummyConfigController(
+        config_path,
+        employees_path,
+        {
+            "paths": {"master_file": "../Master_Report.xlsx", "archive_dir": "../backups"},
+            "database": {"path": "cache.db"},
+        },
+    )
+
+    diagnostics = run_light_diagnostics(controller, config_path.parent)
+    by_label = {item.label: item for item in diagnostics}
+
+    assert by_label["Backup folder"].status == "warning"
+    assert by_label["Benchmarks"].status == "warning"
