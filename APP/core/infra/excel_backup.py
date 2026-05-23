@@ -6,6 +6,14 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def resolve_excel_backup_keep(value, default: int = 10) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, parsed)
+
+
 def backup_existing_excel_output(
     output_path: Path | str,
     backup_root: Path | str | None = None,

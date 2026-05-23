@@ -7,7 +7,7 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 from core.domain import IExporter
 from core.infra import is_file_writable
-from core.infra.excel_backup import backup_existing_excel_output
+from core.infra.excel_backup import backup_existing_excel_output, resolve_excel_backup_keep
 from core.infra.export_formatting import ExcelStyles
 from core.infra.export_formatting import (
     detect_header_columns,
@@ -121,7 +121,7 @@ class MasterWriter(IExporter):
                 backup_root = Path(backup_root)
                 if not backup_root.is_absolute():
                     backup_root = self.config_dir / backup_root
-            backup_keep = int(backup_cfg.get("excel_keep", 10))
+            backup_keep = resolve_excel_backup_keep(backup_cfg.get("excel_keep"))
             try:
                 backup_existing_excel_output(path_abs, backup_root, keep=backup_keep)
             except Exception as e:
