@@ -29,6 +29,12 @@ from core.infra.rsch_report import build_rsch_report
 _ADAPTIVE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
 
 
+class ConsolidationRunError(RuntimeError):
+    def __init__(self, message: str, code: str = "failed") -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class AppController:
     """Main orchestrator — coordinates file discovery, ingestion, and export."""
 
@@ -447,6 +453,7 @@ class AppController:
         session_type: str,
         use_fresh_employees: bool,
         curator: Optional[str] = None,
+        on_failure_code: Optional[Callable[[str], None]] = None,
     ) -> None:
         session_id = str(uuid.uuid4())
         try:
@@ -459,6 +466,8 @@ class AppController:
                 )
             )
             if date_error:
+                if callable(on_failure_code):
+                    on_failure_code("invalid_date")
                 on_complete(False, date_error, None)
                 return
 
@@ -478,6 +487,8 @@ class AppController:
             )
             if not employees_map:
                 self.persistence.update_session_status(session_id, "failed")
+                if callable(on_failure_code):
+                    on_failure_code("no_files")
                 on_complete(False, self._build_no_files_message(), None)
                 return
 
@@ -499,6 +510,8 @@ class AppController:
                 on_file_error=collect_file_errors,
             ):
                 self.persistence.update_session_status(session_id, "failed")
+                if callable(on_failure_code):
+                    on_failure_code("no_files")
                 on_complete(False, self._build_no_files_message(), None)
                 return
 
@@ -512,6 +525,8 @@ class AppController:
 
             if not consolidated_data:
                 self.persistence.update_session_status(session_id, "failed")
+                if callable(on_failure_code):
+                    on_failure_code("empty_data")
                 on_complete(
                     False,
                     self._build_empty_data_message(
@@ -535,6 +550,8 @@ class AppController:
 
             if not self.writer.write_report(consolidated_data, master_path, **write_kwargs):
                 self.persistence.update_session_status(session_id, "failed")
+                if callable(on_failure_code):
+                    on_failure_code("write_error")
                 on_complete(False, "Ошибка записи основного отчёта", None)
                 return
 
@@ -565,6 +582,8 @@ class AppController:
         except Exception as e:
             logging.error(f"Error: {e}")
             self.persistence.update_session_status(session_id, "failed")
+            if callable(on_failure_code):
+                on_failure_code("exception")
             on_complete(False, str(e), None)
 
     def refresh_status(
@@ -711,6 +730,9 @@ class AppController:
             result["msg"] = msg
             result["path"] = path
 
+        def on_failure_code(code: str) -> None:
+            result["code"] = code
+
         self._execute_consolidation(
             lambda _progress: None,
             on_complete,
@@ -720,18 +742,18 @@ class AppController:
             session_type,
             False,
             curator,
+            on_failure_code=on_failure_code,
         )
 
         if not result.get("ok"):
-            raise RuntimeError(str(result.get("msg") or "Не удалось собрать отчет"))
+            raise ConsolidationRunError(
+                str(result.get("msg") or "Не удалось собрать отчет"),
+                str(result.get("code") or "failed"),
+            )
         path = result.get("path")
         if path is None:
             raise RuntimeError("Отчет собран, но путь к файлу не получен")
         return Path(path)
-
-    @staticmethod
-    def _is_empty_daily_data_error(error: Exception) -> bool:
-        return str(error).strip() == "Нет данных за дату"
 
     def _write_empty_auto_reconciliation_report(self, curator: str, target_date) -> Path:
         curator_config = self._get_curator_config(curator)
@@ -741,28 +763,16 @@ class AppController:
             raise RuntimeError(f"Файл отчета {curator} занят в Excel! Закройте его и повторите.")
 
         output_path = self._resolve_report_path(curator_config)
-        workbook_factory = getattr(self.writer, "_get_workbook", None)
-        write_daily_data = getattr(self.writer, "write_daily_data", None)
-        save_workbook = getattr(self.writer, "_save_workbook", None)
-        if not (
-            callable(workbook_factory)
-            and callable(write_daily_data)
-            and callable(save_workbook)
-        ):
+        write_empty_report = getattr(self.writer, "write_empty_daily_report", None)
+        if not callable(write_empty_report):
             raise RuntimeError("Экспортер не поддерживает пустой отчет для автосверки")
 
-        wb = workbook_factory(path=str(output_path))
-        if wb is None:
-            raise RuntimeError(f"Не удалось открыть отчет куратора {curator}: {output_path}")
-        headers = curator_config.get("headers") if isinstance(curator_config, dict) else None
-        write_daily_data(
+        if not write_empty_report(
+            output_path,
             target_date,
-            [],
-            wb=wb,
             curator=curator,
-            headers=headers,
-        )
-        if not save_workbook(wb, path=str(output_path)):
+            curator_config=curator_config,
+        ):
             raise RuntimeError(f"Ошибка записи пустого отчета куратора {curator}")
         return output_path
 
@@ -782,9 +792,11 @@ class AppController:
                 session_type="daily",
                 curator=curator,
             )
-        except RuntimeError as exc:
-            if curator and self._is_empty_daily_data_error(exc):
+        except ConsolidationRunError as exc:
+            if curator and exc.code == "empty_data":
                 return self._write_empty_auto_reconciliation_report(curator, target_date)
+            raise RuntimeError(f"{label}: {exc}") from exc
+        except RuntimeError as exc:
             raise RuntimeError(f"{label}: {exc}") from exc
 
     def run_auto_reconciliation_day(

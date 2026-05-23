@@ -3,7 +3,7 @@ import threading
 import os
 from unittest.mock import MagicMock, patch
 from openpyxl import load_workbook
-from core.app_controller import AppController
+from core.app_controller import AppController, ConsolidationRunError
 from core.infra.export_writer import MasterWriter
 from datetime import date, datetime
 from pathlib import Path
@@ -263,7 +263,7 @@ def test_run_auto_reconciliation_day_allows_empty_curator_report(
 
     def run_blocking(**kwargs):
         if kwargs["curator"] == "boris":
-            raise RuntimeError("Нет данных за дату")
+            raise ConsolidationRunError("Нет данных за дату", "empty_data")
         return report_paths[kwargs["curator"]]
 
     mocker.patch.object(
@@ -309,6 +309,81 @@ def test_run_auto_reconciliation_day_allows_empty_curator_report(
     )
     on_complete.assert_called_once()
     assert on_complete.call_args.args[0] is True
+
+
+def test_run_auto_reconciliation_day_does_not_treat_text_error_as_empty_curator(
+    app_controller,
+    mock_deps,
+    mocker,
+):
+    mock_deps["config_controller"].config = {
+        "curators": {
+            "boris": {"enabled": True, "output_path": "output/boris_report.xlsx"},
+            "ivan": {"enabled": True, "output_path": "output/ivan_report.xlsx"},
+        }
+    }
+    mock_deps["config_controller"].resolve_path.side_effect = lambda p: Path(p)
+
+    def run_blocking(**kwargs):
+        if kwargs["curator"] == "boris":
+            raise RuntimeError("Нет данных за дату")
+        return Path("Master_Report.xlsx")
+
+    mocker.patch.object(
+        app_controller,
+        "_run_consolidation_blocking",
+        side_effect=run_blocking,
+    )
+    write_empty = mocker.patch.object(
+        app_controller,
+        "_write_empty_auto_reconciliation_report",
+        return_value=Path("output/boris_report.xlsx"),
+    )
+    mocker.patch("core.app_controller.build_rsch_report", return_value=42)
+    mocker.patch(
+        "core.app_controller.build_combined_reconciliation_report",
+        return_value={"Общий": 10, "Борис": 0, "Иван": 30},
+    )
+    on_complete = MagicMock()
+
+    with patch("threading.Thread") as mock_thread:
+        app_controller.run_auto_reconciliation_day(
+            [Path("rsch_source.xlsx")],
+            Path("out/Отчет_расхождений_21.04.2026.xlsx"),
+            datetime(2026, 4, 21),
+            on_complete,
+        )
+        task = mock_thread.call_args.kwargs["target"]
+        task()
+
+    write_empty.assert_not_called()
+    on_complete.assert_called_once()
+    assert on_complete.call_args.args[0] is False
+    assert "Борис: Нет данных за дату" in on_complete.call_args.args[1]
+
+
+def test_run_consolidation_blocking_preserves_empty_data_error_code(
+    app_controller,
+    mock_deps,
+):
+    def fake_execute(*args, **kwargs):
+        on_complete = args[1]
+        on_failure_code = kwargs["on_failure_code"]
+        on_failure_code("empty_data")
+        on_complete(False, "Нет данных за дату", None)
+
+    app_controller._execute_consolidation = fake_execute
+
+    with pytest.raises(ConsolidationRunError) as exc_info:
+        app_controller._run_consolidation_blocking(
+            target_date_str="21.04.2026",
+            start_date_str=None,
+            end_date_str=None,
+            session_type="daily",
+            curator="boris",
+        )
+
+    assert exc_info.value.code == "empty_data"
 
 
 def test_write_empty_auto_reconciliation_report_creates_dated_workbook(

@@ -12,14 +12,17 @@ from core.app.controller_messages import (
 def test_format_file_error_note_summarizes_first_three_files() -> None:
     note = format_file_error_note(
         [
-            {"path": r"C:\reports\a.xlsx"},
-            {"path": r"C:\reports\b.xlsx"},
-            {"path": r"C:\reports\c.xlsx"},
+            {"path": r"C:\reports\a.xlsx", "error": "network lost"},
+            {"path": r"C:\reports\b.xlsx", "error": "file is locked"},
+            {"path": r"C:\reports\c.xlsx", "error": "bad workbook"},
             {"path": r"C:\reports\d.xlsx"},
         ]
     )
 
-    assert note == "Не удалось обработать 4 файл(ов): a.xlsx, b.xlsx, c.xlsx ...."
+    assert note == (
+        "Не удалось обработать 4 файл(ов): "
+        "a.xlsx (network lost), b.xlsx (file is locked), c.xlsx (bad workbook) ..."
+    )
 
 
 def test_build_empty_data_message_appends_runtime_notes() -> None:

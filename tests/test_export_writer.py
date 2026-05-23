@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from core.infra.export_writer import MasterWriter
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
+from openpyxl import load_workbook
 
 
 @pytest.fixture
@@ -165,3 +166,26 @@ def test_write_daily_data_adds_source_hyperlink(tmp_path: Path):
     ws = wb["13.04.2026"]
     assert ws.cell(2, 1).value == "source.xlsx | Лист1 | Row 7"
     assert ws.cell(2, 1).hyperlink.target.endswith("source.xlsx")
+
+
+def test_write_empty_daily_report_creates_dated_sheet(tmp_path: Path):
+    output_path = tmp_path / "boris_report.xlsx"
+    headers = ["Источник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход", "Фильтры"]
+    writer = MasterWriter({"paths": {"master_file": str(output_path)}})
+
+    ok = writer.write_empty_daily_report(
+        output_path,
+        datetime(2026, 4, 21),
+        curator="boris",
+        curator_config={"headers": headers},
+    )
+
+    assert ok is True
+    wb = load_workbook(output_path)
+    try:
+        ws = wb["21.04.2026"]
+        assert [cell.value for cell in ws[1]] == headers
+        assert ws["A2"].value == "ИТОГО:"
+        assert ws.freeze_panes == "A2"
+    finally:
+        wb.close()

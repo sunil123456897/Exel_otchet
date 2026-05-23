@@ -14,14 +14,26 @@ def format_file_error_note(file_errors: List[Dict[str, str]]) -> Optional[str]:
     if not file_errors:
         return None
 
+    def format_item(err: Dict[str, str]) -> str:
+        name = _basename(err.get("path", ""))
+        error = str(err.get("error") or "").strip()
+        if not name:
+            return ""
+        if not error:
+            return name
+        if len(error) > 80:
+            error = error[:77].rstrip() + "..."
+        return f"{name} ({error})"
+
     sample = ", ".join(
-        _basename(err.get("path", ""))
+        format_item(err)
         for err in file_errors[:3]
         if err.get("path")
     )
     suffix = "" if len(file_errors) <= 3 else " ..."
     if sample:
-        return f"Не удалось обработать {len(file_errors)} файл(ов): {sample}{suffix}."
+        end = "." if not suffix else ""
+        return f"Не удалось обработать {len(file_errors)} файл(ов): {sample}{suffix}{end}"
     return f"Не удалось обработать {len(file_errors)} файл(ов)."
 
 

@@ -303,6 +303,28 @@ class MasterWriter(IExporter):
             if not self._save_workbook(wb):
                 logger.error("Failed to save workbook in write_daily_data()")
 
+    def write_empty_daily_report(
+        self,
+        path: Path,
+        date,
+        curator=None,
+        curator_config=None,
+    ) -> bool:
+        headers = None
+        if curator_config and "headers" in curator_config:
+            headers = curator_config["headers"]
+        wb = self._get_workbook(path=str(path))
+        if wb is None:
+            return False
+        self.write_daily_data(
+            date,
+            [],
+            wb=wb,
+            curator=curator,
+            headers=headers,
+        )
+        return self._save_workbook(wb, path=str(path))
+
     def write_report(
         self,
         data: List[Dict[str, Any]],
