@@ -10,6 +10,8 @@ def test_update_launcher_exists_and_calls_powershell_script() -> None:
     text = launcher.read_text(encoding="utf-8")
 
     assert "tools\\update_from_github.ps1" in text
+    assert "pwsh" in text
+    assert "powershell" in text
     assert "-Launch" in text
 
 
@@ -56,6 +58,7 @@ def test_update_script_uses_minimal_runtime_allowlist() -> None:
     assert '"APP\\main.py"' in text
     assert '"APP\\headless_run.py"' in text
     assert '"APP\\db_schema.sql"' in text
+    assert '"APP\\config.example.yaml"' in text
     assert '"requirements.txt"' in text
     assert '"tools\\update_from_github.ps1"' in text
 
@@ -104,3 +107,9 @@ def test_update_script_protects_user_data_locations() -> None:
 
     assert "Test-IsProtectedByUpdateItem" in text
     assert "пересекается с локальными данными" in text
+
+
+def test_update_script_has_utf8_bom_for_windows_powershell() -> None:
+    script = ROOT / "tools" / "update_from_github.ps1"
+
+    assert script.read_bytes().startswith(b"\xef\xbb\xbf")
