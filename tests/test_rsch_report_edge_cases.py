@@ -80,6 +80,25 @@ def _make_source(path: Path) -> None:
     wb.save(path)
 
 
+def test_zero_matching_rows_does_not_overwrite_existing_output(tmp_path: Path) -> None:
+    source = tmp_path / "source.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "existing_output.xlsx"
+    _make_source(source)
+    _make_template(template)
+    output.write_text("existing report must stay intact", encoding="utf-8")
+
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 14),
+        template_path=template,
+    )
+
+    assert written == 0
+    assert output.read_text(encoding="utf-8") == "existing report must stay intact"
+
+
 def test_missing_source_file_raises(tmp_path: Path) -> None:
     template = tmp_path / "template.xlsx"
     _make_template(template)
