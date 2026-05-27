@@ -46,7 +46,7 @@ python -m mypy APP tests
 
 В репозитории также есть Windows CI gate: `.github/workflows/quality-gate.yml`. Он ставит зависимости из `requirements-dev.txt` на чистом runner-е и запускает `pytest`, `ruff`, `mypy`, `compileall`.
 
-`ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat` использует `tools/update_from_github.ps1`: проверяет `sunil123456897/Exel_otchet`, сохраняет локальные `APP/config.yaml` и `APP/employees.yaml`, обновляет файлы программы, возвращает настройки и запускает обычный `ЗАПУСК.bat`. Если Git установлен и папка является git-клоном, используется `git pull --ff-only`; иначе скачивается zip ветки `main`.
+`ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat` использует `tools/update_from_github.ps1`: проверяет `sunil123456897/Exel_otchet`, сохраняет локальные `APP/config.yaml`, `APP/employees.yaml`, `APP/cache.db`, WAL/SHM-файлы БД и `APP/runtime_state.json`, обновляет только минимальный runtime-набор программы (`APP/core`, точки входа, `APP/db_schema.sql`, `requirements.txt`, батники запуска/обновления и сам updater), возвращает локальные данные и запускает обычный `ЗАПУСК.bat`. Пользовательские Excel-файлы, `REPORTS`, `РСЧ`, `APP/output`, документация и тесты не обновляются на рабочем ПК.
 
 ## Главные Файлы
 

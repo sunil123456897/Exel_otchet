@@ -14,12 +14,16 @@ APP/DEEP_AUDIT_REPORT.txt.1
 APP/src/consolidation.log
 APP/cache.db
 APP/runtime_state.json
+APP/output/
+REPORTS/
+РСЧ/
+рсч всех/
+Старое/
 APP/*.log
 *.log
 startup_log.txt
 ~$*.xlsx
 ~$*.xlsb
-REPORTS/
 docs/maestro/state/active-session.md
 docs/maestro/.workspace-root
 temp_destructive_env/
@@ -49,3 +53,8 @@ APP/output/*_suppressed.xlsx
 **/Отчет_расхождений_*.xlsx
 **/Отчёт_расхождений_*.xlsx
 **/!*.xlsx
+
+# Local production Excel files and generated workbooks.
+Master_Report.xlsx
+*.xls
+*.xlsb

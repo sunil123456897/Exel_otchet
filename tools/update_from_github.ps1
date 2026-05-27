@@ -13,6 +13,29 @@ $LogFile = Join-Path $Root "update_log.txt"
 $StateDir = Join-Path $Root ".update_state"
 $BackupRoot = Join-Path $Root ".update_backups"
 $LocalSettings = @("APP\config.yaml", "APP\employees.yaml")
+$LocalData = @(
+    "APP\cache.db",
+    "APP\cache.db-wal",
+    "APP\cache.db-shm",
+    "APP\runtime_state.json"
+)
+$ProtectedUpdatePaths = $LocalSettings + $LocalData + @(
+    "APP\output",
+    "REPORTS",
+    "РСЧ",
+    "рсч всех",
+    "Master_Report.xlsx"
+)
+$UpdateItems = @(
+    "APP\core",
+    "APP\main.py",
+    "APP\headless_run.py",
+    "APP\db_schema.sql",
+    "requirements.txt",
+    "ЗАПУСК.bat",
+    "ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat",
+    "tools\update_from_github.ps1"
+)
 
 function Write-Log {
     param([string]$Message)
@@ -28,12 +51,54 @@ function Ensure-Directory {
     }
 }
 
-function Backup-LocalSettings {
+function Normalize-RelativePath {
+    param([string]$Path)
+    return (($Path -replace "/", "\").TrimEnd("\")).ToLowerInvariant()
+}
+
+function Test-IsSameOrChildPath {
+    param(
+        [string]$Candidate,
+        [string]$Parent
+    )
+
+    $candidateNorm = Normalize-RelativePath $Candidate
+    $parentNorm = Normalize-RelativePath $Parent
+    return $candidateNorm -eq $parentNorm -or $candidateNorm.StartsWith($parentNorm + "\")
+}
+
+function Test-IsProtectedByUpdateItem {
+    param(
+        [string]$ProtectedPath,
+        [string]$UpdateItem
+    )
+
+    return (Test-IsSameOrChildPath $ProtectedPath $UpdateItem) -or (Test-IsSameOrChildPath $UpdateItem $ProtectedPath)
+}
+
+function Assert-UpdatePolicy {
+    foreach ($item in $UpdateItems) {
+        $normalized = Normalize-RelativePath $item
+        if ($normalized -in @(".", "app", "reports", "рсч", "рсч всех")) {
+            throw "Небезопасный update allowlist item: $item"
+        }
+
+        foreach ($protectedPath in $ProtectedUpdatePaths) {
+            if (Test-IsProtectedByUpdateItem $protectedPath $item) {
+                throw "Update item '$item' пересекается с локальными данными '$protectedPath'"
+            }
+        }
+    }
+}
+
+function Backup-LocalFiles {
+    param([string[]]$RelativePaths)
+
     $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
     $backupDir = Join-Path $BackupRoot $stamp
     Ensure-Directory $backupDir
 
-    foreach ($relativePath in $LocalSettings) {
+    foreach ($relativePath in $RelativePaths) {
         $source = Join-Path $Root $relativePath
         if (Test-Path -LiteralPath $source) {
             $target = Join-Path $backupDir $relativePath
@@ -45,10 +110,13 @@ function Backup-LocalSettings {
     return $backupDir
 }
 
-function Restore-LocalSettings {
-    param([string]$BackupDir)
+function Restore-LocalFiles {
+    param(
+        [string]$BackupDir,
+        [string[]]$RelativePaths
+    )
 
-    foreach ($relativePath in $LocalSettings) {
+    foreach ($relativePath in $RelativePaths) {
         $source = Join-Path $BackupDir $relativePath
         if (Test-Path -LiteralPath $source) {
             $target = Join-Path $Root $relativePath
@@ -77,6 +145,63 @@ function Get-RemoteSha {
     }
 }
 
+function Get-InstalledSha {
+    param([string]$FallbackSha)
+
+    $lastShaFile = Join-Path $StateDir "last_sha.txt"
+    if (Test-Path -LiteralPath $lastShaFile) {
+        $storedSha = (Get-Content -LiteralPath $lastShaFile -Raw).Trim()
+        if ($storedSha) {
+            return $storedSha
+        }
+    }
+
+    return $FallbackSha
+}
+
+function Copy-UpdateItems {
+    param([string]$SourceRoot)
+
+    foreach ($item in $UpdateItems) {
+        $source = Join-Path $SourceRoot $item
+        if (-not (Test-Path -LiteralPath $source)) {
+            Write-Log "Пропускаю отсутствующий файл обновления: $item"
+            continue
+        }
+
+        $target = Join-Path $Root $item
+        if (Test-Path -LiteralPath $source -PathType Container) {
+            Ensure-Directory $target
+            Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $target -Recurse -Force
+        } else {
+            Ensure-Directory (Split-Path -Parent $target)
+            Copy-Item -LiteralPath $source -Destination $target -Force
+        }
+    }
+}
+
+function Expand-GitArchive {
+    param(
+        [string]$Git,
+        [string]$Treeish,
+        [string]$Destination
+    )
+
+    Ensure-Directory $Destination
+    $archivePath = Join-Path $Destination "update.tar"
+    $normalizedItems = $UpdateItems | ForEach-Object { $_ -replace "\\", "/" }
+
+    & $Git archive --format=tar --output=$archivePath $Treeish -- $normalizedItems
+    if ($LASTEXITCODE -ne 0) {
+        throw "git archive завершился с кодом $LASTEXITCODE"
+    }
+
+    tar -xf $archivePath -C $Destination
+    if ($LASTEXITCODE -ne 0) {
+        throw "tar завершился с кодом $LASTEXITCODE"
+    }
+}
+
 function Update-WithGit {
     param([string]$Git)
 
@@ -97,21 +222,31 @@ function Update-WithGit {
             throw "git fetch завершился с кодом $LASTEXITCODE"
         }
 
-        $localSha = (& $Git rev-parse HEAD).Trim()
+        $headSha = (& $Git rev-parse HEAD).Trim()
+        $localSha = Get-InstalledSha $headSha
         $remoteSha = (& $Git rev-parse "origin/$Branch").Trim()
         if ($localSha -eq $remoteSha) {
             Write-Log "Новых версий нет. Текущая версия: $localSha"
             return $true
         }
 
-        $backupDir = Backup-LocalSettings
-        Write-Log "Найдена новая версия: $remoteSha. Backup настроек: $backupDir"
-        & $Git pull --ff-only origin $Branch
-        if ($LASTEXITCODE -ne 0) {
-            throw "git pull --ff-only завершился с кодом $LASTEXITCODE. Проверьте локальные изменения."
+        $backupDir = Backup-LocalFiles ($LocalSettings + $LocalData)
+        Write-Log "Найдена новая версия: $remoteSha. Backup локальных настроек/БД: $backupDir"
+
+        $tempDir = Join-Path $env:TEMP ("master_report_git_update_" + [guid]::NewGuid().ToString("N"))
+        try {
+            Expand-GitArchive $Git "origin/$Branch" $tempDir
+            Copy-UpdateItems $tempDir
+        } finally {
+            if (Test-Path -LiteralPath $tempDir) {
+                Remove-Item -LiteralPath $tempDir -Recurse -Force
+            }
         }
-        Restore-LocalSettings $backupDir
-        Write-Log "Обновление через Git выполнено. Настройки возвращены."
+
+        Restore-LocalFiles $backupDir ($LocalSettings + $LocalData)
+        Ensure-Directory $StateDir
+        Set-Content -LiteralPath (Join-Path $StateDir "last_sha.txt") -Value $remoteSha -Encoding UTF8
+        Write-Log "Минимальное обновление через Git выполнено. Локальные настройки/БД возвращены."
         return $true
     } finally {
         Pop-Location
@@ -129,7 +264,7 @@ function Update-WithZip {
         }
     }
 
-    $backupDir = Backup-LocalSettings
+    $backupDir = Backup-LocalFiles ($LocalSettings + $LocalData)
     $tempDir = Join-Path $env:TEMP ("master_report_update_" + [guid]::NewGuid().ToString("N"))
     $zipPath = Join-Path $tempDir "source.zip"
     Ensure-Directory $tempDir
@@ -144,31 +279,14 @@ function Update-WithZip {
             throw "Не найдена распакованная папка проекта."
         }
 
-        $items = @(
-            "APP",
-            "docs",
-            "tests",
-            "tools",
-            "requirements.txt",
-            "requirements-dev.txt",
-            "README.md",
-            "pyproject.toml",
-            "ЗАПУСК.bat",
-            "ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat"
-        )
-        foreach ($item in $items) {
-            $source = Join-Path $sourceRoot.FullName $item
-            if (Test-Path -LiteralPath $source) {
-                Copy-Item -LiteralPath $source -Destination (Join-Path $Root $item) -Recurse -Force
-            }
-        }
+        Copy-UpdateItems $sourceRoot.FullName
 
-        Restore-LocalSettings $backupDir
+        Restore-LocalFiles $backupDir ($LocalSettings + $LocalData)
         Ensure-Directory $StateDir
         if ($remoteSha) {
             Set-Content -LiteralPath $lastShaFile -Value $remoteSha -Encoding UTF8
         }
-        Write-Log "Обновление через zip выполнено. Настройки возвращены."
+        Write-Log "Минимальное обновление через zip выполнено. Локальные настройки/БД возвращены."
     } finally {
         if (Test-Path -LiteralPath $tempDir) {
             Remove-Item -LiteralPath $tempDir -Recurse -Force
@@ -191,6 +309,7 @@ function Update-Dependencies {
 Set-Content -Path $LogFile -Value "" -Encoding UTF8
 Write-Log "Master Report updater started."
 Write-Log "Project folder: $Root"
+Assert-UpdatePolicy
 
 $git = Get-GitCommand
 $updatedWithGit = $false
