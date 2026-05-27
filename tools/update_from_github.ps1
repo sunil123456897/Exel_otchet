@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$RepoOwner = "sunil123456897",
     [string]$RepoName = "Exel_otchet",
     [string]$Branch = "main",
@@ -31,6 +31,7 @@ $UpdateItems = @(
     "APP\main.py",
     "APP\headless_run.py",
     "APP\db_schema.sql",
+    "APP\config.example.yaml",
     "requirements.txt",
     "ЗАПУСК.bat",
     "ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat",
