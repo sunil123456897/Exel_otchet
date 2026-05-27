@@ -40,9 +40,25 @@ class ConfigController:
             if os.path.exists(self.config_path):
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     return self.yaml.load(f) or {}
-            else:
-                logging.warning(f"Config file not found: {self.config_path}")
-                return {}
+
+            example_path = Path(self.config_path).with_name("config.example.yaml")
+            if example_path.exists():
+                logging.warning(
+                    "Config file not found: %s. Creating it from %s",
+                    self.config_path,
+                    example_path,
+                )
+                config_path = Path(self.config_path)
+                config_path.parent.mkdir(parents=True, exist_ok=True)
+                config_path.write_text(
+                    example_path.read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+                with open(config_path, "r", encoding="utf-8") as f:
+                    return self.yaml.load(f) or {}
+
+            logging.warning(f"Config file not found: {self.config_path}")
+            return {}
         except Exception as e:
             logging.error(f"Error loading config: {e}")
             return {}

@@ -43,6 +43,8 @@ git switch experiments
 ЗАПУСК.bat
 ```
 
+При первом запуске, если `APP/config.yaml` еще нет, приложение создает его из `APP/config.example.yaml`. Уже существующий `APP/config.yaml` не перезаписывается.
+
 Обновить программу с GitHub и сразу запустить:
 
 ```bat
