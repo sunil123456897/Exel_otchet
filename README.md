@@ -9,6 +9,32 @@ Windows-приложение для сборки финансовых Excel-от
 
 Проект рассчитан на работу с локальными и сетевыми папками Windows, включая рабочие места, где отчеты лежат на диске `Q:\Отчет кураторов ...`.
 
+## Состав Ветки `main`
+
+`main` намеренно является runtime-only веткой для рабочих ПК и безопасного обновления программы. В ней отслеживается только минимальный набор, нужный для запуска и обновления:
+
+```text
+APP/core/                   код приложения
+APP/main.py                 точка входа GUI
+APP/headless_run.py         headless-точка входа для служебных запусков
+APP/db_schema.sql           схема SQLite
+APP/config.example.yaml     переносимый пример конфигурации
+requirements.txt            runtime-зависимости
+tools/update_from_github.ps1 безопасный updater
+ЗАПУСК.bat
+ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat
+README.md
+```
+
+Реальные рабочие данные и локальные настройки не должны храниться в Git: `APP/config.yaml`, `APP/employees.yaml`, `APP/cache.db`, `Master_Report.xlsx`, `REPORTS/`, `РСЧ/`, `рсч всех/`, `APP/output/`.
+
+Разработка, тесты, CI и подробная документация живут в ветке `experiments`. Если нужен аудит, правка кода с тестами или CI-проверка, переключайтесь на нее:
+
+```bash
+git fetch origin
+git switch experiments
+```
+
 ## Быстрый Старт
 
 Обычный запуск на рабочем ПК:
@@ -35,16 +61,13 @@ python APP/main.py
 python -m pip install -r requirements.txt
 ```
 
-Проверки для разработки:
+Минимальная проверка чистой runtime-ветки:
 
 ```bash
-python -m pip install -r requirements-dev.txt
-pytest tests
-python -m ruff check APP tests
-python -m mypy APP tests
+python -m compileall -q APP
 ```
 
-В репозитории также есть Windows CI gate: `.github/workflows/quality-gate.yml`. Он ставит зависимости из `requirements-dev.txt` на чистом runner-е и запускает `pytest`, `ruff`, `mypy`, `compileall`.
+Полные проверки разработки находятся в ветке `experiments` вместе с `tests/`, `requirements-dev.txt`, `pyproject.toml` и `.github/workflows/quality-gate.yml`.
 
 `ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat` использует `tools/update_from_github.ps1`: проверяет `sunil123456897/Exel_otchet`, сохраняет локальные `APP/config.yaml`, `APP/employees.yaml`, `APP/cache.db`, WAL/SHM-файлы БД и `APP/runtime_state.json`, обновляет только минимальный runtime-набор программы (`APP/core`, точки входа, `APP/db_schema.sql`, `requirements.txt`, батники запуска/обновления и сам updater), возвращает локальные данные и запускает обычный `ЗАПУСК.bat`. Пользовательские Excel-файлы, `REPORTS`, `РСЧ`, `APP/output`, документация и тесты не обновляются на рабочем ПК.
 
@@ -60,19 +83,15 @@ APP/core/app_controller.py
 APP/core/domain/         бизнес-правила и схемы данных
 APP/core/infra/          чтение Excel, запись Excel, SQLite, поиск файлов
 APP/core/ui/             Tkinter-интерфейс
-tests/                   тесты и регрессии
-docs/                    подробная документация
 ```
 
 ## Что Читать Первым
 
 Для людей и ИИ-агентов:
 
-1. [docs/PROJECT_AI_GUIDE.md](docs/PROJECT_AI_GUIDE.md) - главный контекст проекта.
-2. [docs/AI_CONTEXT.md](docs/AI_CONTEXT.md) - короткая карта для быстрого входа без лишней разведки.
-3. [docs/OPERATIONS.md](docs/OPERATIONS.md) - запуск, настройка рабочего ПК и типовые проблемы.
-4. [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) - правила безопасной разработки и проверки.
-5. [docs/knowledge_base/ARCHITECTURE.md](docs/knowledge_base/ARCHITECTURE.md) - архитектура слоев.
+1. На рабочем ПК и в чистом `main` достаточно этого `README.md` и `APP/config.example.yaml`.
+2. Для разработки переключайтесь на `experiments`: там находятся `docs/PROJECT_AI_GUIDE.md`, `docs/AI_CONTEXT.md`, `docs/OPERATIONS.md`, `docs/DEVELOPMENT.md` и архитектурная база знаний.
+3. Если документация из `experiments` расходится с текущим runtime-кодом `main`, источником факта считать текущий код, а противоречие исправлять отдельной документационной правкой.
 
 ## Основные Пользовательские Сценарии
 
@@ -134,11 +153,15 @@ rsch:
 - SQLite для кэша
 - Pydantic для схем данных
 - PyYAML / ruamel.yaml для конфигурации
-- pytest, ruff, mypy для качества
+- pytest, ruff, mypy для качества в ветке `experiments`
 
 ## Текущий Baseline Проверок
 
-Актуальные проверки нужно фиксировать по фактически запущенным командам в текущей среде. Минимальный gate:
+Актуальные проверки нужно фиксировать по фактически запущенным командам в текущей среде. Для чистого `main` минимальная проверка:
+
+- `python -m compileall -q APP`.
+
+Для ветки `experiments` полный gate:
 
 - `python -m pytest -q -p no:cacheprovider`;
 - `python -m ruff check APP tests -q`;
