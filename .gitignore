@@ -38,10 +38,36 @@ Version5.rar
 .gitnexus
 .codegraph/
 .sentrux/
+.claude/
+.codex/
+.github/
+.jules/
 .opencode/skills/
 .opencode/node_modules/
 *.db
 *.sqlite
+
+# Development-only files stay in the local/experiments workspace, not in runtime main.
+.coveragerc
+AGENTS.md
+CLAUDE.md
+CHANGELOG.md
+NETWORK_STABILITY_REPORT.md
+docs/
+tests/
+gui_error_log.txt
+opencode.json
+pyproject.toml
+requirements-dev.txt
+APP/GEMINI.md
+APP/config.yaml
+APP/config.april-2026-test.yaml
+APP/employees.yaml
+APP/templates/
+APP/toxic_run.py
+tools/*
+!tools/
+!tools/update_from_github.ps1
 
 # Temporary test results and scripts
 docs/superpowers/
