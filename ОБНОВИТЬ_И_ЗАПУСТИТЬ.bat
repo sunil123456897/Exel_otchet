@@ -6,6 +6,7 @@ title Master Report Updater
 
 set "ROOT=%~dp0"
 set "SCRIPT=%ROOT%tools\update_from_github.ps1"
+set "POWERSHELL_CMD=powershell"
 
 if not exist "%SCRIPT%" (
     echo [ERROR] Не найден updater: %SCRIPT%
@@ -13,7 +14,10 @@ if not exist "%SCRIPT%" (
     exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%" -Launch
+where pwsh >nul 2>&1
+if not errorlevel 1 set "POWERSHELL_CMD=pwsh"
+
+"%POWERSHELL_CMD%" -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%" -Launch
 if errorlevel 1 (
     echo.
     echo [ERROR] Обновление не выполнено. Подробности выше и в update_log.txt.

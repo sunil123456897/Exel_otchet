@@ -7,6 +7,12 @@
 
 $ErrorActionPreference = "Stop"
 
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch {
+    Write-Warning "Could not force TLS 1.2 for GitHub downloads: $($_.Exception.Message)"
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent $ScriptDir
 $LogFile = Join-Path $Root "update_log.txt"
@@ -254,6 +260,65 @@ function Update-WithGit {
     }
 }
 
+function Update-WithGitSnapshot {
+    param([string]$Git)
+
+    $tempRepo = Join-Path $env:TEMP ("master_report_git_snapshot_repo_" + [guid]::NewGuid().ToString("N"))
+    $tempArchive = Join-Path $env:TEMP ("master_report_git_snapshot_update_" + [guid]::NewGuid().ToString("N"))
+    $pushed = $false
+
+    try {
+        Ensure-Directory $tempRepo
+        Ensure-Directory $tempArchive
+        Push-Location $tempRepo
+        $pushed = $true
+
+        & $Git init --quiet
+        if ($LASTEXITCODE -ne 0) {
+            throw "git init завершился с кодом $LASTEXITCODE"
+        }
+
+        & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git"
+        if ($LASTEXITCODE -ne 0) {
+            throw "git remote add завершился с кодом $LASTEXITCODE"
+        }
+
+        Write-Log "Папка без .git. Скачиваю минимальный snapshot через Git..."
+        & $Git fetch --depth=1 origin $Branch --quiet
+        if ($LASTEXITCODE -ne 0) {
+            throw "git fetch snapshot завершился с кодом $LASTEXITCODE"
+        }
+
+        $remoteSha = (& $Git rev-parse FETCH_HEAD).Trim()
+        $localSha = Get-InstalledSha ""
+        if ($localSha -eq $remoteSha) {
+            Write-Log "Новых версий нет. Текущая версия: $localSha"
+            return $true
+        }
+
+        $backupDir = Backup-LocalFiles ($LocalSettings + $LocalData)
+        Write-Log "Найдена новая версия: $remoteSha. Backup локальных настроек/БД: $backupDir"
+
+        Expand-GitArchive $Git "FETCH_HEAD" $tempArchive
+        Copy-UpdateItems $tempArchive
+        Restore-LocalFiles $backupDir ($LocalSettings + $LocalData)
+        Ensure-Directory $StateDir
+        Set-Content -LiteralPath (Join-Path $StateDir "last_sha.txt") -Value $remoteSha -Encoding UTF8
+        Write-Log "Минимальное обновление через Git snapshot выполнено. Локальные настройки/БД возвращены."
+        return $true
+    } finally {
+        if ($pushed) {
+            Pop-Location
+        }
+        if (Test-Path -LiteralPath $tempArchive) {
+            Remove-Item -LiteralPath $tempArchive -Recurse -Force
+        }
+        if (Test-Path -LiteralPath $tempRepo) {
+            Remove-Item -LiteralPath $tempRepo -Recurse -Force
+        }
+    }
+}
+
 function Update-WithZip {
     $remoteSha = Get-RemoteSha
     $lastShaFile = Join-Path $StateDir "last_sha.txt"
@@ -316,6 +381,9 @@ $git = Get-GitCommand
 $updatedWithGit = $false
 if ($git) {
     $updatedWithGit = Update-WithGit $git
+    if (-not $updatedWithGit) {
+        $updatedWithGit = Update-WithGitSnapshot $git
+    }
 }
 if (-not $updatedWithGit) {
     Update-WithZip
