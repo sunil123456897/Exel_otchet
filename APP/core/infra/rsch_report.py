@@ -1241,6 +1241,14 @@ def build_rsch_report(
                 f"Проблемы: {preview}"
             )
 
+    if not rows:
+        logger.info(
+            "RSC report skipped: no rows matched requested date/range (output=%s, sources=%s)",
+            output_path,
+            len(source_paths),
+        )
+        return 0
+
     use_period = start_date is not None and end_date is not None
     wb_out = Workbook()
     if use_period and rows:

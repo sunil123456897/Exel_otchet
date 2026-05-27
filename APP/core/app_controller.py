@@ -948,8 +948,6 @@ class AppController:
                     drive_letters=self._get_network_drive_letters(),
                 )
                 if written_rows == 0:
-                    if output_path.exists():
-                        output_path.unlink()
                     raise ValueError("РСЧ: нет строк за выбранную дату")
 
                 if issues:
@@ -1003,8 +1001,6 @@ class AppController:
                     drive_letters=self._get_network_drive_letters(),
                 )
                 if written_rows == 0:
-                    if output_path.exists():
-                        output_path.unlink()
                     raise ValueError("РСЧ: нет строк за выбранный период")
 
                 if issues:
@@ -1064,8 +1060,6 @@ class AppController:
                     if written_rows:
                         total_rows += written_rows
                         files_written += 1
-                    elif output_path.exists():
-                        output_path.unlink()
                     current += timedelta(days=1)
 
                 if files_written == 0:
