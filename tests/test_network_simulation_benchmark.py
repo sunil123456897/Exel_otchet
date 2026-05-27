@@ -78,6 +78,19 @@ shutil.copy2 = simulated_copy2
 os.stat = simulated_stat
 
 
+@pytest.fixture(autouse=True)
+def preserve_runtime_config():
+    config_path = app_root / "config.yaml"
+    original_config = config_path.read_bytes() if config_path.exists() else None
+    try:
+        yield
+    finally:
+        if original_config is None:
+            config_path.unlink(missing_ok=True)
+        else:
+            config_path.write_bytes(original_config)
+
+
 class TestNetworkSimulation:
 
     @pytest.mark.parametrize("dummy", [1])
