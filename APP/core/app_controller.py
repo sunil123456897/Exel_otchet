@@ -797,8 +797,10 @@ class AppController:
                 curator=curator,
             )
         except ConsolidationRunError as exc:
-            if curator and exc.code == "empty_data":
-                return self._write_empty_auto_reconciliation_report(curator, target_date)
+            if exc.code == "empty_data":
+                if curator:
+                    return self._write_empty_auto_reconciliation_report(curator, target_date)
+                raise RuntimeError(f"{label}: Нет данных за {date_suffix}") from exc
             raise RuntimeError(f"{label}: {exc}") from exc
         except RuntimeError as exc:
             raise RuntimeError(f"{label}: {exc}") from exc
@@ -854,15 +856,28 @@ class AppController:
                     drive_letters=self._get_network_drive_letters(),
                 )
                 if rsch_rows == 0:
-                    raise RuntimeError(f"РСЧ за дату {date_suffix} не содержит данных")
+                    on_complete(
+                        True,
+                        f"Нет данных РСЧ за {date_suffix}. Автосверка пропущена.",
+                        None,
+                    )
+                    return
 
-                counts = build_combined_reconciliation_report(
-                    master_paths,
-                    rsch_output,
-                    output_path_resolved,
-                    target_date=target_date,
-                    drive_letters=self._get_network_drive_letters(),
-                )
+                try:
+                    counts = build_combined_reconciliation_report(
+                        master_paths,
+                        rsch_output,
+                        output_path_resolved,
+                        target_date=target_date,
+                        drive_letters=self._get_network_drive_letters(),
+                    )
+                except ValueError as e:
+                    on_complete(
+                        True,
+                        f"Сверка за {date_suffix}: {e}",
+                        None,
+                    )
+                    return
                 issue_note = (
                     f" Есть проблемы с листами РСЧ: {build_issue_preview(issues)}"
                     if issues
