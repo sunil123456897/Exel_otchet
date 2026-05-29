@@ -369,12 +369,18 @@ function Update-WithZip {
     Ensure-Directory $tempDir
 
     try {
-        $zipUrl = "https://github.com/$RepoOwner/$RepoName/archive/refs/heads/$Branch.zip"
+        if ($Token) {
+            $zipUrl = "https://api.github.com/repos/$RepoOwner/$RepoName/zipball/$Branch"
+            $headers = Get-GitHubHeaders $Token
+            $headers["Accept"] = "application/vnd.github+json"
+        } else {
+            $zipUrl = "https://github.com/$RepoOwner/$RepoName/archive/refs/heads/$Branch.zip"
+            $headers = Get-GitHubHeaders $Token
+        }
         Write-Log "Git не найден или папка без .git. Скачиваю zip из GitHub..."
-        $headers = Get-GitHubHeaders $Token
         Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 120 -Headers $headers
         Expand-Archive -LiteralPath $zipPath -DestinationPath $tempDir -Force
-        $sourceRoot = Get-ChildItem -LiteralPath $tempDir -Directory | Where-Object { $_.Name -like "$RepoName-*" } | Select-Object -First 1
+        $sourceRoot = Get-ChildItem -LiteralPath $tempDir -Directory | Where-Object { $_.Name -like "$RepoName-*" -or $_.Name -like "$RepoOwner-$RepoName-*" } | Select-Object -First 1
         if ($null -eq $sourceRoot) {
             throw "Не найдена распакованная папка проекта."
         }
