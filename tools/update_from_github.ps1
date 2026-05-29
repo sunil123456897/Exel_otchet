@@ -44,6 +44,26 @@ $UpdateItems = @(
     "tools\update_from_github.ps1"
 )
 
+function Get-GitHubToken {
+    $tokenFile = Join-Path $Root ".github_token"
+    if (Test-Path -LiteralPath $tokenFile) {
+        $token = (Get-Content -LiteralPath $tokenFile -Raw).Trim()
+        if ($token) { return $token }
+    }
+    $envToken = $env:GITHUB_TOKEN
+    if ($envToken) { return $envToken }
+    return $null
+}
+
+function Get-GitHubHeaders {
+    param([string]$Token)
+    $headers = @{"User-Agent" = "Master-Report-Updater"}
+    if ($Token) {
+        $headers["Authorization"] = "token $Token"
+    }
+    return $headers
+}
+
 function Write-Log {
     param([string]$Message)
     $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
@@ -142,9 +162,11 @@ function Get-GitCommand {
 }
 
 function Get-RemoteSha {
+    param([string]$Token)
     $apiUrl = "https://api.github.com/repos/$RepoOwner/$RepoName/commits/$Branch"
     try {
-        $response = Invoke-RestMethod -Uri $apiUrl -Headers @{"User-Agent" = "Master-Report-Updater"} -TimeoutSec 30
+        $headers = Get-GitHubHeaders $Token
+        $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -TimeoutSec 30
         return [string]$response.sha
     } catch {
         Write-Log "Не удалось проверить последнюю версию через GitHub API: $($_.Exception.Message)"
@@ -210,7 +232,7 @@ function Expand-GitArchive {
 }
 
 function Update-WithGit {
-    param([string]$Git)
+    param([string]$Git, [string]$Token)
 
     if (-not (Test-Path -LiteralPath (Join-Path $Root ".git"))) {
         return $false
@@ -220,7 +242,13 @@ function Update-WithGit {
     try {
         $remoteUrl = & $Git remote get-url origin 2>$null
         if (-not $remoteUrl) {
-            & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git" | Out-Null
+            if ($Token) {
+                & $Git remote add origin "https://$Token@github.com/$RepoOwner/$RepoName.git" | Out-Null
+            } else {
+                & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git" | Out-Null
+            }
+        } elseif ($Token -and $remoteUrl -notmatch "@github\.com") {
+            & $Git remote set-url origin "https://$Token@github.com/$RepoOwner/$RepoName.git" | Out-Null
         }
 
         Write-Log "Проверяю обновления через Git..."
@@ -261,7 +289,7 @@ function Update-WithGit {
 }
 
 function Update-WithGitSnapshot {
-    param([string]$Git)
+    param([string]$Git, [string]$Token)
 
     $tempRepo = Join-Path $env:TEMP ("master_report_git_snapshot_repo_" + [guid]::NewGuid().ToString("N"))
     $tempArchive = Join-Path $env:TEMP ("master_report_git_snapshot_update_" + [guid]::NewGuid().ToString("N"))
@@ -278,7 +306,11 @@ function Update-WithGitSnapshot {
             throw "git init завершился с кодом $LASTEXITCODE"
         }
 
-        & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git"
+        if ($Token) {
+            & $Git remote add origin "https://$Token@github.com/$RepoOwner/$RepoName.git"
+        } else {
+            & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git"
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "git remote add завершился с кодом $LASTEXITCODE"
         }
@@ -320,7 +352,8 @@ function Update-WithGitSnapshot {
 }
 
 function Update-WithZip {
-    $remoteSha = Get-RemoteSha
+    param([string]$Token)
+    $remoteSha = Get-RemoteSha $Token
     $lastShaFile = Join-Path $StateDir "last_sha.txt"
     if ($remoteSha -and (Test-Path -LiteralPath $lastShaFile)) {
         $currentSha = (Get-Content -LiteralPath $lastShaFile -Raw).Trim()
@@ -338,7 +371,8 @@ function Update-WithZip {
     try {
         $zipUrl = "https://github.com/$RepoOwner/$RepoName/archive/refs/heads/$Branch.zip"
         Write-Log "Git не найден или папка без .git. Скачиваю zip из GitHub..."
-        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 120
+        $headers = Get-GitHubHeaders $Token
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 120 -Headers $headers
         Expand-Archive -LiteralPath $zipPath -DestinationPath $tempDir -Force
         $sourceRoot = Get-ChildItem -LiteralPath $tempDir -Directory | Where-Object { $_.Name -like "$RepoName-*" } | Select-Object -First 1
         if ($null -eq $sourceRoot) {
@@ -377,16 +411,23 @@ Write-Log "Master Report updater started."
 Write-Log "Project folder: $Root"
 Assert-UpdatePolicy
 
+$gitHubToken = Get-GitHubToken
+if ($gitHubToken) {
+    Write-Log "GitHub токен найден. Используется авторизованный доступ."
+} else {
+    Write-Log "GitHub токен не найден. Попытка анонимного доступа..."
+}
+
 $git = Get-GitCommand
 $updatedWithGit = $false
 if ($git) {
-    $updatedWithGit = Update-WithGit $git
+    $updatedWithGit = Update-WithGit $git $gitHubToken
     if (-not $updatedWithGit) {
-        $updatedWithGit = Update-WithGitSnapshot $git
+        $updatedWithGit = Update-WithGitSnapshot $git $gitHubToken
     }
 }
 if (-not $updatedWithGit) {
-    Update-WithZip
+    Update-WithZip $gitHubToken
 }
 
 Update-Dependencies

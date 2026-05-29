@@ -46,6 +46,7 @@ Version5.rar
 .opencode/node_modules/
 *.db
 *.sqlite
+.github_token
 
 # Development-only files stay in the local/experiments workspace, not in runtime main.
 .coveragerc
