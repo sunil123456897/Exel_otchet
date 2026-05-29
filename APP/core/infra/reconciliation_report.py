@@ -130,6 +130,25 @@ class ReconciliationRow:
     reason: str = ""
 
 
+def _row_id(row: ReconciliationRow) -> str:
+    parts: list[str] = []
+    if row.master is not None:
+        parts.extend([
+            _normalize_text(row.master.customer),
+            _normalize_text(row.master.executor),
+            str(row.master.income),
+            str(row.master.expense),
+        ])
+    if row.rsch is not None:
+        parts.extend([
+            _normalize_text(row.rsch.customer),
+            _normalize_text(row.rsch.executor),
+            str(row.rsch.income),
+            str(row.rsch.expense),
+        ])
+    return "|".join(parts) if parts else f"status:{row.status}:{row.reason}"
+
+
 def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
@@ -1025,13 +1044,28 @@ def _build_workbook(
     return wb
 
 
+def _reconciliation_sort_key(row: ReconciliationRow) -> tuple:
+    status_order = {STATUS_VERIFIED: 0, STATUS_REVIEW: 1}
+    source = ""
+    customer = ""
+    executor = ""
+    if row.master is not None:
+        source = _normalize_text(row.master.source)
+        customer = _normalize_text(row.master.customer)
+        executor = _normalize_text(row.master.executor)
+    elif row.rsch is not None:
+        source = _normalize_text(row.rsch.executor)
+        customer = _normalize_text(row.rsch.customer)
+        executor = _normalize_text(row.rsch.executor)
+    return (status_order.get(row.status, 2), source, customer, executor)
+
+
 def _write_reconciliation_sheet(
     ws: Worksheet,
     rows: Iterable[ReconciliationRow],
     master_headers: list[str],
 ) -> None:
-    status_order = {STATUS_VERIFIED: 0, STATUS_REVIEW: 1}
-    row_list = sorted(rows, key=lambda row: status_order.get(row.status, 2))
+    row_list = sorted(rows, key=_reconciliation_sort_key)
     headers = [*master_headers, STATUS_HEADER, *RSCH_HEADERS, REASON_HEADER]
     _write_headers(ws, headers)
 
@@ -1288,17 +1322,52 @@ def build_combined_reconciliation_report(
                 for row_id in _matched_rsch_row_ids(rows)
             }
             seen_unmatched_rsch_ids: set[str] = set()
-            for idx, (sheet_name, master_headers, rows) in enumerate(sheet_rows):
+            filtered_sheet_rows: list[tuple[str, list[str], list[ReconciliationRow]]] = []
+            for sheet_name, master_headers, rows in sheet_rows:
                 rows = _suppress_combined_rsch_only_rows(
                     rows,
                     matched_rsch_ids,
                     seen_unmatched_rsch_ids,
                 )
+                filtered_sheet_rows.append((sheet_name, master_headers, rows))
+
+            all_row_ids: list[str] = []
+            seen_ids: set[str] = set()
+            for _name, _hdrs, rows in filtered_sheet_rows:
+                for row in sorted(rows, key=_reconciliation_sort_key):
+                    rid = _row_id(row)
+                    if rid not in seen_ids:
+                        seen_ids.add(rid)
+                        all_row_ids.append(rid)
+
+            sheet_row_maps: list[dict[str, ReconciliationRow]] = []
+            for _name, _hdrs, rows in filtered_sheet_rows:
+                row_map: dict[str, ReconciliationRow] = {}
+                for row in rows:
+                    rid = _row_id(row)
+                    if rid not in row_map:
+                        row_map[rid] = row
+                sheet_row_maps.append(row_map)
+
+            for idx, ((sheet_name, master_headers, _rows), row_map) in enumerate(
+                zip(filtered_sheet_rows, sheet_row_maps)
+            ):
+                aligned_rows: list[ReconciliationRow] = []
+                for rid in all_row_ids:
+                    if rid in row_map:
+                        aligned_rows.append(row_map[rid])
+                    else:
+                        aligned_rows.append(ReconciliationRow(
+                            master=None, rsch=None, status=STATUS_ERROR,
+                            reason=REASON_NO_RSCH,
+                        ))
 
                 ws = default_ws if idx == 0 else wb_out.create_sheet()
                 ws.title = sheet_name[:31]
-                _write_reconciliation_sheet(ws, rows, master_headers)
-                counts[sheet_name] = len(rows)
+                _write_reconciliation_sheet(ws, aligned_rows, master_headers)
+                counts[sheet_name] = sum(
+                    1 for r in aligned_rows if r.status != STATUS_ERROR or r.reason != REASON_NO_RSCH
+                )
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             backup_existing_excel_output(output_path)
