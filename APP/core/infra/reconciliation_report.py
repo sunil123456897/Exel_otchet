@@ -55,6 +55,7 @@ REASON_NO_RSCH = "НЕТ В РСЧ"
 REASON_AMOUNT_MISMATCH = "НЕ СОВПАЛА СУММА"
 REASON_EXECUTOR_MISMATCH = "НЕ СОВПАЛ ИСПОЛНИТЕЛЬ"
 REASON_CUSTOMER_MISMATCH = "ПОХОЖИЙ ЗАКАЗЧИК"
+REASON_AMOUNT_ONLY_MATCH = "СОВПАЛА СУММА"
 STATUS_VERIFIED = "СВЕРЕНО"
 STATUS_REVIEW = "ПРОВЕРИТЬ"
 STATUS_ERROR = "ОШИБКА"
@@ -81,6 +82,7 @@ _SUMMARY_REASON_LABELS = {
     REASON_AMOUNT_MISMATCH: "Не совпала сумма",
     REASON_EXECUTOR_MISMATCH: "Не совпал исполнитель",
     REASON_CUSTOMER_MISMATCH: "Похожий заказчик",
+    REASON_AMOUNT_ONLY_MATCH: "Совпала сумма",
 }
 
 _HEADER_FILL = PatternFill("solid", fgColor="FF1F4E79")
@@ -719,6 +721,21 @@ def _find_likely_customer_mismatch(
     return candidate_idx, candidate
 
 
+def _find_amount_only_match(
+    master_row: MasterReconciliationRow,
+    rsch_rows: list[RschReconciliationRow],
+    used_indexes: set[int],
+) -> tuple[Optional[int], Optional[RschReconciliationRow]]:
+    candidates = [
+        (idx, row)
+        for idx, row in enumerate(rsch_rows)
+        if idx not in used_indexes and _row_amount_matches(master_row, row)
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    return None, None
+
+
 def _build_reconciliation_rows(
     master_rows: list[MasterReconciliationRow],
     rsch_rows: list[RschReconciliationRow],
@@ -833,6 +850,23 @@ def _build_reconciliation_rows(
                     rsch=rsch_row,
                     status=STATUS_REVIEW,
                     reason=REASON_CUSTOMER_MISMATCH,
+                )
+            )
+            continue
+
+        match_idx, rsch_row = _find_amount_only_match(
+            master_row,
+            rsch_rows,
+            used_rsch_indexes,
+        )
+        if rsch_row is not None and match_idx is not None:
+            used_rsch_indexes.add(match_idx)
+            result.append(
+                ReconciliationRow(
+                    master=master_row,
+                    rsch=rsch_row,
+                    status=STATUS_REVIEW,
+                    reason=REASON_AMOUNT_ONLY_MATCH,
                 )
             )
             continue
