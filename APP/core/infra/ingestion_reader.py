@@ -659,7 +659,7 @@ class CalamineReader:
                 }
                 if normalized_value in amount_header_terms:
                     return val, False, False
-                return val, True, True
+                return val, False, True
             return None, False, True
 
     @staticmethod
