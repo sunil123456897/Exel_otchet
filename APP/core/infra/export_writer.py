@@ -5,6 +5,7 @@ from typing import List, Dict, Any
 from pathlib import Path
 import openpyxl
 from openpyxl.utils import get_column_letter
+from openpyxl.styles import PatternFill
 from core.domain import IExporter
 from core.infra import is_file_writable
 from core.infra.excel_backup import backup_existing_excel_output, resolve_excel_backup_keep
@@ -198,71 +199,116 @@ class MasterWriter(IExporter):
                 ws.column_dimensions[let].width = min(max(max_len + 4, min_width), 60)
 
     def _append_data_rows(self, ws, date, rows, curator=None):
+        from collections import OrderedDict
+
         warning_rows = {}
+
+        def _get_employee(r):
+            if curator == "ivan":
+                return str(r.get("Сотрудник", r.get("Источник", ""))).strip()
+            return str(r.get("Источник", "")).strip()
+
+        def _get_row_values(r):
+            if curator == "boris":
+                return [
+                    r.get("Источник", ""),
+                    r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
+                    r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
+                    float(r.get("сумма платежа ПРИХОД", 0)),
+                    float(r.get("сумма платежа РАСХОД", 0)),
+                    float(r.get("комиссия", 0)),
+                    float(r.get("ИТОГ", 0)),
+                    r.get("% посредника", 0),
+                    float(r.get("посредник 1(кэш)", 0)),
+                    r.get("% посредник 2", 0),
+                    float(r.get("посредник 2", 0)),
+                    r.get("фильтры", ""),
+                ]
+            elif curator == "ivan":
+                return [
+                    r.get("Сотрудник", r.get("Источник", "")),
+                    r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
+                    r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
+                    float(r.get("сумма платежа ПРИХОД", 0)),
+                    float(r.get("сумма платежа РАСХОД", 0)),
+                    float(r.get("комиссия", 0)),
+                    float(r.get("ИТОГ", 0)),
+                    float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
+                    r.get("% посредника", 0),
+                    float(r.get("посредник 1(кэш)", 0)),
+                    float(r.get("посредник 2", 0)),
+                    r.get("курс", ""),
+                    r.get("сумма", ""),
+                    r.get("валюта", ""),
+                    r.get("фильтры", ""),
+                ]
+            else:
+                return [
+                    r.get("Источник", ""),
+                    r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
+                    r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
+                    float(r.get("сумма платежа ПРИХОД", 0)),
+                    float(r.get("сумма платежа РАСХОД", 0)),
+                    float(r.get("комиссия", 0)),
+                    float(r.get("ИТОГ", 0)),
+                    float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
+                    r.get("% посредника", 0),
+                    float(r.get("посредник 1(кэш)", 0)),
+                    float(r.get("посредник 2", 0)),
+                    r.get("фильтры", ""),
+                ]
+
+        if curator in ("boris", "ivan"):
+            grouped = OrderedDict()
+            for r in rows:
+                emp = _get_employee(r)
+                grouped.setdefault(emp, []).append(r)
+
+            for emp_name, emp_rows in grouped.items():
+                header_row_num = ws.max_row + 1
+                ws.append([emp_name] + [None] * (ws.max_column - 1))
+                header_cell = ws.cell(header_row_num, 1)
+                header_cell.font = self.st.font_bold
+                header_cell.fill = PatternFill("solid", fgColor="D9E1F2")
+                from openpyxl.styles import Border as _Border, Side as _Side
+                med = _Side(style="medium", color="000000")
+                header_cell.border = _Border(left=med, right=med, top=med, bottom=med)
+                for c in range(2, ws.max_column + 1):
+                    ws.cell(header_row_num, c).fill = PatternFill("solid", fgColor="D9E1F2")
+                    ws.cell(header_row_num, c).border = _Border(left=med, right=med, top=med, bottom=med)
+
+                for r in emp_rows:
+                    warning_kind = r.get("_template_warning_kind")
+                    suppress_structure_warning = curator in {"boris", "ivan"} and warning_kind in {
+                        "hard_structure",
+                        "soft_structure",
+                    }
+                    if r.get("is_template_warning") and not suppress_structure_warning:
+                        warning_rows[ws.max_row + 1] = {
+                            "kind": warning_kind,
+                            "reason": r.get("_template_warning_reason"),
+                        }
+                    ws.append(_get_row_values(r))
+                    apply_cell_hyperlink(
+                        ws.cell(ws.max_row, 1),
+                        r.get("_source_file_path"),
+                        r.get("_source_sheet_name"),
+                        r.get("_source_row_index"),
+                    )
+
+            return warning_rows
+
         for r in rows:
             warning_kind = r.get("_template_warning_kind")
-            suppress_structure_warning = curator in {"boris", "ivan"} and warning_kind in {
+            if r.get("is_template_warning") and not (curator in {"boris", "ivan"} and warning_kind in {
                 "hard_structure",
                 "soft_structure",
-            }
-            if r.get("is_template_warning") and not suppress_structure_warning:
+            }):
                 warning_rows[ws.max_row + 1] = {
                     "kind": warning_kind,
                     "reason": r.get("_template_warning_reason"),
                 }
-            if curator == "boris":
-                ws.append(
-                    [
-                        r.get("Источник", ""),
-                        r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
-                        r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                        float(r.get("сумма платежа ПРИХОД", 0)),
-                        float(r.get("сумма платежа РАСХОД", 0)),
-                        float(r.get("комиссия", 0)),
-                        float(r.get("ИТОГ", 0)),
-                        r.get("% посредника", 0),
-                        float(r.get("посредник 1(кэш)", 0)),
-                        r.get("% посредник 2", 0),
-                        float(r.get("посредник 2", 0)),
-                        r.get("фильтры", ""),
-                    ]
-                )
-            elif curator == "ivan":
-                ws.append(
-                    [
-                        r.get("Сотрудник", r.get("Источник", "")),
-                        r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
-                        r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                        float(r.get("сумма платежа ПРИХОД", 0)),
-                        float(r.get("сумма платежа РАСХОД", 0)),
-                        float(r.get("комиссия", 0)),
-                        float(r.get("ИТОГ", 0)),
-                        float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
-                        r.get("% посредника", 0),
-                        float(r.get("посредник 1(кэш)", 0)),
-                        float(r.get("посредник 2", 0)),
-                        r.get("курс", ""),
-                        r.get("сумма", ""),
-                        r.get("валюта", ""),
-                        r.get("фильтры", ""),
-                    ]
-                )
-            else:
-                ws.append(
-                    [
-                        r.get("Источник", ""),
-                        r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
-                        r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                        float(r.get("сумма платежа ПРИХОД", 0)),
-                        float(r.get("сумма платежа РАСХОД", 0)),
-                        float(r.get("комиссия", 0)),
-                        float(r.get("ИТОГ", 0)),
-                        r.get("% посредника", 0),
-                        float(r.get("посредник 1(кэш)", 0)),
-                        float(r.get("посредник 2", 0)),
-                        r.get("фильтры", ""),
-                    ]
-                )
+            ws.append(_get_row_values(r))
             apply_cell_hyperlink(
                 ws.cell(ws.max_row, 1),
                 r.get("_source_file_path"),
