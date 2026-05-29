@@ -142,7 +142,7 @@ class LogicService(ILogicService):
         self.persistence = persistence
         self.config = config
         l_cfg = config.get("logic", {})
-        self.inc_over = l_cfg.get("income_overrides", ["доп", "доп сф", "% посред"])
+        self.inc_over = l_cfg.get("income_overrides", ["доп", "доп сф", "доп.сф", "% посред"])
         self.ret_kw = l_cfg.get("return_keywords", ["возврат"])
         self.commission_is_percent = l_cfg.get("commission_is_percent", True)
 

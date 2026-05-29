@@ -25,6 +25,7 @@ logic:
   income_overrides:
     - доп
     - доп сф
+    - доп.сф
     - "% посред"
   return_keywords:
     - возврат
