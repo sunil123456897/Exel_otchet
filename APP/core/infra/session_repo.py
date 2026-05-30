@@ -232,5 +232,26 @@ class SessionRepository(IPersistence):
             file_path, mtime, size, dates, fingerprint=fingerprint
         )
 
+    def get_row_cache(
+        self, file_path: str, mtime: float, size: int, date_key: str
+    ) -> Optional[List[Dict[str, Any]]]:
+        return self.source_file_repo.get_row_cache(file_path, mtime, size, date_key)
+
+    def save_row_cache(
+        self,
+        file_path: str,
+        mtime: float,
+        size: int,
+        date_key: str,
+        rows: List[Dict[str, Any]],
+    ) -> None:
+        self.source_file_repo.save_row_cache(file_path, mtime, size, date_key, rows)
+
+    def get_discovery_cache(self, roots_key: str) -> Optional[List[Dict[str, Any]]]:
+        return self.source_file_repo.get_discovery_cache(roots_key)
+
+    def save_discovery_cache(self, roots_key: str, files: List[Dict[str, Any]]) -> None:
+        self.source_file_repo.save_discovery_cache(roots_key, files)
+
 
 SQLiteManager = SessionRepository

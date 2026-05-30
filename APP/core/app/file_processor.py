@@ -192,16 +192,33 @@ def process_file_task(
     file_id = file_ids[0]
     try:
         import time as _time
-        _t0 = _time.monotonic()
-        rows = ingestion.read_file(
-            Path(path_str),
-            strict_io=True,
-            target_date_str=target_date_str,
-            start_date_str=start_date_str,
-            end_date_str=end_date_str,
-        )
-        _elapsed = _time.monotonic() - _t0
-        logging.info(f"[PERF] Read {safe_file_label(path_str)}: {_elapsed:.1f}s ({len(rows)} rows)")
+        
+        # Build cache key
+        file_stat = os.stat(path_str)
+        file_mtime = file_stat.st_mtime
+        file_size = file_stat.st_size
+        date_key = target_date_str or "all"
+        
+        # Try row cache first
+        cached_rows = persistence.get_row_cache(path_str, file_mtime, file_size, date_key)
+        if cached_rows is not None:
+            _t0 = _time.monotonic()
+            rows = cached_rows
+            _elapsed = _time.monotonic() - _t0
+            logging.info(f"[PERF] Cache hit {safe_file_label(path_str)}: {_elapsed:.3f}s ({len(rows)} rows)")
+        else:
+            _t0 = _time.monotonic()
+            rows = ingestion.read_file(
+                Path(path_str),
+                strict_io=True,
+                target_date_str=target_date_str,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str,
+            )
+            _elapsed = _time.monotonic() - _t0
+            logging.info(f"[PERF] Read {safe_file_label(path_str)}: {_elapsed:.1f}s ({len(rows)} rows)")
+            # Save to cache (async, non-blocking)
+            persistence.save_row_cache(path_str, file_mtime, file_size, date_key, rows)
         valid_rows = []
         template_errors = []
         target_date = (

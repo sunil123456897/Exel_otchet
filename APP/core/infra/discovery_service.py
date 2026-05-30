@@ -1,8 +1,9 @@
+import hashlib
 import logging
 import time
 import concurrent.futures
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from core.infra.config_controller import ConfigController
 from core.infra.ingestion_engine import IngestionEngine
@@ -18,10 +19,14 @@ class DiscoveryService:
     )
 
     def __init__(
-        self, config_controller: ConfigController, ingestion: IngestionEngine
+        self,
+        config_controller: ConfigController,
+        ingestion: IngestionEngine,
+        persistence: Optional[Any] = None,
     ) -> None:
         self.config_controller = config_controller
         self.ingestion = ingestion
+        self.persistence = persistence
         self.rename_detected = False
         self.last_discovered_count = 0
 
@@ -122,6 +127,20 @@ class DiscoveryService:
     def _load_discovery_cache(
         self, config: Dict[str, Any], roots_to_scan: List[Path]
     ) -> List[Dict[str, Any]] | None:
+        roots_key = hashlib.md5(
+            str(self._roots_key(roots_to_scan)).encode()
+        ).hexdigest()
+        
+        # Try SQLite cache first
+        if self.persistence is not None:
+            try:
+                cached = self.persistence.get_discovery_cache(roots_key)
+                if cached is not None:
+                    return cached
+            except Exception as e:
+                logging.debug(f"SQLite discovery cache miss: {e}")
+        
+        # Fall back to YAML cache
         cache = config.get("discovery_cache") if hasattr(config, "get") else None
         if not isinstance(cache, dict):
             return None
@@ -147,6 +166,19 @@ class DiscoveryService:
         roots_to_scan: List[Path],
         discovered_files: List[Dict[str, Any]],
     ) -> None:
+        roots_key = hashlib.md5(
+            str(self._roots_key(roots_to_scan)).encode()
+        ).hexdigest()
+        
+        # Save to SQLite if available
+        if self.persistence is not None:
+            try:
+                self.persistence.save_discovery_cache(roots_key, discovered_files)
+                logging.info("[CACHE] Discovery cache saved to SQLite")
+            except Exception as e:
+                logging.warning(f"Failed to save discovery cache to SQLite: {e}")
+        
+        # Also save to YAML for backward compatibility
         config["discovery_cache"] = {
             "roots_key": self._roots_key(roots_to_scan),
             "scanned_at": time.time(),

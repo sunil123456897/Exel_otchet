@@ -136,6 +136,95 @@ class SourceFileRepository:
 
         self.write_queue.put((_save, ()))
 
+    def get_row_cache(
+        self, file_path: str, mtime: float, size: int, date_key: str
+    ) -> Optional[List[Dict[str, Any]]]:
+        conn = self.connection_manager.get_connection()
+        try:
+            row = conn.execute(
+                "SELECT rows_json FROM row_cache WHERE file_path = ? AND mtime = ? AND size = ? AND date_key = ?",
+                (file_path, mtime, size, date_key),
+            ).fetchone()
+            if row:
+                return json.loads(row["rows_json"])
+            return None
+        finally:
+            conn.close()
+
+    def save_row_cache(
+        self,
+        file_path: str,
+        mtime: float,
+        size: int,
+        date_key: str,
+        rows: List[Dict[str, Any]],
+    ) -> None:
+        def _save():
+            conn = self.connection_manager.get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.execute(
+                    "INSERT OR REPLACE INTO row_cache (file_path, mtime, size, date_key, rows_json, row_count, created_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                    (
+                        file_path,
+                        mtime,
+                        size,
+                        date_key,
+                        json.dumps(rows, ensure_ascii=False, default=str),
+                        len(rows),
+                    ),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        self.write_queue.put((_save, ()))
+
+    def get_discovery_cache(self, roots_key: str) -> Optional[List[Dict[str, Any]]]:
+        conn = self.connection_manager.get_connection()
+        try:
+            row = conn.execute(
+                "SELECT files_json, scanned_at FROM discovery_cache WHERE roots_key = ?",
+                (roots_key,),
+            ).fetchone()
+            if row:
+                import time as _time
+                scanned_at = row["scanned_at"]
+                ttl = 12 * 3600  # 12 hours default
+                if _time.time() - scanned_at < ttl:
+                    return json.loads(row["files_json"])
+            return None
+        finally:
+            conn.close()
+
+    def save_discovery_cache(
+        self, roots_key: str, files: List[Dict[str, Any]]
+    ) -> None:
+        def _save():
+            import time as _time
+            conn = self.connection_manager.get_connection()
+            try:
+                conn.execute("BEGIN TRANSACTION")
+                conn.execute(
+                    "INSERT OR REPLACE INTO discovery_cache (roots_key, scanned_at, files_json) VALUES (?, ?, ?)",
+                    (
+                        roots_key,
+                        _time.time(),
+                        json.dumps(files, ensure_ascii=False, default=str),
+                    ),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        self.write_queue.put((_save, ()))
+
     def close(self):
         self.write_queue.put(None)
         self.writer_thread.join()

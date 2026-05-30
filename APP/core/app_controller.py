@@ -54,7 +54,7 @@ class AppController:
         self.logic_service = logic_service
         self.writer = writer
 
-        self.discovery = DiscoveryService(config_controller, ingestion)
+        self.discovery = DiscoveryService(config_controller, ingestion, persistence=persistence)
         self._max_workers = resolve_max_workers(
             getattr(config_controller, "config", None)
         )
