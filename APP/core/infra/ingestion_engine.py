@@ -259,10 +259,6 @@ class IngestionEngine(IDataSource):
         dates = set()
         f_path_abs = os.path.abspath(str(file_path))
         should_isolate = self._should_isolate_calamine(file_path)
-        if should_isolate:
-            metadata_dates = _try_get_xlsx_sheet_dates_from_metadata(f_path_abs)
-            if metadata_dates is not None:
-                return metadata_dates
 
         target_path, temp_file = get_local_copy(
             f_path_abs,

@@ -81,11 +81,6 @@ def _cache_copy_is_fresh(local_path: Path, remote_path: str, remote_stat) -> boo
     )
     if cached_stat.st_size != remote_stat.st_size or cached_mtime_ns < remote_mtime_ns:
         return False
-
-    remote_digest = file_content_fingerprint(remote_path)
-    cached_digest = file_content_fingerprint(local_path)
-    if remote_digest is not None and cached_digest is not None:
-        return remote_digest == cached_digest
     return True
 
 
