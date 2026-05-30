@@ -191,6 +191,8 @@ def process_file_task(
     file_ids = persistence.save_file_metadata(session_id, [meta])
     file_id = file_ids[0]
     try:
+        import time as _time
+        _t0 = _time.monotonic()
         rows = ingestion.read_file(
             Path(path_str),
             strict_io=True,
@@ -198,6 +200,8 @@ def process_file_task(
             start_date_str=start_date_str,
             end_date_str=end_date_str,
         )
+        _elapsed = _time.monotonic() - _t0
+        logging.info(f"[PERF] Read {safe_file_label(path_str)}: {_elapsed:.1f}s ({len(rows)} rows)")
         valid_rows = []
         template_errors = []
         target_date = (

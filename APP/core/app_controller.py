@@ -303,6 +303,8 @@ class AppController:
         on_error: Optional[Callable[[str], None]] = None,
     ) -> None:
         try:
+            import time as _time
+            _t0 = _time.monotonic()
             logging.info("[NET] Загружаю статусы файлов...")
             employees_map = self._get_employees_map(allow_network_scan=False)
             unique_names = sorted(employees_map.keys())
@@ -333,6 +335,8 @@ class AppController:
             local_data.sort(key=lambda x: x[0])
             with self._lock:
                 self._cached_employees = employees_map
+            _elapsed = _time.monotonic() - _t0
+            logging.info(f"[PERF] Refresh status: {_elapsed:.1f}s for {total_count} employees")
             on_complete(local_data, employees_map, self.rename_detected)
         except Exception as e:
             logging.error(f"Refresh error: {e}")
@@ -443,6 +447,8 @@ class AppController:
         curator: Optional[str] = None,
         on_failure_code: Optional[Callable[[str], None]] = None,
     ) -> None:
+        import time as _time
+        _t0 = _time.monotonic()
         session_id = str(uuid.uuid4())
         try:
             curator_config = self._get_curator_config(curator)
@@ -544,6 +550,8 @@ class AppController:
                 return
 
             logging.info("[MAIN] Основной отчёт собран: %s", scrub_path(str(master_path)))
+            _elapsed = _time.monotonic() - _t0
+            logging.info(f"[PERF] Consolidation ({session_type}): {_elapsed:.1f}s")
             on_progress(100)
             has_actionable_warnings = any(
                 error.get("error_type") not in {"soft_structure"} for error in errors
