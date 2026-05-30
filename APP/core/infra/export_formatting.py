@@ -112,6 +112,8 @@ def _extract_money_snapshot(row_cells, cols):
 
 
 def _is_return_row(rows_data, row_idx, return_keywords):
+    if row_idx >= len(rows_data):
+        return False
     filters_val = str(rows_data[row_idx].get("фильтры", "")).lower()
     return any(kw in filters_val for kw in return_keywords)
 
@@ -239,7 +241,7 @@ def apply_cell_styling(
 
         i_val, e_val, t_val, c_val = _extract_money_snapshot(row_cells, cols)
 
-        is_critical = rows_data[r_idx].get("is_critical", False)
+        is_critical = rows_data[r_idx].get("is_critical", False) if r_idx < len(rows_data) else False
         is_math_err = _is_math_error(is_return, i_val, e_val, t_val, c_val)
 
         for c_idx, cell in enumerate(row_cells, 1):
