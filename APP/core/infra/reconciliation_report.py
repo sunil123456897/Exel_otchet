@@ -1103,44 +1103,11 @@ def _write_reconciliation_sheet(
     headers = [*master_headers, STATUS_HEADER, *RSCH_HEADERS, REASON_HEADER]
     _write_headers(ws, headers)
 
-    verified = sum(1 for r in row_list if r.status == STATUS_VERIFIED)
-    review = sum(1 for r in row_list if r.status == STATUS_REVIEW)
-    errors = sum(1 for r in row_list if r.status not in (STATUS_VERIFIED, STATUS_REVIEW))
-
-    summary_parts = []
-    if verified:
-        summary_parts.append(f"Сверено: {verified}")
-    if review:
-        summary_parts.append(f"На проверку: {review}")
-    if errors:
-        summary_parts.append(f"Ошибки: {errors}")
-    summary_text = " | ".join(summary_parts) if summary_parts else "Нет данных"
-
-    summary_row_num = ws.max_row + 1
-    ws.append([summary_text] + [None] * (len(headers) - 1))
-    cell = ws.cell(summary_row_num, 1)
-    cell.font = Font(bold=True, size=10, color="FF000000")
-    cell.fill = PatternFill("solid", fgColor="FFD9E1F2")
-    cell.border = _THIN_BORDER
-    cell.alignment = Alignment(horizontal="left", vertical="center")
-
-    for col_idx in range(2, len(headers) + 1):
-        c = ws.cell(summary_row_num, col_idx)
-        c.fill = PatternFill("solid", fgColor="FFD9E1F2")
-        c.border = _THIN_BORDER
-
-    ws.merge_cells(
-        start_row=summary_row_num,
-        start_column=1,
-        end_row=summary_row_num,
-        end_column=min(5, len(headers)),
-    )
-
     column_widths: dict[int, int] = {}
     _update_column_widths(column_widths, headers)
     for row in row_list:
         _append_reconciliation_row(ws, row, master_headers, column_widths)
-    ws.freeze_panes = "A3"
+    ws.freeze_panes = "A2"
     ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws.max_row}"
     _apply_column_widths(ws, column_widths)
 
