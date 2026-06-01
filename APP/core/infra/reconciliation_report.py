@@ -151,10 +151,52 @@ def _canonical_match_text_cached(text: str) -> str:
     text = re.sub(r"([а-я])([a-z])", r"\1 \2", text)
     text = re.sub(r"([a-z])([а-я])", r"\1 \2", text)
     text = text.replace("gabriel", "габриэль")
-    text = re.sub(r"\bук\s*альянс\b", "ука", text)
+    # UKA: "УК Альянс", "УКАльянс", "УК А", "УКА_Альфа", "УКА_Сбер", "УКА_ВТБ", "УК_ВТБ", "УК_Альфа"
+    # Note: input is already lowercased+collapsed by _normalize_text, but `_` survives
+    # and is a word char in Python regex (\b does NOT trigger after "с" in "сбер" when
+    # followed by "_"). So we use a lookbehind for non-cyrillic instead of \b.
+    text = re.sub(r"(?<![а-я])ук(?:а_альфа|а_сбер|а_втб|альянс|альфа|втб)", "ука", text)
+    text = re.sub(r"\bук[\s_]+альянс\b", "ука", text)
     text = re.sub(r"\bукальянс\b", "ука", text)
-    text = re.sub(r"\bук\s+а\b", "ука", text)
-    text = re.sub(r"\bук\s+(?=(альфа|сбер)\b)", "ука ", text)
+    text = re.sub(r"(?<![а-я])укалинс(?![а-я])", "ука", text)  # common typo
+    text = re.sub(r"\bул[\s_]+альянс\b", "ука", text)  # "Ул альянс" = УК Альянс
+    text = re.sub(r"\bук[\s_]+а\b", "ука", text)
+    text = re.sub(r"\bук[\s_]+(?=(альфа|сбер|втб)\b)", "ука ", text)
+    # "Сбер_РН" used as a synonym for УК Альянс routed via Sber settlement account
+    text = re.sub(r"(?<![а-я])сбер[\s_]*рн(?![а-я])", "ука", text)
+    # Tinkoff: "Тина", "Тинадар", "Тинадар", "Тина Сбер"
+    # Note: re.sub replaces the matched text verbatim; "[\s_]*" with trailing \b
+    # would eat a trailing space. Anchor with explicit lookahead or use \b before/after.
+    text = re.sub(r"\bтина(?:[\s_]*(?:дар|да|бизнес))?(?![а-я])", "тина", text)
+    text = re.sub(r"\bтина[\s_]+сбер\b", "тина", text)
+    # Billtrade: "Билл", "Билтрейд", "Биллтрейд"
+    text = re.sub(r"\bбилл?трейд\b", "биллтрейд", text)
+    text = re.sub(r"\bбилл(?!\w)", "биллтрейд", text)
+    text = re.sub(r"\bбилтрейд\b", "биллтрейд", text)
+    # ANO Техникум: "АНО ТСК", "АНО ТЕХНИКУМ"
+    text = re.sub(r"\bано[\s_]+тск\b", "анотехникум", text)
+    text = re.sub(r"\bано[\s_]+техникум\b", "анотехникум", text)
+    # SB Защита: "СБ ЗАЩИТА", "Защита РРБ", "Защита"
+    text = re.sub(r"\bсб[\s_]+защита\b", "сбзащита", text)
+    text = re.sub(r"\bзащита[\s_]+ррб\b", "сбзащита", text)
+    # Стинг: "Стип", "СтипСбер", "Стинг"
+    text = re.sub(r"\bстип[\s_]*сбер\b", "стинг", text)
+    text = re.sub(r"(?<![а-я])стип(?![а-я])", "стинг", text)
+    text = re.sub(r"\bстинг[\s_]*сбер\b", "стинг сбер", text)
+    # Прайм = Прессбук (один банк)
+    text = re.sub(r"\bпрайм\b", "прессбук", text)
+    # ПБ = Прессбук (compact form)
+    text = re.sub(r"(?<![а-я])пб(?:[\s_]+альфа|[\s_]+сбер|[\s_]+втб)?(?![а-я])", "прессбук", text)
+    # Пиплкрафт: "Пип", "ПипКрафт", "Пипл Сбер", "Пип крафт Альфа"
+    text = re.sub(r"(?<![а-я])пип(?:[\s_]*крафт)?(?:[\s_]+альфа|[\s_]+сбер|[\s_]+втб)?", "пипл крафт", text)
+    # ПУ = Пиплкрафт (ПК в одном контексте)
+    text = re.sub(r"\bпу[\s_]*(альфа|сбер|втб)\b", r"пипл крафт \1", text)
+    text = re.sub(r"\bпу\b", "пиплкрафт", text)
+    # ПК = Пиплкрафт
+    text = re.sub(r"\bпк[\s_]*(альфа|сбер|втб|аф)?\b", r"пипл крафт", text)
+    # СТ = Спецстаффсервис
+    text = re.sub(r"\bст[\s_]*(втб|альфа|сбер|бизнес)\b", r"ссс \1", text)
+    text = re.sub(r"\bст\b", "ссс", text)
     return text
 
 

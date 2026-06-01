@@ -1593,6 +1593,27 @@ def test_build_reconciliation_report_verifies_common_executor_abbreviations(
     ws.append(["press row", "Рубашка ПРЕССБУК Альфа", "ПБ АЛЬФА", 0, 130000, 0, -130000])
     ws.append(["sss row", "Очки Спецстаффсервис Сбер", "ССС Сбер", 0, 749800, 0, -749800])
     ws.append(["vb row", "Анастасия рекрутинг выход ВБ", "воркбрайт сбер", 0, 2907, 0, -2907])
+    # May 2026 aliases from the curator reconciliation backlog:
+    ws.append(["bill row", "Билл Альфа проект Рубашка", "Билл Альфа", 0, 5000, 0, -5000])
+    ws.append(["billt row", "Билтрейд Альфа проект Рубашка", "Билтрейд Альфа", 0, 6000, 0, -6000])
+    ws.append(["ano row", "АНО ТСК сбер проект Рубашка", "АНО ТСК сбер", 0, 7000, 0, -7000])
+    ws.append(["uk row", "УКАльянс_Сбер проект Рубашка", "УКАльянс_Сбер", 0, 8000, 0, -8000])
+    ws.append(["uk2 row", "УКАльянс_втб проект Рубашка", "УКАльянс_втб", 0, 9000, 0, -9000])
+    ws.append(["uk3 row", "УКАльянс_Альфа проект Рубашка", "УКАльянс_Альфа", 0, 10000, 0, -10000])
+    ws.append(["uk4 row", "УК ВТБ проект Рубашка", "УК ВТБ", 0, 11000, 0, -11000])
+    ws.append(["uk5 row", "Ул альянс альфа проект Рубашка", "Ул альянс альфа", 0, 12000, 0, -12000])
+    ws.append(["uk6 row", "Сбер_РН проект Рубашка", "Сбер_РН", 0, 13000, 0, -13000])
+    ws.append(["uk7 row", "УКАЛИНС_Сбер проект Рубашка", "УКАЛИНС_Сбер", 0, 14000, 0, -14000])
+    ws.append(["pk row", "Пипл сбер проект Рубашка", "Пипл сбер", 0, 15000, 0, -15000])
+    ws.append(["pup row", "ПУ Альфа проект Рубашка", "ПУ Альфа", 0, 16000, 0, -16000])
+    ws.append(["pip row", "ПипКрафт_Альфа проект Рубашка", "ПипКрафт_Альфа", 0, 17000, 0, -17000])
+    ws.append(["prym row", "Прайм Альфа проект Рубашка", "Прайм Альфа", 0, 18000, 0, -18000])
+    ws.append(["pbv row", "ПБ Альфа возврат проект Рубашка", "ПБ Альфа возврат", 0, 19000, 0, -19000])
+    ws.append(["tina row", "Тина сбер проект Рубашка", "тина сбер", 0, 20000, 0, -20000])
+    ws.append(["zash row", "Защита РРБ проект Рубашка", "Защита РРБ", 0, 21000, 0, -21000])
+    ws.append(["sting row", "Стип_Сбер проект Рубашка", "Стип_Сбер", 0, 22000, 0, -22000])
+    ws.append(["st row", "СТ ВТБ проект Рубашка", "СТ ВТБ", 0, 23000, 0, -23000])
+    ws.append(["press_sber row", "Рубашка Прессбук Сбер", "Прессбук Сбер", 0, 24000, 0, -24000])
     wb.save(master_path)
 
     wb = Workbook()
@@ -1604,6 +1625,26 @@ def test_build_reconciliation_report_verifies_common_executor_abbreviations(
     ws.append(["ПРЕССБУК", "Рубашка", "реестр зп", "", 0, 130000, "rsch press"])
     ws.append(["СПЕЦСТАФФСЕРВИС", "Очки", "реестр зп", "", 0, 749800, "rsch sss"])
     ws.append(["ВБ", "анастасия рекрутинг", "Интернет Решения", "", 0, 2907, "rsch vb"])
+    ws.append(["БИЛЛТРЕЙД", "рубашка", "реестр зп", "", 0, 5000, "rsch bill"])
+    ws.append(["БИЛЛТРЕЙД", "рубашка", "реестр зп", "", 0, 6000, "rsch billt"])
+    ws.append(["АНО ТЕХНИКУМ", "рубашка", "реестр зп", "", 0, 7000, "rsch ano"])
+    ws.append(["УК А", "рубашка", "реестр зп", "", 0, 8000, "rsch uk"])
+    ws.append(["УК А", "рубашка", "реестр зп", "", 0, 9000, "rsch uk2"])
+    ws.append(["УК А", "рубашка", "реестр зп", "", 0, 10000, "rsch uk3"])
+    ws.append(["УК А", "рубашка", "реестр зп", "", 0, 11000, "rsch uk4"])
+    ws.append(["УК А", "рубашка", "реестр зп", "", 0, 12000, "rsch uk5"])
+    ws.append(["УК А", "рубашка", "реестр зп", "", 0, 13000, "rsch uk6"])
+    ws.append(["УК А", "рубашка", "реестр зп", "", 0, 14000, "rsch uk7"])
+    ws.append(["ПИПЛ КРАФТ", "рубашка", "реестр зп", "", 0, 15000, "rsch pk"])
+    ws.append(["ПИПЛ КРАФТ", "рубашка", "реестр зп", "", 0, 16000, "rsch pup"])
+    ws.append(["ПИПЛ КРАФТ", "рубашка", "реестр зп", "", 0, 17000, "rsch pip"])
+    ws.append(["ПРЕССБУК", "рубашка", "реестр зп", "", 0, 18000, "rsch prym"])
+    ws.append(["ПРЕССБУК", "рубашка", "реестр зп", "", 0, 19000, "rsch pbv"])
+    ws.append(["ТИНАДАР", "рубашка", "реестр зп", "", 0, 20000, "rsch tina"])
+    ws.append(["СБ ЗАЩИТА", "рубашка", "реестр зп", "", 0, 21000, "rsch zash"])
+    ws.append(["СТИНГ", "рубашка", "реестр зп", "", 0, 22000, "rsch sting"])
+    ws.append(["ССС", "рубашка", "реестр зп", "", 0, 23000, "rsch st"])
+    ws.append(["ПРЕССБУК", "рубашка", "реестр зп", "", 0, 24000, "rsch press_sber"])
     wb.save(rsch_path)
 
     written = build_reconciliation_report(
@@ -1613,17 +1654,29 @@ def test_build_reconciliation_report_verifies_common_executor_abbreviations(
         target_date=date(2026, 4, 21),
     )
 
-    assert written == 5
+    # 25 master rows matched 1:1 with 25 rsch rows.
+    assert written == 25, f"Expected 25 rows, got {written}"
     wb = load_workbook(output_path, data_only=False)
     ws = wb["21.04.2026"]
     status_col = _find_status_col(ws)
-    statuses = [ws.cell(row, status_col).value for row in range(2, 7)]
-    assert statuses == ["СВЕРЕНО"] * 5
+    statuses = [ws.cell(row, status_col).value for row in range(2, 2 + written)]
+    if statuses != ["СВЕРЕНО"] * written:
+        for i, st in enumerate(statuses):
+            if st != "СВЕРЕНО":
+                row_idx = i + 2
+                print(f"\n=== Row {row_idx} not СВЕРЕНО: {st} ===")
+                for col in range(1, 19):
+                    v = ws.cell(row_idx, col).value
+                    if v is not None:
+                        print(f"  Col {col}: {v!r}")
+    assert statuses == ["СВЕРЕНО"] * written, f"Expected all СВЕРЕНО, got {statuses}"
 
 
 def test_build_reconciliation_report_keeps_unapproved_executor_alias_for_review(
     tmp_path: Path,
 ) -> None:
+    """Truly unapproved executor pairs (no shared tokens) still trigger
+    'Не совпал исполнитель' review even when the rest matches."""
     master_path = tmp_path / "master.xlsx"
     rsch_path = tmp_path / "rsch.xlsx"
     output_path = tmp_path / "reconciliation.xlsx"
@@ -1642,14 +1695,14 @@ def test_build_reconciliation_report_keeps_unapproved_executor_alias_for_review(
             "ИТОГ",
         ]
     )
-    ws.append(["master row", "свитер билл альфа оплата патентов", "БИЛЛ АЛЬФА", 0, 35808, 0, -35808])
+    ws.append(["master row", "заказчик проект", "АБВ Группа", 0, 35808, 0, -35808])
     wb.save(master_path)
 
     wb = Workbook()
     ws = wb.active
     ws.title = "21.04"
     ws.append(["ИСПОЛНИТЕЛЬ", "ЗАКАЗЧИК", "Контрагент", "Комментарий", "Приход", "Расход", "Источник"])
-    ws.append(["БИЛЛТРЕЙД", "свитер", "патент", "", 0, 35808, "rsch row"])
+    ws.append(["XYZ Holdings", "заказчик", "контрагент", "", 0, 35808, "rsch row"])
     wb.save(rsch_path)
 
     written = build_reconciliation_report(
