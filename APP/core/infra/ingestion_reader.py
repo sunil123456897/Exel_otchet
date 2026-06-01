@@ -659,8 +659,8 @@ class CalamineReader:
                 }
                 if normalized_value in amount_header_terms:
                     return val, False, False
-                return val, True, True
-            return None, False, True
+                return val, False, True
+            return None, False, False
 
     @staticmethod
     def _apply_shifted_columns_fix(
@@ -786,7 +786,7 @@ class CalamineReader:
             row_warning_reason,
         )
 
-        if not (has_data and has_financial):
+        if not (has_data and (has_financial or row_has_numeric_text_warning)):
             if has_data:
                 logger.debug(
                     f"Row {i + 1} in {sheet_name} has data but no financial values"

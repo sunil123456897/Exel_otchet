@@ -264,6 +264,11 @@ class IngestionEngine(IDataSource):
             if metadata_dates is not None:
                 return metadata_dates
 
+        if should_isolate and f_path_abs.lower().endswith(".xlsx"):
+            metadata_dates = _try_get_xlsx_sheet_dates_from_metadata(f_path_abs)
+            if metadata_dates is not None:
+                return metadata_dates
+
         target_path, temp_file = get_local_copy(
             f_path_abs,
             self.drive_letters,
