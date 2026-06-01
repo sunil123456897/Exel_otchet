@@ -161,7 +161,10 @@ def _canonical_match_text_cached(text: str) -> str:
     text = re.sub(r"(?<![а-я])укалинс(?![а-я])", "ука", text)  # common typo
     text = re.sub(r"\bул[\s_]+альянс\b", "ука", text)  # "Ул альянс" = УК Альянс
     text = re.sub(r"\bук[\s_]+а\b", "ука", text)
-    text = re.sub(r"\bук[\s_]+(?=(альфа|сбер|втб)\b)", "ука ", text)
+    text = re.sub(r"\bук[\s_]+аф\b", "ука", text)  # "УК Аф..." (shorthand for УК А + bank)
+    text = re.sub(r"\bук[\s_]+(?=(альфа|сбер|втб|сб)\b)", "ука ", text)
+    # Catch-all: any word starting with ука+letters (optionally _bank suffix)
+    text = re.sub(r"(?<![а-я])ука[а-я]*(?:_[а-я]+)?(?![а-я])", "ука", text)
     # "Сбер_РН" used as a synonym for УК Альянс routed via Sber settlement account
     text = re.sub(r"(?<![а-я])сбер[\s_]*рн(?![а-я])", "ука", text)
     # Tinkoff: "Тина", "Тинадар", "Тинадар", "Тина Сбер"
@@ -176,27 +179,43 @@ def _canonical_match_text_cached(text: str) -> str:
     # ANO Техникум: "АНО ТСК", "АНО ТЕХНИКУМ"
     text = re.sub(r"\bано[\s_]+тск\b", "анотехникум", text)
     text = re.sub(r"\bано[\s_]+техникум\b", "анотехникум", text)
+    text = re.sub(r"(?<![а-я])тск(?:(?:[\s_]+сбер)|(?:[\s_]+альфа)|(?:[\s_]+втб)|(?:[\s_]+сб))?(?![а-я])", "анотехникум", text)
     # SB Защита: "СБ ЗАЩИТА", "Защита РРБ", "Защита"
     text = re.sub(r"\bсб[\s_]+защита\b", "сбзащита", text)
     text = re.sub(r"\bзащита[\s_]+ррб\b", "сбзащита", text)
-    # Стинг: "Стип", "СтипСбер", "Стинг"
+    # Стинг: "Стип", "СтипСбер", "Стинг", "СТИ Сбер"
     text = re.sub(r"\bстип[\s_]*сбер\b", "стинг", text)
     text = re.sub(r"(?<![а-я])стип(?![а-я])", "стинг", text)
     text = re.sub(r"\bстинг[\s_]*сбер\b", "стинг сбер", text)
+    text = re.sub(r"(?<![а-я])сти(?:[\s_]+сбер|[\s_]+альфа|[\s_]+втб|[\s_]+сб)?(?![а-я])", "стинг", text)
     # Прайм = Прессбук (один банк)
     text = re.sub(r"\bпрайм\b", "прессбук", text)
     # ПБ = Прессбук (compact form)
     text = re.sub(r"(?<![а-я])пб(?:[\s_]+альфа|[\s_]+сбер|[\s_]+втб)?(?![а-я])", "прессбук", text)
+    # Fuzzy typos for Прессбук: преессбук, прссбук, перссбук, прессбук
+    text = re.sub(r"(?<![а-я])пр[её]+?ссбук(?![а-я])", "прессбук", text)
+    text = re.sub(r"(?<![а-я])пе?рссбук(?![а-я])", "прессбук", text)
     # Пиплкрафт: "Пип", "ПипКрафт", "Пипл Сбер", "Пип крафт Альфа"
-    text = re.sub(r"(?<![а-я])пип(?:[\s_]*крафт)?(?:[\s_]+альфа|[\s_]+сбер|[\s_]+втб)?", "пипл крафт", text)
+    # NOTE: (?!л) prevents matching "пип" inside "пипл" which would
+    # leave trailing characters (e.g. "пипл крафт" → "пипл крафтл крафт").
+    text = re.sub(r"(?<![а-я])пип(?!л)(?:[\s_]*крафт)?(?:[\s_]+альфа|[\s_]+сбер|[\s_]+втб)?", "пипл крафт", text)
+    # Normalise "Пипл" (the full short form) with a bank suffix to canonical form.
+    # "Пипл сбер" → "пипл крафт сбер", "Пипл Альфа" → "пипл крафт альфа"
+    text = re.sub(r"(?<![а-я])пипл(?:[\s_]+крафт)?[\s_]+(альфа|сбер|втб|сб)\b", r"пипл крафт \1", text)
+    # Standalone "пипл" without банк suffix: keep as is, tokens will match via alias keys
     # ПУ = Пиплкрафт (ПК в одном контексте)
     text = re.sub(r"\bпу[\s_]*(альфа|сбер|втб)\b", r"пипл крафт \1", text)
     text = re.sub(r"\bпу\b", "пиплкрафт", text)
     # ПК = Пиплкрафт
     text = re.sub(r"\bпк[\s_]*(альфа|сбер|втб|аф)?\b", r"пипл крафт", text)
+    # СБ = СБИ (СтройБизнесИнвест)
+    text = re.sub(r"(?<![а-я])стройбизнесинвест(?![а-я])", "сби", text)
     # СТ = Спецстаффсервис
     text = re.sub(r"\bст[\s_]*(втб|альфа|сбер|бизнес)\b", r"ссс \1", text)
     text = re.sub(r"\bст\b", "ссс", text)
+    # ВоркБрайт = ВБ (Slot WorkBright)
+    text = re.sub(r"(?<![а-я])слот[\s_]*воркбрайт(?![а-я])", "вб", text)
+    text = re.sub(r"(?<![а-я])воркбрайт(?![а-я])", "вб", text)
     return text
 
 
