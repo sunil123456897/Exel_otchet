@@ -2233,6 +2233,110 @@ def test_build_reconciliation_report_skips_curator_rows_with_excluded_filters(
     assert ws.max_row == 1
 
 
+def test_build_reconciliation_report_suppresses_rsch_paired_with_excluded_filter_master(
+    tmp_path: Path,
+) -> None:
+    """Rsch-строка, матчащаяся к мастеру с фильтром (доп.сф), не появляется как 'нет в РСЧ'."""
+    master_path = tmp_path / "curator.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "reconciliation.xlsx"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "21.04.2026"
+    ws.append(
+        [
+            "Источник",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
+            "Комиссия",
+            "ИТОГ",
+            "Фильтры",
+        ]
+    )
+    # Мастер-строка с фильтром "доп.сф" — должна быть подавлена и не светиться
+    ws.append(
+        [
+            "Отчет Антон.xlsx : Строка 1",
+            "Проект Геометрия",
+            "МОСАЛЬФА",
+            0,
+            1000,
+            0,
+            -1000,
+            "доп.сф",
+        ]
+    )
+    # Контрольная мастер-строка без фильтра — попадёт в отчёт
+    ws.append(
+        [
+            "Отчет Антон.xlsx : Строка 2",
+            "Проект Атлант",
+            "МОСАЛЬФА",
+            0,
+            2000,
+            0,
+            -2000,
+            "",
+        ]
+    )
+    wb.save(master_path)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "21.04"
+    ws.append(
+        [
+            "ИСПОЛНИТЕЛЬ",
+            "ЗАКАЗЧИК",
+            "Контрагент",
+            "Комментарий",
+            "Приход",
+            "Расход",
+            "Источник",
+        ]
+    )
+    # Rsch-пара к фильтрованной строке — должна быть подавлена
+    ws.append(["МОСАЛЬФА", "Проект Геометрия", "", "", 0, 1000, "rsch row 1"])
+    # Rsch-only — не имеет пары, должна светиться как НЕТ В РСЧ
+    ws.append(["МОСАЛЬФА", "Проект Гранит", "", "", 0, 2000, "rsch row 2"])
+    wb.save(rsch_path)
+
+    written = build_reconciliation_report(
+        master_path,
+        rsch_path,
+        output_path,
+        target_date=date(2026, 4, 21),
+    )
+
+    # В отчёте: 1 (Атлант - нет в РСЧ) + 1 (Гранит - rsch-only)
+    assert written == 2
+    wb = load_workbook(output_path, data_only=False)
+    ws = wb["21.04.2026"]
+
+    # Берём ОБЕ колонки "ЗАКАЗЧИК" (мастер-секция и rsch-секция)
+    customer_cols = [
+        cell.column for cell in ws[1] if cell.value == "ЗАКАЗЧИК"
+    ]
+    assert len(customer_cols) >= 2
+
+    customers_in_report = set()
+    for col in customer_cols:
+        for row in range(2, ws.max_row + 1):
+            val = str(ws.cell(row, col).value or "").strip()
+            if val:
+                customers_in_report.add(val)
+    # Геометрия (мастер с фильтром) НЕ должна появиться
+    assert "Проект Геометрия" not in customers_in_report
+    # Атлант (без фильтра, нет пары) должна появиться
+    assert "Проект Атлант" in customers_in_report
+    # Гранит (rsch-only) должна появиться
+    assert "Проект Гранит" in customers_in_report
+
+
+
 def test_build_reconciliation_report_rejects_invalid_master_amount(
     tmp_path: Path,
 ) -> None:

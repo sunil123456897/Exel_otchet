@@ -70,6 +70,7 @@ _MATCH_TOKEN_STOPWORDS = {
 _COMBINED_SHEET_PRIORITY = {"Общий": 0, "Борис": 1, "Иван": 2}
 _EXCLUDED_MASTER_FILTER_KEYWORDS = (
     "доп сф",
+    "доп сы",
     "касса",
     "зачет",
     "посредник",
@@ -233,7 +234,12 @@ def _is_filter_header(value: Any) -> bool:
 
 def _is_excluded_master_filter(value: Any) -> bool:
     normalized = _normalize_text(value)
-    return any(keyword in normalized for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS)
+    collapsed = normalized.replace(".", " ").replace(",", " ")
+    collapsed = " ".join(collapsed.split())
+    return any(
+        keyword in collapsed
+        for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS
+    ) or any(keyword in normalized for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS)
 
 
 def _is_excluded_master_header(value: Any) -> bool:
@@ -254,6 +260,8 @@ def _is_excluded_customer(value: Any) -> bool:
             "расход",
             "% по депозиту",
             "по депозиту",
+            "% по выплате",
+            "по выплате",
             "комиссия",
         )
     )

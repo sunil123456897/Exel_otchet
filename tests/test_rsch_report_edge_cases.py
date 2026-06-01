@@ -997,7 +997,7 @@ def test_autosize_all_columns(tmp_path: Path) -> None:
     assert widths["F"] >= 14
 
 
-@pytest.mark.parametrize("customer", ["% по депозиту", "комиссия", "налог"])
+@pytest.mark.parametrize("customer", ["% по депозиту", "% по выплате", "комиссия", "налог"])
 def test_empty_contractor_is_allowed_for_special_customer_labels(
     tmp_path: Path,
     customer: str,
@@ -1119,7 +1119,7 @@ def test_empty_contractor_is_allowed_for_getwork_customer(tmp_path: Path) -> Non
     assert _is_warning(out_ws, 2, 3) is False
 
 
-@pytest.mark.parametrize("customer", ["ООО ГЕТВОРК комиссия", "ООО ГЕТВОРК налог", "ООО ГЕТВОРК % по депозиту"])
+@pytest.mark.parametrize("customer", ["ООО ГЕТВОРК комиссия", "ООО ГЕТВОРК налог", "ООО ГЕТВОРК % по депозиту", "ООО ГЕТВОРК % по выплате"])
 def test_empty_account_is_allowed_for_getwork_special_customer_rows(
     tmp_path: Path,
     customer: str,
@@ -1182,7 +1182,7 @@ def test_empty_account_is_allowed_for_getwork_special_customer_rows(
     assert out_ws.cell(2, 6).fill.fgColor.rgb == "FFFFC7CE"
 
 
-@pytest.mark.parametrize("customer", ["% по депозиту", "комиссия", "налог"])
+@pytest.mark.parametrize("customer", ["% по депозиту", "% по выплате", "комиссия", "налог"])
 def test_empty_account_is_marked_for_regular_special_customer_rows(
     tmp_path: Path,
     customer: str,

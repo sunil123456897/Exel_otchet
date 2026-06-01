@@ -1115,6 +1115,70 @@ def test_calamine_reader_helper_day_total_column_becomes_soft_warning(
     assert "helper columns" in res[0]["_template_warning_reason"].lower()
 
 
+def test_calamine_reader_hidden_totals_helper_header_becomes_soft_warning(
+    tmp_path, create_temp_xlsx
+):
+    markers = {
+        "amount": "сумма платежа",
+        "customer": "заказчик",
+        "contractor": "исполнитель",
+        "commission": "комиссия",
+        "total": "итог",
+        "percent_broker": "% посредника",
+        "broker1": "посредник 1(кэш)",
+        "broker2": "посредник 2",
+        "filters": "фильтры",
+    }
+    aliases = {
+        "amount": ["сумма платежа"],
+        "customer": ["заказчик"],
+        "contractor": ["исполнитель"],
+        "commission": ["комиссия"],
+        "total": ["итог"],
+        "percent_broker": ["% посредника"],
+        "broker1": ["посредник 1(кэш)"],
+        "broker2": ["посредник 2"],
+        "filters": ["фильтры"],
+    }
+    reader = CalamineReader(markers, aliases)
+
+    data = [
+        [
+            "Заказчик",
+            "Исполнитель",
+            "Сумма платежа",
+            "Комиссия",
+            "Итог",
+            "итоги дня (данные колонка должна быть скрытой)",
+            "% посредника",
+            "посредник 1(кэш)",
+            "посредник 2",
+            "Фильтры",
+        ],
+        [
+            "ООО Ромашка",
+            "ИП Иванов",
+            1000,
+            0,
+            1000,
+            None,
+            0,
+            0,
+            0,
+            "доп.сф",
+        ],
+    ]
+    file_path = tmp_path / "hidden_totals_helper.xlsx"
+    create_temp_xlsx(file_path, data, sheet_name="01.01.2026")
+
+    res = reader.read(file_path)
+
+    assert len(res) == 1
+    assert res[0]["is_template_warning"] is False
+    assert res[0]["_template_warning_kind"] == "soft_structure"
+    assert "helper columns" in res[0]["_template_warning_reason"].lower()
+
+
 def test_calamine_reader_missing_filters_column_becomes_soft_warning(
     tmp_path, create_temp_xlsx
 ):

@@ -83,6 +83,7 @@ _DATE_ALIGNMENT = Alignment(horizontal="left", vertical="center")
 _DEFAULT_AMOUNT_NUMBER_FORMAT = "#,##0.00"
 _SPECIAL_CUSTOMER_MARKERS = (
     "% по депозиту",
+    "% по выплате",
     "комиссия",
     "налог",
 )
