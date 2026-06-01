@@ -294,3 +294,20 @@ class TestCalamineReaderRead:
         row = rows[0]
         # amount должен быть Decimal или число
         assert isinstance(row.get('amount'), (Decimal, int, float)) or row.get('amount') is not None
+
+    def test_read_skips_section_header_with_text_in_numeric_column(
+        self, reader, temp_xlsx
+    ):
+        """Строки-заголовки секций (текст без цифр в числовой колонке) пропускаются."""
+        f = temp_xlsx("section_headers.xlsx", {
+            "Отчет 01.04.2026": [
+                ["Заказчик", "Сумма платежа", "комиссия", "Итог"],
+                ["ООО Ромашка", "5000", "6", "5300"],
+                ['"Капелла"', "Капелла", "", ""],
+                ["ООО Тюльпан", "3000", "6", "3180"],
+            ]
+        })
+        rows = reader.read(f)
+        customers = [r.get('customer') for r in rows]
+        assert '"Капелла"' not in customers, f"Section header leaked: {customers}"
+        assert len(rows) == 2, f"Expected 2 data rows, got {len(rows)}: {customers}"
