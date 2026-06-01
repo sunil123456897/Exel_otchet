@@ -420,13 +420,29 @@ class TestWriteDailyData:
                 "% посредника": 0.05,
             }
         ]
+        headers = [
+            "Источник",
+            "ЗАКАЗЧИК",
+            "ИСПОЛНИТЕЛЬ",
+            "Приход",
+            "Расход",
+            "Комиссия",
+            "ИТОГ",
+            "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ",
+            "% посредника",
+            "посредник 1(кэш)",
+            "посредник 2",
+            "Фильтры",
+        ]
         wb = Workbook()
-        master_writer.write_daily_data(datetime(2026, 4, 1), rows, wb=wb)
+        master_writer.write_daily_data(
+            datetime(2026, 4, 1), rows, wb=wb, headers=headers
+        )
         ws = wb["01.04.2026"]
 
         pct_col = None
         for cell in ws[1]:
-            if "% посредника" in str(cell.value or ""):
+            if cell.value == "% посредника":
                 pct_col = cell.column
                 break
 

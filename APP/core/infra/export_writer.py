@@ -258,6 +258,7 @@ class MasterWriter(IExporter):
                         float(r.get("сумма платежа РАСХОД", 0)),
                         float(r.get("комиссия", 0)),
                         float(r.get("ИТОГ", 0)),
+                        float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                         r.get("% посредника", 0),
                         float(r.get("посредник 1(кэш)", 0)),
                         float(r.get("посредник 2", 0)),
