@@ -286,6 +286,8 @@ def _executor_alias_keys(value: Any) -> set[str]:
         aliases.add("спецстаффсервис")
     if compact.startswith("воркбрайт") or compact == "вб":
         aliases.add("вб")
+    if compact.startswith("ук") and len(compact) >= 3:
+        aliases.add("ук")
     return aliases
 
 

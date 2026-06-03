@@ -371,6 +371,116 @@ def test_build_reconciliation_rows_surname_match_works_for_contractor_too() -> N
     assert rows[0].rsch.row_id == "sur-1"
 
 
+def test_surname_disambiguates_real_nonunique_pattern() -> None:
+    """Real pattern: ПИПЛ КРАФТ, two RSC rows w/ same amount, only one matches.
+    Master: 'Готово_..._Корень_пипл крафт сбер_...'  amt=50000
+    RSC 1:  cust='Корень Алиса Ю'  → surname 'корень' matches
+    RSC 2:  cust='Проект АЛИСА СБИ' → no surname match
+    Weak customer gives 1 token ('корень'), non-unique, both rejected.
+    Surname matcher picks the right one."""
+    rows = _build_reconciliation_rows(
+        [
+            _master_row(
+                "Готово_Мэри Л_Корень_пипл крафт сбер_РН_04.05.2026_50 000",
+                "пипл крафт сбер",
+                50000,
+            ),
+        ],
+        [
+            _rsch_row("pk-1", "Корень Алиса Ю", "ПИПЛ КРАФТ", 50000, comment=""),
+            _rsch_row("pk-2", "Проект АЛИСА СБИ", "ПИПЛ КРАФТ", 50000, comment=""),
+        ],
+    )
+
+    matched = next(r for r in rows if r.master is not None)
+    assert matched.status == STATUS_REVIEW
+    assert matched.reason == REASON_CUSTOMER_MISMATCH
+    assert matched.rsch.row_id == "pk-1"
+    unmatched = next(r for r in rows if r.master is None and r.rsch is not None)
+    assert unmatched.rsch.row_id == "pk-2"
+
+
+def test_surname_matches_single_candidate_weak_customer() -> None:
+    """Real pattern: ВБ/корень алиса, single candidate, 1 common token.
+    Master: 'Готово_Мэри Л_Корень_вб альфа_РТ_..._37 350'
+    RSC:    cust='корень алиса'  exec='ВБ'  amt=37350
+    Only 1 common token ('корень'), strong match fails.
+    Weak match + amount + executor → single candidate → works.
+    But surname matcher also works as fallback."""
+    rows = _build_reconciliation_rows(
+        [
+            _master_row(
+                "Готово_Мэри Л_Корень_вб альфа_РТ_04.05.2026_37 350",
+                "вб альфа",
+                37350,
+            ),
+        ],
+        [_rsch_row("vb-1", "корень алиса", "ВБ", 37350, comment="")],
+    )
+
+    assert len(rows) == 1
+    assert rows[0].status == STATUS_REVIEW
+    assert rows[0].reason == REASON_CUSTOMER_MISMATCH
+
+
+def test_surname_matches_uk_avangard_pattern() -> None:
+    """Real pattern: УК А/авангард, same amount, matching executor (UK alias).
+    'авангард' has zero common tokens with 'Реестр А ЗП 29.04.26 УК'.
+    Currently ERROR because no text overlap at all.
+    Adding a pure amount+executor fallback would create false positives
+    (Аэрофлот vs илон with same amount/executor would incorrectly match).
+    Only fixable with structured RSC data (proper customer names)."""
+    rows = _build_reconciliation_rows(
+        [
+            _master_row(
+                "Реестр А ЗП 29.04.26 УК",
+                "УКАльянс СБ",
+                15878.6,
+            ),
+        ],
+        [_rsch_row("uk-1", "авангард", "УК А", 15878.6, comment="")],
+    )
+
+    assert len(rows) == 2
+    master_row = next(r for r in rows if r.master is not None)
+    assert master_row.status == STATUS_ERROR
+    assert master_row.reason == REASON_NO_RSCH
+    rsch_row = next(r for r in rows if r.rsch is not None)
+    assert rsch_row.status == STATUS_ERROR
+    assert rsch_row.reason == REASON_NO_CURATOR
+
+
+def test_empty_customer_rsch_with_comment_and_matching_amount() -> None:
+    """Real pattern: empty customer, comment has info, amount matches master.
+    RSC: cust=''  comment='Капитолий_Реестр...'  exec='ПРЕССБУК'  amt=142949.77
+    Master has matching amount. Pre-filter removal allows matching."""
+    rows = _build_reconciliation_rows(
+        [
+            _master_row(
+                "Капитолий_реестр_прессбук_альфа_РТ_28.05.2026_142 949",
+                "прессбук альфа",
+                142949.77,
+            ),
+        ],
+        [
+            _rsch_row("ec-1", "", "ПРЕССБУК", 142949, comment="Другой проект"),
+            _rsch_row(
+                "ec-2",
+                "",
+                "ПРЕССБУК",
+                142949.77,
+                comment="Капитолий_Реестр на оплату 2026 расчет Дарьяна (1)",
+            ),
+        ],
+    )
+
+    matched = next((r for r in rows if r.master is not None), None)
+    assert matched is not None, "Empty-customer row should match via surname/comment"
+    assert matched.status == STATUS_REVIEW
+    assert matched.reason == REASON_CUSTOMER_MISMATCH
+    assert matched.rsch.row_id == "ec-2"
+
+
 def test_build_reconciliation_report_matches_rows_and_places_missing_curator_first(
     tmp_path: Path,
 ) -> None:
