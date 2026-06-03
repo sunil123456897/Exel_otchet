@@ -769,6 +769,43 @@ def _find_likely_customer_mismatch(
     return candidate_idx, candidate
 
 
+def _surname_tokens(value: str) -> set[str]:
+    raw = re.split(r"[^a-zа-яёA-ZА-ЯЁ]+", str(value))
+    return {
+        w.lower() for w in raw
+        if len(w) >= 3 and w[0].isalpha() and w[0].upper() == w[0]
+    }
+
+
+def _customer_surname_matches(
+    master_customer: str,
+    rsch_row: RschReconciliationRow,
+) -> bool:
+    master_surnames = _surname_tokens(master_customer)
+    if not master_surnames:
+        return False
+    rsch_text = f"{rsch_row.comment or ''} {rsch_row.contractor or ''}".lower()
+    return any(surname in rsch_text for surname in master_surnames)
+
+
+def _find_surname_rsch_match(
+    master_row: MasterReconciliationRow,
+    rsch_rows: list[RschReconciliationRow],
+    used_indexes: set[int],
+) -> tuple[int | None, RschReconciliationRow | None]:
+    candidates = [
+        (idx, row)
+        for idx, row in enumerate(rsch_rows)
+        if idx not in used_indexes
+        and _row_amount_matches(master_row, row)
+        and _executor_matches(master_row.executor, row.executor)
+        and _customer_surname_matches(master_row.customer, row)
+    ]
+    if not candidates:
+        return None, None
+    return candidates[0]
+
+
 def _build_reconciliation_rows(
     master_rows: list[MasterReconciliationRow],
     rsch_rows: list[RschReconciliationRow],
@@ -797,18 +834,6 @@ def _build_reconciliation_rows(
             ]
             weak_candidates_by_master[master_idx] = candidates
         return candidates
-
-    for idx, row in enumerate(rsch_rows):
-        if not row.customer:
-            used_rsch_indexes.add(idx)
-            result.append(
-                ReconciliationRow(
-                    master=None,
-                    rsch=row,
-                    status=STATUS_ERROR,
-                    reason=REASON_NO_CURATOR,
-                )
-            )
 
     for master_idx, master_row in enumerate(master_rows):
         match_idx, rsch_row = _find_best_rsch_match(
@@ -874,6 +899,23 @@ def _build_reconciliation_rows(
             get_weak_candidates,
             used_rsch_indexes,
             set(exact_matches),
+        )
+        if rsch_row is not None and match_idx is not None:
+            used_rsch_indexes.add(match_idx)
+            result.append(
+                ReconciliationRow(
+                    master=master_row,
+                    rsch=rsch_row,
+                    status=STATUS_REVIEW,
+                    reason=REASON_CUSTOMER_MISMATCH,
+                )
+            )
+            continue
+
+        match_idx, rsch_row = _find_surname_rsch_match(
+            master_row,
+            rsch_rows,
+            used_rsch_indexes,
         )
         if rsch_row is not None and match_idx is not None:
             used_rsch_indexes.add(match_idx)

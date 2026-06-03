@@ -10,6 +10,9 @@ from core.infra.reconciliation_report import (
     REASON_AMOUNT_MISMATCH,
     REASON_CUSTOMER_MISMATCH,
     REASON_EXECUTOR_MISMATCH,
+    REASON_NO_CURATOR,
+    REASON_NO_RSCH,
+    STATUS_ERROR,
     STATUS_REVIEW,
     STATUS_VERIFIED,
     MasterReconciliationRow,
@@ -234,14 +237,21 @@ def _master_row(customer: str, executor: str, expense: int) -> MasterReconciliat
     )
 
 
-def _rsch_row(row_id: str, customer: str, executor: str, expense: int) -> RschReconciliationRow:
+def _rsch_row(
+    row_id: str,
+    customer: str,
+    executor: str,
+    expense: int,
+    comment: str = "",
+    contractor: str = "",
+) -> RschReconciliationRow:
     expense_decimal = Decimal(str(expense))
     return RschReconciliationRow(
         row_id=row_id,
         executor=executor,
         customer=customer,
-        contractor="",
-        comment="",
+        contractor=contractor,
+        comment=comment,
         income=Decimal("0"),
         expense=expense_decimal,
         source_link=None,
@@ -273,6 +283,92 @@ def test_build_reconciliation_rows_preserves_matching_semantics_guard() -> None:
         (STATUS_REVIEW, REASON_EXECUTOR_MISMATCH, "executor"),
         (STATUS_REVIEW, REASON_CUSTOMER_MISMATCH, "weak"),
     ]
+
+
+def test_build_reconciliation_rows_surname_match_promotes_review() -> None:
+    """Multiple RSC rows with same amount, only one has matching surname.
+    Strong match fails (only 1 common token with 'Борис Шарков').
+    Weak match fails (non-unique - 2 candidates).
+    Surname matcher picks the matching one."""
+    rows = _build_reconciliation_rows(
+        [_master_row("ЗП Шарков Ю.А.", "СТИНГ", 50)],
+        [
+            _rsch_row("sur-1", "", "СТИНГ", 50, comment="Борис Шарков зп"),
+            _rsch_row("sur-2", "", "СТИНГ", 50, comment="Борис Пеунов"),
+        ],
+    )
+
+    assert len(rows) == 2
+    matched = next(r for r in rows if r.master is not None)
+    assert matched.status == STATUS_REVIEW
+    assert matched.reason == REASON_CUSTOMER_MISMATCH
+    assert matched.rsch.row_id == "sur-1"
+    unmatched = next(r for r in rows if r.master is None)
+    assert unmatched.status == STATUS_ERROR
+    assert unmatched.reason == REASON_NO_CURATOR
+
+
+def test_build_reconciliation_rows_surname_match_ignored_without_amount() -> None:
+    """Surname match without matching amount should fall through to ERROR."""
+    rows = _build_reconciliation_rows(
+        [_master_row("ЗП Шарков Ю.А.", "СТИНГ", 50)],
+        [_rsch_row("sur-1", "", "СТИНГ", 999, comment="Борис Шарков")],
+    )
+
+    assert len(rows) == 2
+    master_row = next(r for r in rows if r.master is not None)
+    assert master_row.status == STATUS_ERROR
+    assert master_row.reason == REASON_NO_RSCH
+    rsch_row = next(r for r in rows if r.rsch is not None)
+    assert rsch_row.status == STATUS_ERROR
+    assert rsch_row.reason == REASON_NO_CURATOR
+
+
+def test_build_reconciliation_rows_surname_match_ignored_without_executor() -> None:
+    """Surname match without matching executor should fall through to ERROR."""
+    rows = _build_reconciliation_rows(
+        [_master_row("ЗП Пеунов А.Б.", "СТИНГ", 70)],
+        [_rsch_row("sur-1", "", "ДРУГОЙ_ИСПОЛНИТЕЛЬ", 70, comment="Пеунов выплата")],
+    )
+
+    assert len(rows) == 2
+    master_row = next(r for r in rows if r.master is not None)
+    assert master_row.status == STATUS_ERROR
+    assert master_row.reason == REASON_NO_RSCH
+    rsch_row = next(r for r in rows if r.rsch is not None)
+    assert rsch_row.status == STATUS_ERROR
+    assert rsch_row.reason == REASON_NO_CURATOR
+
+
+def test_build_reconciliation_rows_surname_match_ignored_without_executor() -> None:
+    """Surname match without matching executor should fall through to ERROR."""
+    rows = _build_reconciliation_rows(
+        [_master_row("ЗП Пеунов А.Б.", "СТИНГ", 70)],
+        [_rsch_row("sur-1", "", "ДРУГОЙ_ИСПОЛНИТЕЛЬ", 70, comment="Пеунов выплата")],
+    )
+
+    assert len(rows) == 2
+    master_row = next(r for r in rows if r.master is not None)
+    assert master_row.status == STATUS_ERROR
+    assert master_row.reason == REASON_NO_RSCH
+    rsch_row = next(r for r in rows if r.rsch is not None)
+    assert rsch_row.status == STATUS_ERROR
+    assert rsch_row.reason == REASON_NO_CURATOR
+
+
+def test_build_reconciliation_rows_surname_match_works_for_contractor_too() -> None:
+    """Surname in contractor field also triggers match."""
+    rows = _build_reconciliation_rows(
+        [_master_row("Лагидзе И.В.", "СТИНГ", 70)],
+        [
+            _rsch_row("sur-1", "", "СТИНГ", 70, contractor="Лагидзе выплата", comment=""),
+            _rsch_row("sur-2", "", "СТИНГ", 70, comment="Другой человек"),
+        ],
+    )
+
+    assert rows[0].status == STATUS_REVIEW
+    assert rows[0].reason == REASON_CUSTOMER_MISMATCH
+    assert rows[0].rsch.row_id == "sur-1"
 
 
 def test_build_reconciliation_report_matches_rows_and_places_missing_curator_first(
