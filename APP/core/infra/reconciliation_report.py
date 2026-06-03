@@ -1143,12 +1143,36 @@ def _is_rsch_only_no_curator_row(row: ReconciliationRow) -> bool:
     )
 
 
+def _build_curator_routing(sheet_names: Iterable[str]) -> dict[str, str]:
+    routing: dict[str, str] = {}
+    for name in sheet_names:
+        norm = _normalize_text(name)
+        if norm and norm not in ("общий", "general", "all"):
+            routing[norm] = name
+    return routing
+
+
+def _infer_rsch_row_owner(
+    rsch_row: RschReconciliationRow,
+    curator_routing: dict[str, str],
+) -> str | None:
+    comment_norm = _normalize_text(rsch_row.comment or "")
+    if not comment_norm:
+        return None
+    for key, sheet in curator_routing.items():
+        if key in comment_norm:
+            return sheet
+    return None
+
+
 def _suppress_combined_rsch_only_rows(
     rows: Iterable[ReconciliationRow],
     matched_rsch_ids: set[str],
     seen_unmatched_rsch_ids: set[str],
+    current_sheet: str,
+    rsch_only_owners: dict[str, str],
 ) -> list[ReconciliationRow]:
-    filtered: list[ReconciliationRow] = []
+    filtered = []
     for row in rows:
         if not _is_rsch_only_no_curator_row(row):
             filtered.append(row)
@@ -1156,6 +1180,9 @@ def _suppress_combined_rsch_only_rows(
         assert row.rsch is not None
         row_id = row.rsch.row_id
         if row_id in matched_rsch_ids or row_id in seen_unmatched_rsch_ids:
+            continue
+        owner = rsch_only_owners.get(row_id)
+        if owner is not None and owner != current_sheet:
             continue
         seen_unmatched_rsch_ids.add(row_id)
         filtered.append(row)
@@ -1318,12 +1345,23 @@ def build_combined_reconciliation_report(
                 for _sheet_name, _master_headers, rows in sheet_rows
                 for row_id in _matched_rsch_row_ids(rows)
             }
+            rsch_only_owners: dict[str, str] = {}
+            curator_routing = _build_curator_routing(master_paths.keys())
+            if curator_routing:
+                for _sheet_name, _master_headers, rows in sheet_rows:
+                    for row in rows:
+                        if _is_rsch_only_no_curator_row(row) and row.rsch is not None:
+                            owner = _infer_rsch_row_owner(row.rsch, curator_routing)
+                            if owner:
+                                rsch_only_owners[row.rsch.row_id] = owner
             seen_unmatched_rsch_ids: set[str] = set()
             for idx, (sheet_name, master_headers, rows) in enumerate(sheet_rows):
                 rows = _suppress_combined_rsch_only_rows(
                     rows,
                     matched_rsch_ids,
                     seen_unmatched_rsch_ids,
+                    sheet_name,
+                    rsch_only_owners,
                 )
 
                 ws = default_ws if idx == 0 else wb_out.create_sheet()

@@ -1104,6 +1104,123 @@ def test_combined_reconciliation_uses_stable_sheet_priority_for_suppression(
     assert wb.sheetnames == ["Общий", "Борис", "Иван"]
 
 
+def _create_rsch_book_with_comment(path: Path, comment: str) -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "21.04"
+    ws.append(["ИСПОЛНИТЕЛЬ", "ЗАКАЗЧИК", "Контрагент", "Комментарий", "Приход", "Расход", "Источник"])
+    ws.append(["СТИНГ", "илон", "реестр зп", comment, 0, 500000, "rsch row 1"])
+    wb.save(path)
+
+
+def test_combined_rsch_only_route_to_boris_by_comment(
+    tmp_path: Path,
+) -> None:
+    """RSC-only row with 'Борис' in comment goes to Борис, not Общий."""
+    general_path = tmp_path / "general.xlsx"
+    boris_path = tmp_path / "boris.xlsx"
+    ivan_path = tmp_path / "ivan.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "combined.xlsx"
+    _create_empty_master_book(general_path)
+    _create_empty_master_book(boris_path)
+    _create_empty_master_book(ivan_path)
+    _create_rsch_book_with_comment(rsch_path, "Борис")
+
+    counts = build_combined_reconciliation_report(
+        {"Общий": general_path, "Борис": boris_path, "Иван": ivan_path},
+        rsch_path,
+        output_path,
+        target_date=date(2026, 4, 21),
+    )
+
+    assert counts == {"Общий": 0, "Борис": 1, "Иван": 0}
+    wb = load_workbook(output_path, data_only=False)
+    assert wb["Общий"].max_row == 1
+    assert wb["Борис"].max_row == 2
+    assert wb["Борис"].cell(2, _find_status_col(wb["Борис"])).value == "ОШИБКА"
+    assert wb["Борис"].cell(2, _find_header_col(wb["Борис"], "Причина")).value == "Нет у кураторов"
+    assert wb["Иван"].max_row == 1
+
+
+def test_combined_rsch_only_route_to_boris_by_comment_substring(
+    tmp_path: Path,
+) -> None:
+    """RSC-only row with 'БорисЖ' in comment matches 'Борис' sheet via substring."""
+    general_path = tmp_path / "general.xlsx"
+    boris_path = tmp_path / "boris.xlsx"
+    ivan_path = tmp_path / "ivan.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "combined.xlsx"
+    _create_empty_master_book(general_path)
+    _create_empty_master_book(boris_path)
+    _create_empty_master_book(ivan_path)
+    _create_rsch_book_with_comment(rsch_path, "БорисЖ")
+
+    counts = build_combined_reconciliation_report(
+        {"Общий": general_path, "Борис": boris_path, "Иван": ivan_path},
+        rsch_path,
+        output_path,
+        target_date=date(2026, 4, 21),
+    )
+
+    assert counts == {"Общий": 0, "Борис": 1, "Иван": 0}
+
+
+def test_combined_rsch_only_route_to_ivan_by_comment(
+    tmp_path: Path,
+) -> None:
+    """RSC-only row with 'Иван' in comment goes to Иван sheet."""
+    general_path = tmp_path / "general.xlsx"
+    boris_path = tmp_path / "boris.xlsx"
+    ivan_path = tmp_path / "ivan.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "combined.xlsx"
+    _create_empty_master_book(general_path)
+    _create_empty_master_book(boris_path)
+    _create_empty_master_book(ivan_path)
+    _create_rsch_book_with_comment(rsch_path, "Иван")
+
+    counts = build_combined_reconciliation_report(
+        {"Общий": general_path, "Борис": boris_path, "Иван": ivan_path},
+        rsch_path,
+        output_path,
+        target_date=date(2026, 4, 21),
+    )
+
+    assert counts == {"Общий": 0, "Борис": 0, "Иван": 1}
+
+
+def test_combined_rsch_only_empty_comment_stays_in_general(
+    tmp_path: Path,
+) -> None:
+    """RSC-only row with no comment stays in Общий (no curator signal)."""
+    general_path = tmp_path / "general.xlsx"
+    boris_path = tmp_path / "boris.xlsx"
+    ivan_path = tmp_path / "ivan.xlsx"
+    rsch_path = tmp_path / "rsch.xlsx"
+    output_path = tmp_path / "combined.xlsx"
+    _create_empty_master_book(general_path)
+    _create_empty_master_book(boris_path)
+    _create_empty_master_book(ivan_path)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "21.04"
+    ws.append(["ИСПОЛНИТЕЛЬ", "ЗАКАЗЧИК", "Контрагент", "Комментарий", "Приход", "Расход", "Источник"])
+    ws.append(["СТИНГ", "илон", "реестр зп", "", 0, 500000, "rsch row 1"])
+    wb.save(rsch_path)
+
+    counts = build_combined_reconciliation_report(
+        {"Общий": general_path, "Борис": boris_path, "Иван": ivan_path},
+        rsch_path,
+        output_path,
+        target_date=date(2026, 4, 21),
+    )
+
+    assert counts == {"Общий": 1, "Борис": 0, "Иван": 0}
+
+
 def test_combined_reconciliation_requires_date_when_candidate_dates_differ(
     tmp_path: Path,
 ) -> None:
