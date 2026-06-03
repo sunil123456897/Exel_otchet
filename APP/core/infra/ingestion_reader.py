@@ -97,6 +97,8 @@ _STRICT_HELPER_HEADERS = frozenset(
     {
         "итог дня",
         "итоги дня",
+        "итоги дня (данные колонка должна быть скрытой)",
+        "итоги дня (данная колонка должна быть скрытой)",
         "оплата постащику, выплата зарплатного реестра",
     }
 )
@@ -792,6 +794,34 @@ class CalamineReader:
                     f"Row {i + 1} in {sheet_name} has data but no financial values"
                 )
             return None
+
+        if row_has_numeric_text_warning and not has_financial:
+            unique_texts = set()
+            for val in row:
+                if val is None or val == "":
+                    continue
+                text = str(val).strip().strip("\"'").strip()
+                if text:
+                    unique_texts.add(text.lower())
+            if len(unique_texts) <= 1:
+                logger.debug(
+                    f"Row {i + 1} in {sheet_name} looks like a section header "
+                    f"(text in numeric column, no real numbers)"
+                )
+                return None
+            customer_idx = None
+            for key, ci in active_col_items:
+                if key == "customer":
+                    customer_idx = ci
+                    break
+            if customer_idx is not None and customer_idx < len(row):
+                cust_text = str(row[customer_idx]).strip() if row[customer_idx] is not None else ""
+                if cust_text.startswith('"') and len(cust_text) < 30:
+                    logger.debug(
+                        f"Row {i + 1} in {sheet_name} looks like a section header "
+                        f"(quoted customer '{cust_text}', no financial data)"
+                    )
+                    return None
 
         self._attach_warning_metadata(
             raw_data,

@@ -289,7 +289,7 @@ function Update-WithGit {
 }
 
 function Update-WithGitSnapshot {
-    param([string]$Git, [string]$Token)
+    param([string]$Git)
 
     $tempRepo = Join-Path $env:TEMP ("master_report_git_snapshot_repo_" + [guid]::NewGuid().ToString("N"))
     $tempArchive = Join-Path $env:TEMP ("master_report_git_snapshot_update_" + [guid]::NewGuid().ToString("N"))
@@ -306,11 +306,7 @@ function Update-WithGitSnapshot {
             throw "git init завершился с кодом $LASTEXITCODE"
         }
 
-        if ($Token) {
-            & $Git remote add origin "https://$Token@github.com/$RepoOwner/$RepoName.git"
-        } else {
-            & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git"
-        }
+        & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git"
         if ($LASTEXITCODE -ne 0) {
             throw "git remote add завершился с кодом $LASTEXITCODE"
         }
@@ -427,9 +423,9 @@ if ($gitHubToken) {
 $git = Get-GitCommand
 $updatedWithGit = $false
 if ($git) {
-    $updatedWithGit = Update-WithGit $git $gitHubToken
+    $updatedWithGit = Update-WithGit $git
     if (-not $updatedWithGit) {
-        $updatedWithGit = Update-WithGitSnapshot $git $gitHubToken
+        $updatedWithGit = Update-WithGitSnapshot $git
     }
 }
 if (-not $updatedWithGit) {

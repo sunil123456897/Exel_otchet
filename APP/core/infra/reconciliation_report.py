@@ -71,6 +71,7 @@ _MATCH_TOKEN_STOPWORDS = {
 _COMBINED_SHEET_PRIORITY = {"Общий": 0, "Борис": 1, "Иван": 2}
 _EXCLUDED_MASTER_FILTER_KEYWORDS = (
     "доп сф",
+    "доп сы",
     "касса",
     "зачет",
     "посредник",
@@ -171,10 +172,71 @@ def _canonical_match_text_cached(text: str) -> str:
     text = re.sub(r"([а-я])([a-z])", r"\1 \2", text)
     text = re.sub(r"([a-z])([а-я])", r"\1 \2", text)
     text = text.replace("gabriel", "габриэль")
-    text = re.sub(r"\bук\s*альянс\b", "ука", text)
+    # UKA: "УК Альянс", "УКАльянс", "УК А", "УКА_Альфа", "УКА_Сбер", "УКА_ВТБ", "УК_ВТБ", "УК_Альфа"
+    # Note: input is already lowercased+collapsed by _normalize_text, but `_` survives
+    # and is a word char in Python regex (\b does NOT trigger after "с" in "сбер" when
+    # followed by "_"). So we use a lookbehind for non-cyrillic instead of \b.
+    text = re.sub(r"(?<![а-я])ук(?:а_альфа|а_сбер|а_втб|альянс|альфа|втб)", "ука", text)
+    text = re.sub(r"\bук[\s_]+альянс\b", "ука", text)
     text = re.sub(r"\bукальянс\b", "ука", text)
-    text = re.sub(r"\bук\s+а\b", "ука", text)
-    text = re.sub(r"\bук\s+(?=(альфа|сбер)\b)", "ука ", text)
+    text = re.sub(r"(?<![а-я])укалинс(?![а-я])", "ука", text)  # common typo
+    text = re.sub(r"\bул[\s_]+альянс\b", "ука", text)  # "Ул альянс" = УК Альянс
+    text = re.sub(r"\bук[\s_]+а\b", "ука", text)
+    text = re.sub(r"\bук[\s_]+аф\b", "ука", text)  # "УК Аф..." (shorthand for УК А + bank)
+    text = re.sub(r"\bук[\s_]+(?=(альфа|сбер|втб|сб)\b)", "ука ", text)
+    # Catch-all: any word starting with ука+letters (optionally _bank suffix)
+    text = re.sub(r"(?<![а-я])ука[а-я]*(?:_[а-я]+)?(?![а-я])", "ука", text)
+    # "Сбер_РН" used as a synonym for УК Альянс routed via Sber settlement account
+    text = re.sub(r"(?<![а-я])сбер[\s_]*рн(?![а-я])", "ука", text)
+    # Tinkoff: "Тина", "Тинадар", "Тинадар", "Тина Сбер"
+    # Note: re.sub replaces the matched text verbatim; "[\s_]*" with trailing \b
+    # would eat a trailing space. Anchor with explicit lookahead or use \b before/after.
+    text = re.sub(r"\bтина(?:[\s_]*(?:дар|да|бизнес))?(?![а-я])", "тина", text)
+    text = re.sub(r"\bтина[\s_]+сбер\b", "тина", text)
+    # Billtrade: "Билл", "Билтрейд", "Биллтрейд"
+    text = re.sub(r"\bбилл?трейд\b", "биллтрейд", text)
+    text = re.sub(r"\bбилл(?!\w)", "биллтрейд", text)
+    text = re.sub(r"\bбилтрейд\b", "биллтрейд", text)
+    # ANO Техникум: "АНО ТСК", "АНО ТЕХНИКУМ"
+    text = re.sub(r"\bано[\s_]+тск\b", "анотехникум", text)
+    text = re.sub(r"\bано[\s_]+техникум\b", "анотехникум", text)
+    text = re.sub(r"(?<![а-я])тск(?:(?:[\s_]+сбер)|(?:[\s_]+альфа)|(?:[\s_]+втб)|(?:[\s_]+сб))?(?![а-я])", "анотехникум", text)
+    # SB Защита: "СБ ЗАЩИТА", "Защита РРБ", "Защита"
+    text = re.sub(r"\bсб[\s_]+защита\b", "сбзащита", text)
+    text = re.sub(r"\bзащита[\s_]+ррб\b", "сбзащита", text)
+    # Стинг: "Стип", "СтипСбер", "Стинг", "СТИ Сбер"
+    text = re.sub(r"\bстип[\s_]*сбер\b", "стинг", text)
+    text = re.sub(r"(?<![а-я])стип(?![а-я])", "стинг", text)
+    text = re.sub(r"\bстинг[\s_]*сбер\b", "стинг сбер", text)
+    text = re.sub(r"(?<![а-я])сти(?:[\s_]+сбер|[\s_]+альфа|[\s_]+втб|[\s_]+сб)?(?![а-я])", "стинг", text)
+    # Прайм = Прессбук (один банк)
+    text = re.sub(r"\bпрайм\b", "прессбук", text)
+    # ПБ = Прессбук (compact form)
+    text = re.sub(r"(?<![а-я])пб(?:[\s_]+альфа|[\s_]+сбер|[\s_]+втб)?(?![а-я])", "прессбук", text)
+    # Fuzzy typos for Прессбук: преессбук, прссбук, перссбук, прессбук
+    text = re.sub(r"(?<![а-я])пр[её]+?ссбук(?![а-я])", "прессбук", text)
+    text = re.sub(r"(?<![а-я])пе?рссбук(?![а-я])", "прессбук", text)
+    # Пиплкрафт: "Пип", "ПипКрафт", "Пипл Сбер", "Пип крафт Альфа"
+    # NOTE: (?!л) prevents matching "пип" inside "пипл" which would
+    # leave trailing characters (e.g. "пипл крафт" → "пипл крафтл крафт").
+    text = re.sub(r"(?<![а-я])пип(?!л)(?:[\s_]*крафт)?(?:[\s_]+альфа|[\s_]+сбер|[\s_]+втб)?", "пипл крафт", text)
+    # Normalise "Пипл" (the full short form) with a bank suffix to canonical form.
+    # "Пипл сбер" → "пипл крафт сбер", "Пипл Альфа" → "пипл крафт альфа"
+    text = re.sub(r"(?<![а-я])пипл(?:[\s_]+крафт)?[\s_]+(альфа|сбер|втб|сб)\b", r"пипл крафт \1", text)
+    # Standalone "пипл" without банк suffix: keep as is, tokens will match via alias keys
+    # ПУ = Пиплкрафт (ПК в одном контексте)
+    text = re.sub(r"\bпу[\s_]*(альфа|сбер|втб)\b", r"пипл крафт \1", text)
+    text = re.sub(r"\bпу\b", "пиплкрафт", text)
+    # ПК = Пиплкрафт
+    text = re.sub(r"\bпк[\s_]*(альфа|сбер|втб|аф)?\b", r"пипл крафт", text)
+    # СБ = СБИ (СтройБизнесИнвест)
+    text = re.sub(r"(?<![а-я])стройбизнесинвест(?![а-я])", "сби", text)
+    # СТ = Спецстаффсервис
+    text = re.sub(r"\bст[\s_]*(втб|альфа|сбер|бизнес)\b", r"ссс \1", text)
+    text = re.sub(r"\bст\b", "ссс", text)
+    # ВоркБрайт = ВБ (Slot WorkBright)
+    text = re.sub(r"(?<![а-я])слот[\s_]*воркбрайт(?![а-я])", "вб", text)
+    text = re.sub(r"(?<![а-я])воркбрайт(?![а-я])", "вб", text)
     return text
 
 
@@ -245,6 +307,8 @@ def _executor_alias_keys(value: Any) -> set[str]:
         aliases.add("спецстаффсервис")
     if compact.startswith("воркбрайт") or compact == "вб":
         aliases.add("вб")
+    if compact.startswith("ук") and len(compact) >= 3:
+        aliases.add("ук")
     return aliases
 
 
@@ -254,7 +318,12 @@ def _is_filter_header(value: Any) -> bool:
 
 def _is_excluded_master_filter(value: Any) -> bool:
     normalized = _normalize_text(value)
-    return any(keyword in normalized for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS)
+    collapsed = normalized.replace(".", " ").replace(",", " ")
+    collapsed = " ".join(collapsed.split())
+    return any(
+        keyword in collapsed
+        for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS
+    ) or any(keyword in normalized for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS)
 
 
 def _is_excluded_master_header(value: Any) -> bool:
@@ -275,6 +344,8 @@ def _is_excluded_customer(value: Any) -> bool:
             "расход",
             "% по депозиту",
             "по депозиту",
+            "% по выплате",
+            "по выплате",
             "комиссия",
         )
     )
@@ -721,19 +792,41 @@ def _find_likely_customer_mismatch(
     return candidate_idx, candidate
 
 
-def _find_amount_only_match(
+def _surname_tokens(value: str) -> set[str]:
+    raw = re.split(r"[^a-zа-яёA-ZА-ЯЁ]+", str(value))
+    return {
+        w.lower() for w in raw
+        if len(w) >= 3 and w[0].isalpha() and w[0].upper() == w[0]
+    }
+
+
+def _customer_surname_matches(
+    master_customer: str,
+    rsch_row: RschReconciliationRow,
+) -> bool:
+    master_surnames = _surname_tokens(master_customer)
+    if not master_surnames:
+        return False
+    rsch_text = f"{rsch_row.comment or ''} {rsch_row.contractor or ''}".lower()
+    return any(surname in rsch_text for surname in master_surnames)
+
+
+def _find_surname_rsch_match(
     master_row: MasterReconciliationRow,
     rsch_rows: list[RschReconciliationRow],
     used_indexes: set[int],
-) -> tuple[Optional[int], Optional[RschReconciliationRow]]:
+) -> tuple[int | None, RschReconciliationRow | None]:
     candidates = [
         (idx, row)
         for idx, row in enumerate(rsch_rows)
-        if idx not in used_indexes and _row_amount_matches(master_row, row)
+        if idx not in used_indexes
+        and _row_amount_matches(master_row, row)
+        and _executor_matches(master_row.executor, row.executor)
+        and _customer_surname_matches(master_row.customer, row)
     ]
-    if len(candidates) == 1:
-        return candidates[0]
-    return None, None
+    if not candidates:
+        return None, None
+    return candidates[0]
 
 
 def _build_reconciliation_rows(
@@ -764,18 +857,6 @@ def _build_reconciliation_rows(
             ]
             weak_candidates_by_master[master_idx] = candidates
         return candidates
-
-    for idx, row in enumerate(rsch_rows):
-        if not row.customer:
-            used_rsch_indexes.add(idx)
-            result.append(
-                ReconciliationRow(
-                    master=None,
-                    rsch=row,
-                    status=STATUS_ERROR,
-                    reason=REASON_NO_CURATOR,
-                )
-            )
 
     for master_idx, master_row in enumerate(master_rows):
         match_idx, rsch_row = _find_best_rsch_match(
@@ -854,7 +935,7 @@ def _build_reconciliation_rows(
             )
             continue
 
-        match_idx, rsch_row = _find_amount_only_match(
+        match_idx, rsch_row = _find_surname_rsch_match(
             master_row,
             rsch_rows,
             used_rsch_indexes,
@@ -866,7 +947,7 @@ def _build_reconciliation_rows(
                     master=master_row,
                     rsch=rsch_row,
                     status=STATUS_REVIEW,
-                    reason=REASON_AMOUNT_ONLY_MATCH,
+                    reason=REASON_CUSTOMER_MISMATCH,
                 )
             )
             continue
@@ -946,8 +1027,14 @@ def _excel_safe_text(value: Any) -> Any:
 
 
 def _master_values(row: ReconciliationRow, master_headers: list[str]) -> list[Any]:
+    target_len = len(master_headers)
     if row.master is not None:
-        return [_excel_safe_text(value) for value in row.master.values]
+        vals = row.master.values
+        if len(vals) < target_len:
+            vals = list(vals) + [None] * (target_len - len(vals))
+        elif len(vals) > target_len:
+            vals = vals[:target_len]
+        return [_excel_safe_text(value) for value in vals]
     values: list[Any] = [None for _ in master_headers]
     if values:
         values[0] = _excel_safe_text(row.reason)
@@ -1147,12 +1234,36 @@ def _is_rsch_only_no_curator_row(row: ReconciliationRow) -> bool:
     )
 
 
+def _build_curator_routing(sheet_names: Iterable[str]) -> dict[str, str]:
+    routing: dict[str, str] = {}
+    for name in sheet_names:
+        norm = _normalize_text(name)
+        if norm and norm not in ("общий", "general", "all"):
+            routing[norm] = name
+    return routing
+
+
+def _infer_rsch_row_owner(
+    rsch_row: RschReconciliationRow,
+    curator_routing: dict[str, str],
+) -> str | None:
+    comment_norm = _normalize_text(rsch_row.comment or "")
+    if not comment_norm:
+        return None
+    for key, sheet in curator_routing.items():
+        if key in comment_norm:
+            return sheet
+    return None
+
+
 def _suppress_combined_rsch_only_rows(
     rows: Iterable[ReconciliationRow],
     matched_rsch_ids: set[str],
     seen_unmatched_rsch_ids: set[str],
+    current_sheet: str,
+    rsch_only_owners: dict[str, str],
 ) -> list[ReconciliationRow]:
-    filtered: list[ReconciliationRow] = []
+    filtered = []
     for row in rows:
         if not _is_rsch_only_no_curator_row(row):
             filtered.append(row)
@@ -1160,6 +1271,9 @@ def _suppress_combined_rsch_only_rows(
         assert row.rsch is not None
         row_id = row.rsch.row_id
         if row_id in matched_rsch_ids or row_id in seen_unmatched_rsch_ids:
+            continue
+        owner = rsch_only_owners.get(row_id)
+        if owner is not None and owner != current_sheet:
             continue
         seen_unmatched_rsch_ids.add(row_id)
         filtered.append(row)
@@ -1322,12 +1436,23 @@ def build_combined_reconciliation_report(
                 for _sheet_name, _master_headers, rows in sheet_rows
                 for row_id in _matched_rsch_row_ids(rows)
             }
+            rsch_only_owners: dict[str, str] = {}
+            curator_routing = _build_curator_routing(master_paths.keys())
+            if curator_routing:
+                for _sheet_name, _master_headers, rows in sheet_rows:
+                    for row in rows:
+                        if _is_rsch_only_no_curator_row(row) and row.rsch is not None:
+                            owner = _infer_rsch_row_owner(row.rsch, curator_routing)
+                            if owner:
+                                rsch_only_owners[row.rsch.row_id] = owner
             seen_unmatched_rsch_ids: set[str] = set()
             for idx, (sheet_name, master_headers, rows) in enumerate(sheet_rows):
                 rows = _suppress_combined_rsch_only_rows(
                     rows,
                     matched_rsch_ids,
                     seen_unmatched_rsch_ids,
+                    sheet_name,
+                    rsch_only_owners,
                 )
                 rows = sorted(rows, key=_reconciliation_sort_key)
 

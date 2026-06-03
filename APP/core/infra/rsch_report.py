@@ -83,6 +83,7 @@ _DATE_ALIGNMENT = Alignment(horizontal="left", vertical="center")
 _DEFAULT_AMOUNT_NUMBER_FORMAT = "#,##0.00"
 _SPECIAL_CUSTOMER_MARKERS = (
     "% по депозиту",
+    "% по выплате",
     "комиссия",
     "налог",
 )
@@ -210,7 +211,6 @@ def _detect_columns(sheet_data: List[tuple], header_row_idx: int, sheet_title: s
         "date",
         "income",
         "expense",
-        "account",
         "project_left",
         "contractor_left",
     )
