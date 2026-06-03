@@ -211,7 +211,6 @@ def _detect_columns(sheet_data: List[tuple], header_row_idx: int, sheet_title: s
         "date",
         "income",
         "expense",
-        "account",
         "project_left",
         "contractor_left",
     )

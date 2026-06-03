@@ -270,6 +270,8 @@ def test_non_rsch_invalid_sheet_is_ignored_without_issue(tmp_path: Path) -> None
 
 
 def test_tagged_invalid_sheet_still_reports_issue(tmp_path: Path) -> None:
+    """Sheets without an account column are now processed (account is optional).
+    Rows from such sheets appear in output with yellow problem highlighting."""
     source = tmp_path / "source_tagged_invalid.xlsx"
     template = tmp_path / "template.xlsx"
     output = tmp_path / "out_tagged_invalid.xlsx"
@@ -313,7 +315,7 @@ def test_tagged_invalid_sheet_still_reports_issue(tmp_path: Path) -> None:
         ]
     )
 
-    ws_bad = wb.create_sheet("битый рсч")
+    ws_bad = wb.create_sheet("рсч без счета")
     ws_bad.append(["x"])
     ws_bad.append(
         [
@@ -328,7 +330,68 @@ def test_tagged_invalid_sheet_still_reports_issue(tmp_path: Path) -> None:
             "контрагент",
             "j",
             "k",
-            "нет нужной колонки",
+            "нет колонки р/с",
+        ]
+    )
+    ws_bad.append(
+        [
+            datetime(2026, 4, 13),
+            None,
+            None,
+            "P2",
+            "C2",
+            0,
+            50,
+            "",
+            "",
+            None,
+            None,
+            "-",
+        ]
+    )
+    wb.save(source)
+
+    issues = []
+    written = build_rsch_report(
+        source,
+        output,
+        target_date=date(2026, 4, 13),
+        template_path=template,
+        issues_sink=issues,
+    )
+
+    assert written == 2
+    assert len(issues) == 0
+    assert output.exists()
+
+
+def test_only_invalid_rsch_sheets_raise_instead_of_writing_empty_success(
+    tmp_path: Path,
+) -> None:
+    """Sheet without account column now produces rows instead of failing."""
+    source = tmp_path / "source_only_invalid.xlsx"
+    template = tmp_path / "template.xlsx"
+    output = tmp_path / "out_only_invalid.xlsx"
+    _make_template(template)
+
+    wb = Workbook()
+    ws_bad = wb.active
+    ws_bad.title = "рсч без счета"
+    ws_bad.append(["x"])
+    ws_bad.append(
+        [
+            "дата",
+            "b",
+            "c",
+            "проект",
+            "контрагент",
+            "приход на рсч, су",
+            "расход с рсч, су",
+            "проект",
+            "контрагент",
+            "j",
+            "k",
+            "нет колонки р/с",
         ]
     )
     ws_bad.append(
@@ -359,70 +422,8 @@ def test_tagged_invalid_sheet_still_reports_issue(tmp_path: Path) -> None:
     )
 
     assert written == 1
-    assert len(issues) == 1
-    assert "битый рсч" in issues[0]
-    assert "пропущен" in issues[0]
-
-
-def test_only_invalid_rsch_sheets_raise_instead_of_writing_empty_success(
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "source_only_invalid.xlsx"
-    template = tmp_path / "template.xlsx"
-    output = tmp_path / "out_only_invalid.xlsx"
-    _make_template(template)
-
-    wb = Workbook()
-    ws_bad = wb.active
-    ws_bad.title = "битый рсч"
-    ws_bad.append(["x"])
-    ws_bad.append(
-        [
-            "дата",
-            "b",
-            "c",
-            "проект",
-            "контрагент",
-            "приход на рсч, су",
-            "расход с рсч, су",
-            "проект",
-            "контрагент",
-            "j",
-            "k",
-            "нет нужной колонки",
-        ]
-    )
-    ws_bad.append(
-        [
-            datetime(2026, 4, 13),
-            None,
-            None,
-            "P2",
-            "C2",
-            0,
-            50,
-            "",
-            "",
-            None,
-            None,
-            "-",
-        ]
-    )
-    wb.save(source)
-
-    issues = []
-    with pytest.raises(RuntimeError, match="РСЧ.*не удалось собрать строки"):
-        build_rsch_report(
-            source,
-            output,
-            target_date=date(2026, 4, 13),
-            template_path=template,
-            issues_sink=issues,
-        )
-
-    assert issues
-    assert "битый рсч" in issues[0]
-    assert not output.exists()
+    assert issues == []
+    assert output.exists()
 
 
 def test_non_rsch_valid_sheet_is_ignored(tmp_path: Path) -> None:
