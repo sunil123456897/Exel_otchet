@@ -1006,8 +1006,14 @@ def _excel_safe_text(value: Any) -> Any:
 
 
 def _master_values(row: ReconciliationRow, master_headers: list[str]) -> list[Any]:
+    target_len = len(master_headers)
     if row.master is not None:
-        return [_excel_safe_text(value) for value in row.master.values]
+        vals = row.master.values
+        if len(vals) < target_len:
+            vals = list(vals) + [None] * (target_len - len(vals))
+        elif len(vals) > target_len:
+            vals = vals[:target_len]
+        return [_excel_safe_text(value) for value in vals]
     values: list[Any] = [None for _ in master_headers]
     if values:
         values[0] = _excel_safe_text(row.reason)
