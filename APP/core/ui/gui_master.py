@@ -108,17 +108,23 @@ class GuiMaster:
         self._title_poll_id: str | None = None
 
         def _poll_title() -> None:
-            snap = self.operation_state.snapshot()
-            if snap.current:
-                label = OPERATION_LABELS.get(snap.current, "")
-                self.root.title(
-                    f"{self._base_title} — {label} {snap.progress:.0f}%"
-                )
-            else:
-                self.root.title(self._base_title)
-            self._title_poll_id = self.root.after(100, _poll_title)
+            try:
+                snap = self.operation_state.snapshot()
+                if snap.current:
+                    label = OPERATION_LABELS.get(snap.current, "")
+                    self.root.title(
+                        f"{self._base_title} — {label} {snap.progress:.0f}%"
+                    )
+                else:
+                    self.root.title(self._base_title)
+            except Exception:
+                pass
+            self._title_poll_id = self.root.after(200, _poll_title)
 
-        self._title_poll_id = self.root.after(100, _poll_title)
+        self._title_poll_id = self.root.after(200, _poll_title)
+        self.operation_state.add_listener(
+            lambda snap: self.root.after(0, lambda: self.sidebar.apply(snap))
+        )
         # Drive the StatsPanel operation progress bar from the same
         # snapshot stream. The OperationStatusBar reads this too, but
         # the StatsPanel bar lives in a different widget that the
