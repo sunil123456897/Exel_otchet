@@ -181,7 +181,11 @@ def process_file_task(
     end_date_str=None,
     processed_file_ids: Optional[List[int]] = None,
     processed_file_ids_lock: Optional[Any] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> int:
+    if cancel_event is not None and cancel_event.is_set():
+        return 0
+
     path_str = meta["path"] if isinstance(meta, dict) else meta
     if not os.path.exists(path_str):
         raise FileNotFoundError(
@@ -336,6 +340,7 @@ def run_engine(
     start_date_str=None,
     end_date_str=None,
     on_file_error: Optional[Callable[[List[Dict[str, str]]], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> bool:
     total_files = sum(len(paths) for paths in employees_map.values())
     if total_files == 0:
@@ -354,6 +359,8 @@ def run_engine(
         future_to_file = {}
         for emp_name, metas in employees_map.items():
             for meta in metas:
+                if cancel_event is not None and cancel_event.is_set():
+                    break
                 future = executor.submit(
                     process_file_task,
                     persistence,
@@ -367,8 +374,11 @@ def run_engine(
                     end_date_str,
                     processed_file_ids,
                     processed_file_ids_lock,
+                    cancel_event,
                 )
                 future_to_file[future] = meta
+            if cancel_event is not None and cancel_event.is_set():
+                break
 
         for future in concurrent.futures.as_completed(future_to_file):
             try:
@@ -382,7 +392,8 @@ def run_engine(
             processed_files += 1
             on_progress((processed_files / total_files) * 50)
 
-    # Ожидаем завершения записи всех данных в БД перед выходом из движка
+    # Wait for pending DB writes to drain before returning so the
+    # caller can safely check cancel or read consolidated data.
     try:
         persistence.wait_for_writes()
     except Exception as e:

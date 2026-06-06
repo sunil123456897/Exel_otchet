@@ -38,7 +38,7 @@ class SourceFileRepository:
             ids = []
             conn = self.connection_manager.get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 for f in files:
                     file_hash = f.get("hash")
                     if file_hash is None:
@@ -118,7 +118,7 @@ class SourceFileRepository:
         def _save():
             conn = self.connection_manager.get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
                     "INSERT OR REPLACE INTO file_cache (file_path, mtime, size, dates_json, last_updated) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
                     (
@@ -170,7 +170,7 @@ class SourceFileRepository:
         def _save():
             conn = self.connection_manager.get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
                     "INSERT OR REPLACE INTO row_cache (file_path, mtime, size, date_key, rows_json, row_count, created_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                     (
@@ -215,7 +215,7 @@ class SourceFileRepository:
             import time as _time
             conn = self.connection_manager.get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
                     "INSERT OR REPLACE INTO discovery_cache (roots_key, scanned_at, files_json) VALUES (?, ?, ?)",
                     (

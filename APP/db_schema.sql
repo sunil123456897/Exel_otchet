@@ -3,6 +3,12 @@
 
 PRAGMA foreign_keys = ON;
 
+-- Migration tracking (applied sequentially by filename)
+CREATE TABLE IF NOT EXISTS _migrations (
+    filename TEXT PRIMARY KEY,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Session tracking
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,

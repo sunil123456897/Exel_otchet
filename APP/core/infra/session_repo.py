@@ -10,6 +10,21 @@ from core.infra.staging_repo import DBWriterThread as DBWriterThread
 from core.infra.staging_repo import StagingDataRepository
 
 
+def _log_wal_size(db_path: Path, logger: logging.Logger) -> None:
+    wal_path = Path(str(db_path) + "-wal")
+    if wal_path.exists():
+        size_mb = wal_path.stat().st_size / (1024 * 1024)
+        if size_mb > 1:
+            logger.info("WAL file size: %.1f MB", size_mb)
+        if size_mb > 100:
+            logger.warning(
+                "WAL file is %.1f MB — exceeds 100 MB threshold. "
+                "Consider increasing wal_autocheckpoint or running "
+                "manual checkpoints more frequently.",
+                size_mb,
+            )
+
+
 class SessionRepository(IPersistence):
     def __init__(self, db_path: str, schema_path: str, config: Dict[str, Any]):
         self.connection_manager = SQLiteConnectionManager(Path(db_path), config)
@@ -36,7 +51,7 @@ class SessionRepository(IPersistence):
         def _save():
             conn = self._get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
                     "INSERT INTO sessions (session_id, metadata) VALUES (?, ?)",
                     (
@@ -57,7 +72,7 @@ class SessionRepository(IPersistence):
         def _save():
             conn = self._get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
                     """INSERT INTO template_errors 
                        (session_id, file_path, sheet_name, row_index, error_type, details, raw_data) 
@@ -94,7 +109,7 @@ class SessionRepository(IPersistence):
         def _save():
             conn = self._get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.executemany(
                     """INSERT INTO template_errors 
                        (session_id, file_path, sheet_name, row_index, error_type, details, raw_data) 
@@ -163,7 +178,7 @@ class SessionRepository(IPersistence):
         def _update():
             conn = self._get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
                     "UPDATE sessions SET status = ? WHERE session_id = ?",
                     (status, session_id),
@@ -183,7 +198,7 @@ class SessionRepository(IPersistence):
         def _update():
             conn = self._get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
                     "UPDATE source_files SET status = ?, error_message = ? WHERE id = ?",
                     (status, error_message, file_id),
@@ -214,6 +229,18 @@ class SessionRepository(IPersistence):
 
     def close(self) -> None:
         self.logger.info("Closing database manager.")
+        # Log WAL file size before checkpoint
+        _log_wal_size(self.db_path, self.logger)
+        # Run a WAL checkpoint to flush the WAL file back into the main
+        # database — keeps the WAL from growing unboundedly between runs.
+        try:
+            conn = self._get_connection()
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                conn.close()
+        except Exception:
+            pass
         self.source_file_repo.close()
         self.staging_repo.close()
 

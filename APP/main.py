@@ -52,6 +52,7 @@ def main():
             finally:
                 if root:
                     root.destroy()
+                sys.exit(0)
 
         root.protocol("WM_DELETE_WINDOW", on_close)
         root.mainloop()

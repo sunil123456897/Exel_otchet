@@ -11,7 +11,7 @@ from core.infra.db_connection import SQLiteConnectionManager, sanitize_data
 class DBWriterThread(threading.Thread):
     """Background thread that batches staging data writes to SQLite."""
 
-    BATCH_SIZE = 10
+    BATCH_SIZE = 500
     BATCH_TIMEOUT = 0.5
 
     def __init__(
@@ -95,7 +95,7 @@ class DBWriterThread(threading.Thread):
         def _save():
             conn = self.connection_manager.get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.executemany(sql, all_data)
                 conn.commit()
             except Exception:

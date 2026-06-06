@@ -66,7 +66,25 @@ class SQLiteConnectionManager:
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA temp_store = MEMORY;")
         conn.execute("PRAGMA cache_size = -64000;")
+        conn.execute("PRAGMA mmap_size = 268435456;")
+        conn.execute("PRAGMA busy_timeout = 5000;")
         return conn
+
+    def check_integrity(self) -> tuple[bool, str | None]:
+        """Run a quick PRAGMA integrity_check and return (ok, error_message).
+
+        Called at application startup; skips if no prior unclean-shutdown
+        flag is found.  Returns (True, None) when the database is healthy.
+        """
+        conn = self.get_connection()
+        try:
+            row = conn.execute("PRAGMA integrity_check").fetchone()
+            msg = row[0] if row else "unknown"
+            return (msg == "ok", None if msg == "ok" else msg)
+        except Exception as exc:
+            return (False, str(exc))
+        finally:
+            conn.close()
 
     def init_db(self, schema_path: Path) -> None:
         if schema_path.exists():
@@ -76,6 +94,42 @@ class SQLiteConnectionManager:
                     conn.executescript(f.read())
             finally:
                 conn.close()
+        self._run_migrations()
+
+    def _run_migrations(self) -> None:
+        migrations_dir = Path(__file__).resolve().parents[
+            2
+        ] / "migrations"
+        if not migrations_dir.is_dir():
+            return
+        pending = sorted(
+            p for p in migrations_dir.glob("*.sql") if p.is_file()
+        )
+        conn = self.get_connection()
+        try:
+            conn.execute("CREATE TABLE IF NOT EXISTS _migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            if not pending:
+                return
+            applied = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT filename FROM _migrations"
+                ).fetchall()
+            }
+            for migration_path in pending:
+                name = migration_path.name
+                if name in applied:
+                    continue
+                with open(migration_path, "r", encoding="utf-8") as f:
+                    conn.executescript(f.read())
+                conn.execute(
+                    "INSERT INTO _migrations (filename) VALUES (?)",
+                    (name,),
+                )
+                conn.commit()
+                self.logger.info("Applied migration: %s", name)
+        finally:
+            conn.close()
 
     def execute_with_retry(self, func, *args, **kwargs):
         """Execute a function with exponential backoff on transient SQLite errors."""

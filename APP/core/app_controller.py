@@ -544,6 +544,7 @@ class AppController:
                 start_date_str=effective_start_date,
                 end_date_str=effective_end_date,
                 on_file_error=collect_file_errors,
+                cancel_event=cancel_event,
             ):
                 self.persistence.update_session_status(session_id, "failed")
                 if callable(on_failure_code):

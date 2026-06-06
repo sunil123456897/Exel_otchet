@@ -141,6 +141,26 @@ def _is_current_app_local_default_path(
         return Path(path_str).name.lower() == default_filename.lower()
 
 
+def _check_db_integrity_on_startup(persistence) -> None:
+    """Run PRAGMA integrity_check and warn on corruption.
+
+    Only called during GUI startup.  If the database file was left in an
+    inconsistent state (e.g. after a hard shutdown during a write), the
+    check will surface a visible warning so the user can restore from
+    backup or regenerate the index.
+    """
+    try:
+        ok, msg = persistence.connection_manager.check_integrity()
+        if not ok:
+            logging.warning(
+                "PRAGMA integrity_check failed: %s. "
+                "Data may be corrupted — consider restoring from backup.",
+                msg,
+            )
+    except Exception:
+        pass  # never block startup on integrity check failures
+
+
 class Bootstrap:
     """Статический класс для инициализации всех зависимостей приложения."""
 
@@ -381,6 +401,7 @@ class Bootstrap:
         ingestion = IngestionEngine(cfg.get("sh1", {}).get("markers", {}), drive_letters)
         ingestion.config = cfg
         persistence = SQLiteManager(db_path, schema_path, cfg)
+        _check_db_integrity_on_startup(persistence)
         validator = Validator(cfg)
         logic = LogicService(persistence, cfg)
         writer = MasterWriter(cfg, config_path)
