@@ -8,8 +8,6 @@ names) live here too because nothing else needs them.
 """
 from __future__ import annotations
 
-import re
-from collections import Counter
 from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import List, Optional
@@ -229,42 +227,6 @@ class RschCommandsMixin:
             rsch_cfg["mode"] = "combined"
 
     # --- output naming -------------------------------------------------
-
-    def _build_per_file_output_name(
-        self,
-        source_path: Path,
-        selected_date,
-        index: int,
-        duplicate_stems: Optional[set] = None,
-    ) -> str:
-        date_suffix = selected_date.strftime("%d.%m.%Y")
-        stem = source_path.stem.strip() or f"file_{index}"
-        safe_stem = re.sub(r"[\\/:*?\"<>|]", "_", stem)
-        if duplicate_stems and safe_stem in duplicate_stems:
-            parent_name = source_path.parent.name.strip() or f"folder_{index}"
-            safe_parent = re.sub(r"[\\/:*?\"<>|]", "_", parent_name)
-            safe_stem = f"{safe_parent}_{safe_stem}_{index}"
-        return f"РСЧ_отчет_{date_suffix}_{safe_stem}.xlsx"
-
-    def _get_duplicate_source_stems(self, source_paths: List[Path]) -> set:
-        stem_counts = Counter(
-            re.sub(r"[\\/:*?\"<>|]", "_", path.stem.strip() or "")
-            for path in source_paths
-        )
-        return {stem for stem, count in stem_counts.items() if stem and count > 1}
-
-    def _suggest_rsch_source_dir(self, saved_sources: List[Path]) -> str:
-        for path in saved_sources:
-            parent = path.parent
-            if parent.exists():
-                return str(parent)
-        rsch_cfg = self._get_rsch_config()
-        last_output_dir = rsch_cfg.get("last_output_dir")
-        if last_output_dir:
-            parent = self._resolve_config_path(Path(str(last_output_dir)))
-            if parent.exists():
-                return str(parent)
-        return ""
 
     def _suggest_rsch_output_dir(self, source_paths: List[Path]) -> str:
         rsch_cfg = self._get_rsch_config()

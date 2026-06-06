@@ -22,18 +22,20 @@ class ConsolidationCommandsMixin:
     ctx: CommandContext
 
     def run_consolidation(self) -> None:
+        if not self.ctx.operation_state.begin(OperationType.CONSOLIDATION_DAY):
+            return
+
         missing_names = self.ctx.employee_vm.get_missing_names()
         if missing_names:
             msg = f"Не сдано отчетов: {len(missing_names)}. Продолжить?"
             if not messagebox.askyesno("Предупреждение", msg):
+                self.ctx.operation_state.end()
                 return
 
         if not messagebox.askyesno(
             "Подтверждение сборки", "Собрать основной отчет?"
         ):
-            return
-
-        if not self.ctx.operation_state.begin(OperationType.CONSOLIDATION_DAY):
+            self.ctx.operation_state.end()
             return
 
         curator = self.ctx.sidebar.get_curator()
@@ -44,12 +46,20 @@ class ConsolidationCommandsMixin:
         )
 
     def run_consolidation_all_dates(self) -> None:
+        if not self.ctx.operation_state.begin(OperationType.CONSOLIDATION_ALL):
+            return
+
+        missing_names = self.ctx.employee_vm.get_missing_names()
+        if missing_names:
+            msg = f"Не сдано отчетов: {len(missing_names)}. Продолжить?"
+            if not messagebox.askyesno("Предупреждение", msg):
+                self.ctx.operation_state.end()
+                return
+
         if not messagebox.askyesno(
             "Подтверждение сборки", "Собрать основной отчет (все даты)?"
         ):
-            return
-
-        if not self.ctx.operation_state.begin(OperationType.CONSOLIDATION_ALL):
+            self.ctx.operation_state.end()
             return
 
         curator = self.ctx.sidebar.get_curator()
@@ -66,12 +76,20 @@ class ConsolidationCommandsMixin:
             )
             return
 
+        if not self.ctx.operation_state.begin(OperationType.CONSOLIDATION_MONTH):
+            return
+
+        missing_names = self.ctx.employee_vm.get_missing_names()
+        if missing_names:
+            msg = f"Не сдано отчетов: {len(missing_names)}. Продолжить?"
+            if not messagebox.askyesno("Предупреждение", msg):
+                self.ctx.operation_state.end()
+                return
+
         if not messagebox.askyesno(
             "Подтверждение сборки", "Собрать основной отчет?"
         ):
-            return
-
-        if not self.ctx.operation_state.begin(OperationType.CONSOLIDATION_MONTH):
+            self.ctx.operation_state.end()
             return
 
         curator = self.ctx.sidebar.get_curator()

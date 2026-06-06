@@ -7,10 +7,9 @@ reconciliation commands are bigger and get their own modules.
 from __future__ import annotations
 
 import logging
-from collections import Counter
 from tkinter import filedialog, messagebox
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from core.infra import open_path
 from core.ui.operation_state import OperationType

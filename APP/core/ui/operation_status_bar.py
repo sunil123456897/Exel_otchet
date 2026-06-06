@@ -110,7 +110,6 @@ class OperationStatusBar(ttk.Frame):
         )
         self._cancel_btn.pack(fill=tk.X, pady=(4, 0))
 
-        self._tick_after_id: Optional[str] = None
         self._operation_state.add_listener(self._on_snapshot)
         self._render(OperationType.NONE, 0.0, None, False)
 

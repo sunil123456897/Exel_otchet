@@ -143,7 +143,7 @@ def load_runtime_results(state_path: Path | str) -> list[RuntimeResult]:
                 label=label,
                 ok=bool(item.get("ok")),
                 message=message,
-                path=Path(str(raw_path)) if raw_path else None,
+                path=Path(str(raw_path)) if raw_path and str(raw_path).strip() else None,
                 rows=rows,
                 created_at=created_at,
             )

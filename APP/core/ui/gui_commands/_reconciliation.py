@@ -9,7 +9,7 @@ diverge in the file-picker UX.
 from __future__ import annotations
 
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 from typing import Optional
 
 from core.ui.operation_state import OperationType

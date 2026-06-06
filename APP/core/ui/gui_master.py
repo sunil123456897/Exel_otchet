@@ -106,7 +106,13 @@ class GuiMaster:
         # snapshot stream. The OperationStatusBar reads this too, but
         # the StatsPanel bar lives in a different widget that the
         # listener must update explicitly.
-        self.operation_state.add_listener(self._on_operation_snapshot)
+        # Must be marshalled via root.after() — OperationState._notify
+        # is called from background threads during consolidation.
+        self.operation_state.add_listener(
+            lambda snap: self.root.after(
+                0, lambda: self._on_operation_snapshot(snap)
+            )
+        )
         setup_gui_logging(self.log_panel.get_widget())
 
         self.commands = GuiCommands(

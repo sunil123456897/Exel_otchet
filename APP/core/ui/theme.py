@@ -25,6 +25,9 @@ _LIGHT = {
     "bg_panel": "#e9ecef",
     "text": "#212529",
     "text_inverse": "#ffffff",
+    "accent": "#007bff",
+    "tooltip_bg": "#ffffe0",
+    "tooltip_fg": "#212529",
 }
 
 _DARK = {
@@ -41,6 +44,9 @@ _DARK = {
     "bg_panel": "#2d2d30",
     "text": "#e4e6eb",
     "text_inverse": "#1e1e1e",
+    "accent": "#3a7bc8",
+    "tooltip_bg": "#3c3c3c",
+    "tooltip_fg": "#e4e6eb",
 }
 
 

@@ -1,6 +1,6 @@
 import os
 import tkinter as tk
-from tkinter import ttk, filedialog, simpledialog
+from tkinter import ttk, filedialog
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -259,7 +259,6 @@ def ask_employee_name(existing_names: Optional[List[str]] = None) -> str:
     name_var.trace_add("write", lambda *_args: _validate())
     entry.bind("<Return>", lambda _e: _submit() if "disabled" not in ok_btn.state() else None)
     entry.bind("<Escape>", lambda _e: dialog.destroy())
-    dialog.bind("<Destroy>", lambda _e: None, add="+")
 
     dialog.wait_window()
     return result_holder[0]

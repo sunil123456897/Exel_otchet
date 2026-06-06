@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional
+from typing import Callable, Optional, Union
 
 _logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class Tooltip:
     def __init__(
         self,
         widget: tk.Misc,
-        text: str,
+        text: Union[str, Callable[[], str]],
         delay_ms: int = _DEFAULT_DELAY_MS,
     ) -> None:
         self.widget = widget
@@ -112,11 +112,14 @@ class Tooltip:
             )
             frame = ttk.Frame(tip, relief="solid", borderwidth=1, padding=4)
             frame.pack()
+            from core.ui.theme import ThemeManager
+
+            colors = ThemeManager.COLORS
             label = ttk.Label(
                 frame,
                 text=self._resolved_text(),
-                background="#ffffe0",
-                foreground="#212529",
+                background=colors["tooltip_bg"],
+                foreground=colors["tooltip_fg"],
                 wraplength=320,
                 justify="left",
             )
