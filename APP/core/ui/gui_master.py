@@ -15,7 +15,7 @@ from core.ui.geometry import (
     load_geometry,
     save_geometry,
 )
-from core.ui.operation_state import OperationState
+from core.ui.operation_state import OPERATION_LABELS, OperationState
 from core.ui.operation_status_bar import OperationStatusBar
 from core.ui.toast import ToastManager
 from core.infra import ConfigController, setup_gui_logging, open_path
@@ -99,6 +99,20 @@ class GuiMaster:
 
         ThemeManager.apply_styles()
         self.setup_ui()
+        # Show operation progress in the window title — always visible
+        # regardless of tab or layout, zero layout footprint.
+        _BASE_TITLE = "🚀 Master-Report v5.5"
+        self._base_title = _BASE_TITLE
+        self.operation_state.add_listener(
+            lambda snap: self.root.after(
+                0,
+                lambda: self.root.title(
+                    f"{_BASE_TITLE} — {OPERATION_LABELS.get(snap.current, '')} {snap.progress:.0f}%"
+                    if snap.current
+                    else _BASE_TITLE
+                ),
+            )
+        )
         self.operation_state.add_listener(
             lambda snap: self.root.after(0, lambda: self.sidebar.apply(snap))
         )
