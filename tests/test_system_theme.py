@@ -61,19 +61,21 @@ def test_detect_unknown_os_returns_none(monkeypatch):
 
 def test_is_windows_8_or_earlier_on_windows_8(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
-    monkeypatch.setattr("platform.windows_version", lambda: ("6", "2", ""), raising=False)
+    # Win 8 surfaces through ``platform.release`` as the user-visible
+    # version "8" (the kernel 6.2 is hidden from Python 3.13+).
+    monkeypatch.setattr(platform, "release", lambda: "8", raising=False)
     assert is_windows_8_or_earlier() is True
 
 
 def test_is_windows_8_or_earlier_on_windows_7(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
-    monkeypatch.setattr("platform.windows_version", lambda: ("6", "1", ""), raising=False)
+    monkeypatch.setattr(platform, "release", lambda: "7", raising=False)
     assert is_windows_8_or_earlier() is True
 
 
 def test_is_windows_8_or_earlier_on_windows_10(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
-    monkeypatch.setattr("platform.windows_version", lambda: ("10", "0", ""), raising=False)
+    monkeypatch.setattr(platform, "release", lambda: "10", raising=False)
     assert is_windows_8_or_earlier() is False
 
 

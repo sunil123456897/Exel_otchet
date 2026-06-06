@@ -149,11 +149,14 @@ def is_windows_8_or_earlier() -> bool:
     """
     if platform.system().lower() != "windows":
         return False
-    release, _, _ = platform.windows_version()
+    # ``platform.windows_version`` was deprecated in 3.12 and removed
+    # in 3.13. ``platform.release`` returns a string like ``"10"`` or
+    # ``"8"`` that is good enough for the "≤Win 8" check.
     try:
-        return int(release) <= 6  # Win 8 = 6.2, Win 7 = 6.1
+        major = int(platform.release().split(".", 1)[0])
     except ValueError:
         return False
+    return major <= 8  # Win 7, Win 8, Win 8.1
 
 
 __all__ = [

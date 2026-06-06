@@ -88,7 +88,7 @@ class EmployeeListViewModel:
         app_controller.refresh_status(
             selected_date,
             on_progress,
-            on_complete,
+            on_complete_inner,
             curator=curator,
             on_error=handle_error,
         )

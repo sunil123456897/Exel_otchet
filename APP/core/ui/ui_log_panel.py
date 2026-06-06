@@ -13,10 +13,10 @@ class LogPanel(ttk.Frame):
         header_frame.pack(fill=tk.X, pady=(10, 2))
         
         ttk.Label(
-            header_frame, 
-            text="📝 Логи:", 
-            font=('Segoe UI', 9), 
-            background=ThemeManager.COLORS['sidebar']
+            header_frame,
+            text="📝 Логи:",
+            font=('Segoe UI', 9),
+            background=ThemeManager.COLORS['bg_sidebar']
         ).pack(side=tk.LEFT)
         
         ttk.Button(

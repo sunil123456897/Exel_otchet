@@ -44,7 +44,7 @@ class Sidebar(ttk.Frame):
             self,
             borderwidth=0,
             highlightthickness=0,
-            background=ThemeManager.COLORS["sidebar"],
+            background=ThemeManager.COLORS["bg_sidebar"],
         )
         self.scrollbar = ttk.Scrollbar(
             self, orient=tk.VERTICAL, command=self.canvas.yview
@@ -99,7 +99,7 @@ class Sidebar(ttk.Frame):
             self.content,
             text="📊 ПАНЕЛЬ УПРАВЛЕНИЯ",
             style="Header.TLabel",
-            background=ThemeManager.COLORS["sidebar"],
+            background=ThemeManager.COLORS["bg_sidebar"],
         ).pack(pady=(0, 10), anchor=tk.W)
 
         # Date Selection
@@ -124,9 +124,6 @@ class Sidebar(ttk.Frame):
             "<<DateEntrySelected>>", lambda e: self._date_debouncer()
         )
         self.bind("<Destroy>", self._on_destroy, add="+")
-
-    def _on_destroy(self, _event):
-        self._date_debouncer.cancel()
 
         self.refresh_btn = ttk.Button(
             date_frame,
@@ -310,6 +307,11 @@ class Sidebar(ttk.Frame):
         setter = getattr(self.controller, "set_theme", None)
         if callable(setter):
             setter(value)
+
+    def _on_destroy(self, _event):
+        # Cancel any pending debounced calls so a fast destroy during
+        # the user's date-picking does not fire a stale refresh.
+        self._date_debouncer.cancel()
 
     def _set_current_month(self):
         today = datetime.now()
