@@ -44,7 +44,7 @@ class OperationStatusBar(ttk.Frame):
         operation_state: OperationState,
         on_cancel: Callable[[], None],
     ) -> None:
-        super().__init__(parent, style="Sidebar.TFrame", padding=(6, 4))
+        super().__init__(parent, style="StatusBar.TFrame", padding=(6, 4))
         self._operation_state = operation_state
         self._on_cancel = on_cancel
 
@@ -56,13 +56,13 @@ class OperationStatusBar(ttk.Frame):
         self._title_label = ttk.Label(
             self,
             textvariable=self._label_var,
-            style="Sidebar.TLabel",
+            style="StatusBar.TLabel",
             font=("Segoe UI", 9, "bold"),
             anchor=tk.W,
         )
         self._title_label.pack(fill=tk.X, anchor=tk.W)
 
-        row = ttk.Frame(self, style="Sidebar.TFrame")
+        row = ttk.Frame(self, style="StatusBar.TFrame")
         row.pack(fill=tk.X, pady=(2, 0))
 
         self._progress_bar = ttk.Progressbar(
@@ -77,19 +77,19 @@ class OperationStatusBar(ttk.Frame):
         self._pct_label = ttk.Label(
             row,
             text="0%",
-            style="Sidebar.TLabel",
+            style="StatusBar.TLabel",
             width=5,
             anchor=tk.E,
         )
         self._pct_label.pack(side=tk.LEFT, padx=(4, 0))
 
-        timings = ttk.Frame(self, style="Sidebar.TFrame")
+        timings = ttk.Frame(self, style="StatusBar.TFrame")
         timings.pack(fill=tk.X, pady=(2, 0))
 
         self._elapsed_label = ttk.Label(
             timings,
             textvariable=self._elapsed_var,
-            style="Sidebar.TLabel",
+            style="StatusBar.TLabel",
             font=("Segoe UI", 8),
         )
         self._elapsed_label.pack(side=tk.LEFT)
@@ -97,7 +97,7 @@ class OperationStatusBar(ttk.Frame):
         self._eta_label = ttk.Label(
             timings,
             textvariable=self._eta_var,
-            style="Sidebar.TLabel",
+            style="StatusBar.TLabel",
             font=("Segoe UI", 8),
         )
         self._eta_label.pack(side=tk.RIGHT)

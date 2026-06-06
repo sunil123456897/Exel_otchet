@@ -135,15 +135,18 @@ class GuiMaster:
         self.stats_panel = StatsPanel(self.sidebar, self)
         self.stats_panel.pack(fill=tk.X, pady=(0, 10))
 
+        self.log_panel = LogPanel(self.sidebar, self)
+        self.log_panel.pack(fill=tk.BOTH, expand=True)
+
+        # Status bar lives at the bottom of the main window (not the
+        # sidebar) so the progress indicator is always visible
+        # regardless of which tab is open or how tall the window is.
         self.status_bar = OperationStatusBar(
-            self.sidebar,
+            self.root,
             self.operation_state,
             on_cancel=self._request_cancel,
         )
-        self.status_bar.pack(fill=tk.X, pady=(0, 6))
-
-        self.log_panel = LogPanel(self.sidebar, self)
-        self.log_panel.pack(fill=tk.BOTH, expand=True)
+        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
         self.notebook = ttk.Notebook(self.main_area)
         self.notebook.pack(fill=tk.BOTH, expand=True)

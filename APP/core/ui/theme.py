@@ -186,6 +186,17 @@ class ThemeManager:
             troughcolor=c["bg_panel"],
             background=c["primary"],
         )
+        style.configure(
+            "StatusBar.TFrame",
+            background=c["bg_panel"],
+            relief="flat",
+        )
+        style.configure(
+            "StatusBar.TLabel",
+            background=c["bg_panel"],
+            foreground=c["text"],
+            font=("Segoe UI", 9),
+        )
 
 
 __all__ = ["ThemeManager"]
