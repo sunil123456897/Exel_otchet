@@ -561,6 +561,10 @@ class AppController:
                 curator=curator,
                 curator_config=curator_config,
             )
+            # After the SQL aggregation step, push the bar to ~70% so the
+            # user can see we are in the final stretch (write_report
+            # is the last heavy step before completion).
+            on_progress(70)
 
             if _is_cancelled():
                 self.persistence.update_session_status(session_id, "cancelled")
@@ -604,7 +608,12 @@ class AppController:
             logging.info("[MAIN] Основной отчёт собран: %s", scrub_path(str(master_path)))
             _elapsed = _time.monotonic() - _t0
             logging.info(f"[PERF] Consolidation ({session_type}): {_elapsed:.1f}s")
-            on_progress(100)
+            on_progress(95)
+            # `on_progress(100)` is intentionally left to the *completion
+            # handler* — that is when the OperationState's end() resets
+            # the bar to 0. Otherwise the bar reaches 100% for a single
+            # frame and then immediately resets, which makes it look
+            # like nothing happened.
             has_actionable_warnings = any(
                 error.get("error_type") not in {"soft_structure"} for error in errors
             )

@@ -201,12 +201,12 @@ def process_file_task(
         # Try row cache first
         cached_rows = persistence.get_row_cache(path_str, file_mtime, file_size, date_key)
         if cached_rows is not None:
-            _t0 = _time.monotonic()
+            _t0 = time.monotonic()
             rows = cached_rows
-            _elapsed = _time.monotonic() - _t0
+            _elapsed = time.monotonic() - _t0
             logging.info(f"[PERF] Cache hit {safe_file_label(path_str)}: {_elapsed:.3f}s ({len(rows)} rows)")
         else:
-            _t0 = _time.monotonic()
+            _t0 = time.monotonic()
             rows = ingestion.read_file(
                 Path(path_str),
                 strict_io=True,
@@ -214,7 +214,7 @@ def process_file_task(
                 start_date_str=start_date_str,
                 end_date_str=end_date_str,
             )
-            _elapsed = _time.monotonic() - _t0
+            _elapsed = time.monotonic() - _t0
             logging.info(f"[PERF] Read {safe_file_label(path_str)}: {_elapsed:.1f}s ({len(rows)} rows)")
             # Save to cache (async, non-blocking)
             persistence.save_row_cache(path_str, file_mtime, file_size, date_key, rows)
