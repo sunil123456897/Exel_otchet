@@ -99,15 +99,16 @@ class GuiMaster:
 
         ThemeManager.apply_styles()
         self.setup_ui()
-        # Show operation progress in the window title — always visible
-        # regardless of tab or layout, zero layout footprint.
-        # Uses a periodic GUI-thread timer (100 ms) to poll
-        # OperationState, avoiding the unreliable root.after() +
-        # set_progress() chain from background threads.
+        # Show operation progress in the window title.
+        # Two mechanisms working together:
+        # 1. <<TitleUpdate>> virtual event: generated from
+        #    _on_consolidation_progress (background thread) via
+        #    event_generate(..., when='tail') — always reaches Tcl queue.
+        # 2. Fallback poll every 500ms from GUI thread — catches the
+        #    edge case where the virtual event is dropped.
         self._base_title = "🚀 Master-Report v5.5"
-        self._title_poll_id: str | None = None
 
-        def _poll_title() -> None:
+        def _refresh_title(_event=None) -> None:
             try:
                 snap = self.operation_state.snapshot()
                 if snap.current:
@@ -119,9 +120,13 @@ class GuiMaster:
                     self.root.title(self._base_title)
             except Exception:
                 pass
-            self._title_poll_id = self.root.after(200, _poll_title)
 
-        self._title_poll_id = self.root.after(200, _poll_title)
+        self.root.bind("<<TitleUpdate>>", _refresh_title)
+
+        def _poll() -> None:
+            _refresh_title()
+            self.root.after(500, _poll)
+        self.root.after(500, _poll)
         self.operation_state.add_listener(
             lambda snap: self.root.after(0, lambda: self.sidebar.apply(snap))
         )
@@ -204,6 +209,7 @@ class GuiMaster:
 
     def _on_consolidation_progress(self, progress: float):
         self.operation_state.set_progress(progress)
+        self.root.event_generate("<<TitleUpdate>>", when="tail")
 
     def _update_title_from_state(self, _event=None) -> None:
         """Refresh window title from OperationState — always runs on GUI thread."""

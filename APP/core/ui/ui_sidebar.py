@@ -431,11 +431,14 @@ class Sidebar(ttk.Frame):
         and the user could fire a second operation that conflicted with the first.
         """
         busy = snap.current.value != ""
-        state = "disabled" if busy else "normal"
         for attr in self._OPERATION_BUTTONS_ATTRS:
             btn = getattr(self, attr, None)
-            if btn is not None:
-                try:
-                    btn.config(state=state)
-                except tk.TclError:
-                    pass
+            if btn is None:
+                continue
+            try:
+                if busy:
+                    btn.state(["disabled"])
+                else:
+                    btn.state(["!disabled"])
+            except tk.TclError:
+                pass
