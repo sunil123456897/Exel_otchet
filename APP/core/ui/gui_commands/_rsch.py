@@ -139,36 +139,21 @@ class RschCommandsMixin:
         return source_paths
 
     def _select_rsch_sources(self, saved_sources: List[Path]) -> List[Path]:
-        selected_paths: List[Path] = []
-        while True:
-            initial_dir = self._suggest_rsch_source_dir(saved_sources + selected_paths)
-            selected = filedialog.askopenfilenames(
-                title="Выберите ШР файлы РСЧ",
-                filetypes=[
-                    ("Excel files", "*.xlsx *.xlsm *.xlsb"),
-                    ("All files", "*.*"),
-                ],
-                initialdir=initial_dir,
-            )
+        from core.ui.ui_dialogs import show_multi_file_select_dialog
 
-            if selected:
-                selected_paths = self._merge_unique_paths(
-                    selected_paths,
-                    [Path(p) for p in selected],
-                )
-
-            if not selected_paths:
-                if not selected:
-                    return []
-                continue
-
-            more = messagebox.askyesno(
-                "РСЧ файлы",
-                f"Сейчас выбрано {len(selected_paths)} файлов. "
-                "Добавить еще из другой папки?",
-            )
-            if not more:
-                return selected_paths
+        # Pre-populate the dialog with any paths that still exist on
+        # disk so the user can re-open a session without losing work.
+        seed = [str(p) for p in saved_sources if p.exists()]
+        selected = show_multi_file_select_dialog(
+            self.ctx.root,
+            initial_paths=seed,
+            title="Выберите ШР файлы РСЧ",
+            filetypes=[
+                ("Excel files", "*.xlsx *.xlsm *.xlsb"),
+                ("All files", "*.*"),
+            ],
+        )
+        return [Path(p) for p in selected]
 
     def _merge_unique_paths(
         self, current: List[Path], new_items: List[Path]

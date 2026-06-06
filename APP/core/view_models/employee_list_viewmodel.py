@@ -128,6 +128,16 @@ class EmployeeListViewModel:
     def search_query(self, value: str) -> None:
         self._search_query = value.lower()
 
+    def get_all_names(self) -> List[str]:
+        """Return the names of every known employee.
+
+        Used by the add-employee dialog to detect duplicate names
+        before the user clicks "Добавить" and by the attach dialog to
+        populate the employee combobox.
+        """
+        with self._lock:
+            return [e.name for e in self._all_employees]
+
     def get_filtered_employees(self) -> List[EmployeeStatus]:
         """Получить отфильтрованный список по поисковому запросу."""
         with self._lock:

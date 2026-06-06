@@ -3,6 +3,7 @@ from tkinter import ttk
 from tkcalendar import DateEntry
 from datetime import datetime, timedelta
 from core.ui.theme import ThemeManager
+from core.ui.debounce import Debouncer
 
 
 def _last_day_of_month(month_start: datetime) -> datetime:
@@ -34,6 +35,11 @@ class Sidebar(ttk.Frame):
         super().__init__(parent, width=300, padding="10", style="Sidebar.TFrame")
         self.controller = controller
         self.pack_propagate(False)
+        # Debounce date changes so clicking through dates in the picker
+        # does not fire a full refresh per click.
+        self._date_debouncer = Debouncer(
+            self, self.controller.refresh_status, delay_ms=250
+        )
         self.canvas = tk.Canvas(
             self,
             borderwidth=0,
@@ -63,16 +69,19 @@ class Sidebar(ttk.Frame):
         self.canvas.itemconfigure(self._content_window, width=event.width)
 
     def _bind_mousewheel(self, _event):
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        # Bind on the canvas only — the previous implementation used
+        # ``bind_all``, which routed the wheel to every widget while the
+        # cursor was over the sidebar (a focus-eating overreach).
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         # X11 / Linux use discrete Button-4 (up) and Button-5 (down) for
         # the wheel — ``<MouseWheel>`` does not fire on those platforms.
-        self.canvas.bind_all("<Button-4>", self._on_button4)
-        self.canvas.bind_all("<Button-5>", self._on_button5)
+        self.canvas.bind("<Button-4>", self._on_button4)
+        self.canvas.bind("<Button-5>", self._on_button5)
 
     def _unbind_mousewheel(self, _event):
-        self.canvas.unbind_all("<MouseWheel>")
-        self.canvas.unbind_all("<Button-4>")
-        self.canvas.unbind_all("<Button-5>")
+        self.canvas.unbind("<MouseWheel>")
+        self.canvas.unbind("<Button-4>")
+        self.canvas.unbind("<Button-5>")
 
     def _on_mousewheel(self, event):
         self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -112,8 +121,12 @@ class Sidebar(ttk.Frame):
         )
         self.date_entry.pack(pady=(0, 5), fill=tk.X)
         self.date_entry.bind(
-            "<<DateEntrySelected>>", lambda e: self.controller.refresh_status()
+            "<<DateEntrySelected>>", lambda e: self._date_debouncer()
         )
+        self.bind("<Destroy>", self._on_destroy, add="+")
+
+    def _on_destroy(self, _event):
+        self._date_debouncer.cancel()
 
         self.refresh_btn = ttk.Button(
             date_frame,
@@ -199,6 +212,17 @@ class Sidebar(ttk.Frame):
         )
         self.month_end_entry.pack(pady=(0, 4), fill=tk.X)
         self.month_end_entry.set_date(default_end)
+        # Realtime validation: when the user changes either date, refresh
+        # the visual state of the affected DateEntry (red border when
+        # the end is earlier than the start) and update the tooltip.
+        self.month_start_entry.bind(
+            "<<DateEntrySelected>>", lambda e: self._validate_period_range()
+        )
+        self.month_end_entry.bind(
+            "<<DateEntrySelected>>", lambda e: self._validate_period_range()
+        )
+        self._range_warning_tooltip = None
+        self._range_invalid = False
 
         # Quick month preset buttons
         preset_frame = ttk.Frame(month_frame)
@@ -297,6 +321,49 @@ class Sidebar(ttk.Frame):
         prev_month = _previous_month_start(today)
         self.month_start_entry.set_date(prev_month)
         self.month_end_entry.set_date(_last_day_of_month(prev_month))
+        self._validate_period_range()
+
+    def _validate_period_range(self) -> None:
+        """Highlight the period DateEntries when end < start.
+
+        The validation is purely visual — the actual guard still lives
+        in the build commands, but giving the user immediate feedback
+        when the picker shows an inverted range prevents them from
+        clicking "СОБРАТЬ ПЕРИОД" only to be told about the error.
+        """
+        try:
+            start = self.month_start_entry.get_date()
+            end = self.month_end_entry.get_date()
+        except (tk.TclError, ValueError):
+            return
+        invalid = start > end
+        # Tk's ``configure`` does not change border colour on ttk
+        # widgets, so we use the surrounding LabelFrame text colour as
+        # a soft signal: red when invalid, normal otherwise.
+        if invalid == self._range_invalid:
+            # No change, but the preset buttons may have just been
+            # clicked; nothing to do beyond the early-exit guard.
+            return
+        self._range_invalid = invalid
+        if invalid:
+            self.month_start_entry.configure(foreground="#dc3545")
+            self.month_end_entry.configure(foreground="#dc3545")
+            from core.ui.tooltip import Tooltip
+            if self._range_warning_tooltip is None:
+                self._range_warning_tooltip = Tooltip(
+                    self.month_end_entry,
+                    "Дата окончания раньше даты начала. Поменяйте одну из дат.",
+                )
+            else:
+                self._range_warning_tooltip.set_text(
+                    "Дата окончания раньше даты начала. Поменяйте одну из дат."
+                )
+        else:
+            self.month_start_entry.configure(foreground="white")
+            self.month_end_entry.configure(foreground="white")
+            from core.ui.tooltip import Tooltip
+            if self._range_warning_tooltip is not None:
+                self._range_warning_tooltip.set_text("")
 
     def get_date(self):
         return self.date_entry.get_date()

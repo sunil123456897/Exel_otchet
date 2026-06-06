@@ -102,6 +102,11 @@ class GuiMaster:
         self.operation_state.add_listener(
             lambda snap: self.root.after(0, lambda: self.sidebar.apply(snap))
         )
+        # Drive the StatsPanel operation progress bar from the same
+        # snapshot stream. The OperationStatusBar reads this too, but
+        # the StatsPanel bar lives in a different widget that the
+        # listener must update explicitly.
+        self.operation_state.add_listener(self._on_operation_snapshot)
         setup_gui_logging(self.log_panel.get_widget())
 
         self.commands = GuiCommands(
@@ -168,6 +173,13 @@ class GuiMaster:
     def _on_consolidation_progress(self, progress: float):
         # Operation progress is shown in the OperationStatusBar, not the readiness bar.
         self.operation_state.set_progress(progress)
+
+    def _on_operation_snapshot(self, snap) -> None:
+        """Forward the operation progress to the StatsPanel bar."""
+        try:
+            self.stats_panel.set_operation(snap.progress)
+        except (AttributeError, tk.TclError):
+            pass
 
     def _on_consolidation_complete(self, ok: bool, msg: str, path: Optional[Path]):
         def fin():

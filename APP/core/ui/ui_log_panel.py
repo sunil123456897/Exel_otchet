@@ -20,9 +20,8 @@ class LogPanel(ttk.Frame):
         ).pack(side=tk.LEFT)
         
         ttk.Button(
-            header_frame, 
-            text="🧹", 
-            width=3, 
+            header_frame,
+            text="🧹 Очистить",
             command=self.clear_logs
         ).pack(side=tk.RIGHT)
         

@@ -36,7 +36,8 @@ class EmployeeCommandsMixin:
         if not self.ctx.operation_state.begin(OperationType.REFRESH):
             return
         self.ctx.employee_table.clear_tree()
-        self.ctx.stats_panel.set_progress(0)
+        self.ctx.stats_panel.set_readiness(0)
+        self.ctx.stats_panel.set_operation(0)
 
         def on_refresh_complete() -> None:
             self.ctx.operation_state.end()
@@ -60,7 +61,7 @@ class EmployeeCommandsMixin:
         )
 
     def _on_consolidation_progress(self, progress: float) -> None:
-        self.ctx.post(lambda: self.ctx.stats_panel.set_progress(progress))
+        self.ctx.post(lambda: self.ctx.stats_panel.set_operation(progress))
 
     def _sync_employee_ui(self) -> None:
         self.ctx.employee_table.clear_tree()
@@ -72,7 +73,7 @@ class EmployeeCommandsMixin:
             self.ctx.employee_vm.get_ready_count(),
             self.ctx.employee_vm.get_total_count(),
         )
-        self.ctx.stats_panel.set_progress(
+        self.ctx.stats_panel.set_readiness(
             self.ctx.employee_vm.get_progress_percent()
         )
         self.ctx.sidebar.set_refresh_state("normal")
@@ -87,7 +88,8 @@ class EmployeeCommandsMixin:
     def add_employee_dialog(self) -> None:
         from core.ui.ui_dialogs import ask_employee_name
 
-        name = ask_employee_name()
+        existing = list(self.ctx.employee_vm.get_all_names())
+        name = ask_employee_name(existing_names=existing)
         if name:
             self.ctx.employee_vm.add_employee(self.ctx.config_controller, name)
             self.refresh_status()
@@ -102,7 +104,9 @@ class EmployeeCommandsMixin:
             self.refresh_status()
 
         show_attach_file_dialog(
-            self.ctx.root, self.ctx.config_controller.get_employees(), on_attach
+            self.ctx.root,
+            self.ctx.employee_vm.get_all_names() or self.ctx.config_controller.get_employees(),
+            on_attach,
         )
 
     def open_master_folder(self) -> None:

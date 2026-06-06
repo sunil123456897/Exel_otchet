@@ -25,6 +25,8 @@ from core.app.message_formatting import (
 )
 from core.infra.reconciliation_report import build_combined_reconciliation_report
 from core.infra.rsch_report import build_rsch_report
+from core.app.partial import format_partial_note, mark_partial
+from core.infra.utils import cleanup_local_copy_cache
 
 _ADAPTIVE_WORKERS = default_max_workers()
 
@@ -44,6 +46,30 @@ def _is_cancelled(cancel_event: Optional[threading.Event]) -> bool:
     the check stays cheap (no allocation per iteration).
     """
     return cancel_event is not None and cancel_event.is_set()
+
+
+def _cancel_message(
+    on_complete: Callable[[bool, str, Optional[Path]], None],
+    *output_paths: Optional[Path],
+) -> None:
+    """Wrap the standard cancel completion in a partial-files note.
+
+    All six ``run_*`` methods funnel their cancel branch through this
+    helper so the user gets a consistent message and the on-disk
+    partial files are renamed (not deleted) before the GUI shows the
+    toast. Network cache files are scrubbed in the same call.
+
+    Pass each candidate output path (file or directory) that the
+    operation may have started writing; the helper marks every
+    existing ``*.xlsx`` under those paths as ``.partial`` and appends
+    a short note to the user-facing message.
+    """
+    cleanup_local_copy_cache(max_age_days=0, min_delete_age_seconds=0)
+    partials: List[Path] = []
+    for path in output_paths:
+        partials.extend(mark_partial(path))
+    note = format_partial_note(partials)
+    on_complete(False, "Операция отменена пользователем." + note, None)
 
 
 class AppController:
@@ -527,7 +553,7 @@ class AppController:
 
             if _is_cancelled():
                 self.persistence.update_session_status(session_id, "cancelled")
-                on_complete(False, "Операция отменена пользователем", None)
+                _cancel_message(on_complete)
                 return
 
             consolidated_data = self.logic_service.consolidate(
@@ -538,7 +564,7 @@ class AppController:
 
             if _is_cancelled():
                 self.persistence.update_session_status(session_id, "cancelled")
-                on_complete(False, "Операция отменена пользователем", None)
+                _cancel_message(on_complete)
                 return
             errors = self.persistence.get_template_errors(session_id)
             file_error_note = self._format_file_error_note(file_errors)
@@ -851,7 +877,7 @@ class AppController:
                 rsch_output = output_path_resolved.parent / f"РСЧ_отчет_{date_suffix}.xlsx"
 
                 if _is_cancelled(cancel_event):
-                    on_complete(False, "Операция отменена пользователем.", None)
+                    _cancel_message(on_complete, output_path_resolved, rsch_output)
                     return
 
                 master_paths = {
@@ -876,7 +902,7 @@ class AppController:
                 }
 
                 if _is_cancelled(cancel_event):
-                    on_complete(False, "Операция отменена пользователем.", None)
+                    _cancel_message(on_complete, output_path_resolved, rsch_output)
                     return
 
                 if isinstance(source_paths, (str, Path)):
@@ -901,7 +927,7 @@ class AppController:
                     return
 
                 if _is_cancelled(cancel_event):
-                    on_complete(False, "Операция отменена пользователем.", None)
+                    _cancel_message(on_complete, output_path_resolved, rsch_output)
                     return
 
                 try:
@@ -953,7 +979,7 @@ class AppController:
         def task() -> None:
             try:
                 if _is_cancelled(cancel_event):
-                    on_complete(False, "Операция отменена пользователем.", None)
+                    _cancel_message(on_complete, output_path)
                     return
                 target_date = (
                     selected_date.date() if hasattr(selected_date, "date") else selected_date
@@ -995,7 +1021,7 @@ class AppController:
                     target_date = selected_date.date()
 
                 if _is_cancelled(cancel_event):
-                    on_complete(False, "Операция отменена пользователем.", None)
+                    _cancel_message(on_complete, output_path)
                     return
 
                 if isinstance(source_paths, (str, Path)):
@@ -1053,7 +1079,7 @@ class AppController:
                 end = end_date.date() if hasattr(end_date, "date") else end_date
 
                 if _is_cancelled(cancel_event):
-                    on_complete(False, "Операция отменена пользователем.", None)
+                    _cancel_message(on_complete, output_path)
                     return
 
                 if isinstance(source_paths, (str, Path)):
@@ -1108,7 +1134,7 @@ class AppController:
                 end = end_date.date() if hasattr(end_date, "date") else end_date
 
                 if _is_cancelled(cancel_event):
-                    on_complete(False, "Операция отменена пользователем.", None)
+                    _cancel_message(on_complete, output_dir)
                     return
 
                 if isinstance(source_paths, (str, Path)):
@@ -1125,7 +1151,7 @@ class AppController:
                 issues: List[str] = []
                 while current <= end:
                     if _is_cancelled(cancel_event):
-                        on_complete(False, "Операция отменена пользователем.", None)
+                        _cancel_message(on_complete, output_dir_path)
                         return
                     output_path = output_dir_path / f"РСЧ_отчет_{current.strftime('%d.%m.%Y')}.xlsx"
                     written_rows = build_rsch_report(
@@ -1178,7 +1204,7 @@ class AppController:
                     target_date = selected_date.date()
 
                 if _is_cancelled(cancel_event):
-                    on_complete(False, "Операция отменена пользователем.", None)
+                    _cancel_message(on_complete, *output_paths)
                     return
 
                 normalized_sources = [Path(p) for p in source_paths]
@@ -1194,7 +1220,7 @@ class AppController:
                 issues: List[str] = []
                 for src, out in zip(normalized_sources, normalized_outputs, strict=True):
                     if _is_cancelled(cancel_event):
-                        on_complete(False, "Операция отменена пользователем.", None)
+                        _cancel_message(on_complete, *normalized_outputs)
                         return
                     written_rows = build_rsch_report(
                         src,
