@@ -88,6 +88,7 @@ class GuiMaster:
             self.stats_panel,
             self.dashboard_tabs,
             self.operation_state,
+            self.toasts,
         )
 
         self.root.after(100, self.commands.refresh_status)
@@ -144,6 +145,7 @@ class GuiMaster:
     def _on_consolidation_complete(self, ok: bool, msg: str, path: Optional[Path]):
         def fin():
             self.operation_state.end()
+            cancelled = "отменена пользователем" in (msg or "").lower()
 
             if ok:
                 logging.info(f"Успешно: {msg}")
@@ -152,10 +154,15 @@ class GuiMaster:
                     "Успех", "Консолидация завершена. Открыть файл?"
                 ):
                     open_path(str(path))
+                self.toasts.success("Master-отчет", msg, duration_ms=4000)
+            elif cancelled:
+                logging.info(f"Отменено: {msg}")
+                self.dashboard_tabs.record_result("Master", False, msg, path)
+                self.toasts.warning("Master-отчет: отменено", msg, duration_ms=4000)
             else:
                 logging.error(f"Ошибка: {msg}")
                 self.dashboard_tabs.record_result("Master", ok, msg, path)
-                messagebox.showerror("Ошибка", msg)
+                self.toasts.error("Master-отчет: ошибка", msg, duration_ms=6000)
 
         self.root.after(0, fin)
 

@@ -35,6 +35,17 @@ class ConsolidationRunError(RuntimeError):
         self.code = code
 
 
+def _is_cancelled(cancel_event: Optional[threading.Event]) -> bool:
+    """Return True when the user requested cancellation.
+
+    Helper for the threaded run_* entry points. The cancel_event is set
+    by the GUI when the user clicks the Cancel button on the
+    OperationStatusBar; the helper exists so call sites stay short and
+    the check stays cheap (no allocation per iteration).
+    """
+    return cancel_event is not None and cancel_event.is_set()
+
+
 class AppController:
     """Main orchestrator — coordinates file discovery, ingestion, and export."""
 
@@ -828,6 +839,7 @@ class AppController:
         output_path: Path,
         selected_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Rebuild daily reports, rebuild RSC, then write one 3-sheet reconciliation."""
 
@@ -837,6 +849,10 @@ class AppController:
                 date_suffix = target_date.strftime("%d.%m.%Y")
                 output_path_resolved = Path(output_path)
                 rsch_output = output_path_resolved.parent / f"РСЧ_отчет_{date_suffix}.xlsx"
+
+                if _is_cancelled(cancel_event):
+                    on_complete(False, "Операция отменена пользователем.", None)
+                    return
 
                 master_paths = {
                     "Общий": self._run_auto_master_report(
@@ -859,6 +875,10 @@ class AppController:
                     ),
                 }
 
+                if _is_cancelled(cancel_event):
+                    on_complete(False, "Операция отменена пользователем.", None)
+                    return
+
                 if isinstance(source_paths, (str, Path)):
                     normalized_sources = [Path(source_paths)]
                 else:
@@ -878,6 +898,10 @@ class AppController:
                         f"Нет данных РСЧ за {date_suffix}. Автосверка пропущена.",
                         None,
                     )
+                    return
+
+                if _is_cancelled(cancel_event):
+                    on_complete(False, "Операция отменена пользователем.", None)
                     return
 
                 try:
@@ -922,11 +946,15 @@ class AppController:
         output_path: Path,
         selected_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build a reconciliation report from already selected report and RSC files."""
 
         def task() -> None:
             try:
+                if _is_cancelled(cancel_event):
+                    on_complete(False, "Операция отменена пользователем.", None)
+                    return
                 target_date = (
                     selected_date.date() if hasattr(selected_date, "date") else selected_date
                 )
@@ -956,6 +984,7 @@ class AppController:
         output_path: Path,
         selected_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build an RSC control report from selected workbooks."""
 
@@ -964,6 +993,10 @@ class AppController:
                 target_date = selected_date
                 if hasattr(selected_date, "date"):
                     target_date = selected_date.date()
+
+                if _is_cancelled(cancel_event):
+                    on_complete(False, "Операция отменена пользователем.", None)
+                    return
 
                 if isinstance(source_paths, (str, Path)):
                     normalized_sources = [Path(source_paths)]
@@ -1010,6 +1043,7 @@ class AppController:
         start_date,
         end_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build one RSC control workbook with one sheet per row date in range."""
 
@@ -1017,6 +1051,10 @@ class AppController:
             try:
                 start = start_date.date() if hasattr(start_date, "date") else start_date
                 end = end_date.date() if hasattr(end_date, "date") else end_date
+
+                if _is_cancelled(cancel_event):
+                    on_complete(False, "Операция отменена пользователем.", None)
+                    return
 
                 if isinstance(source_paths, (str, Path)):
                     normalized_sources = [Path(source_paths)]
@@ -1060,6 +1098,7 @@ class AppController:
         start_date,
         end_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build separate RSC workbooks for each date in the selected range."""
 
@@ -1067,6 +1106,10 @@ class AppController:
             try:
                 start = start_date.date() if hasattr(start_date, "date") else start_date
                 end = end_date.date() if hasattr(end_date, "date") else end_date
+
+                if _is_cancelled(cancel_event):
+                    on_complete(False, "Операция отменена пользователем.", None)
+                    return
 
                 if isinstance(source_paths, (str, Path)):
                     normalized_sources = [Path(source_paths)]
@@ -1081,6 +1124,9 @@ class AppController:
                 files_written = 0
                 issues: List[str] = []
                 while current <= end:
+                    if _is_cancelled(cancel_event):
+                        on_complete(False, "Операция отменена пользователем.", None)
+                        return
                     output_path = output_dir_path / f"РСЧ_отчет_{current.strftime('%d.%m.%Y')}.xlsx"
                     written_rows = build_rsch_report(
                         normalized_sources,
@@ -1121,6 +1167,7 @@ class AppController:
         output_paths: Sequence[Path],
         selected_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build separate RSC reports per source workbook."""
 
@@ -1129,6 +1176,10 @@ class AppController:
                 target_date = selected_date
                 if hasattr(selected_date, "date"):
                     target_date = selected_date.date()
+
+                if _is_cancelled(cancel_event):
+                    on_complete(False, "Операция отменена пользователем.", None)
+                    return
 
                 normalized_sources = [Path(p) for p in source_paths]
                 normalized_outputs = [Path(p) for p in output_paths]
@@ -1142,6 +1193,9 @@ class AppController:
                 total_rows = 0
                 issues: List[str] = []
                 for src, out in zip(normalized_sources, normalized_outputs, strict=True):
+                    if _is_cancelled(cancel_event):
+                        on_complete(False, "Операция отменена пользователем.", None)
+                        return
                     written_rows = build_rsch_report(
                         src,
                         out,

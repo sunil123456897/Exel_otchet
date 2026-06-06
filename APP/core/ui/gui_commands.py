@@ -7,6 +7,7 @@ from typing import Optional, List
 
 from core.infra import open_path
 from core.ui.operation_state import OperationState, OperationType
+from core.ui.toast import ToastManager
 
 
 class GuiCommands:
@@ -22,6 +23,7 @@ class GuiCommands:
         stats_panel,
         dashboard_tabs=None,
         operation_state: OperationState | None = None,
+        toasts: ToastManager | None = None,
     ):
         self.root = root
         self.config_controller = config_controller
@@ -33,6 +35,7 @@ class GuiCommands:
         self.stats_panel = stats_panel
         self.dashboard_tabs = dashboard_tabs
         self.operation_state = operation_state or OperationState()
+        self.toasts = toasts
         self._apply_saved_rsch_mode()
 
     def refresh_status(self):
@@ -45,7 +48,12 @@ class GuiCommands:
             self.operation_state.end()
 
         def on_refresh_error(message: str) -> None:
-            self.root.after(0, lambda: messagebox.showerror("Ошибка", message))
+            def show():
+                if self.toasts:
+                    self.toasts.error("Ошибка обновления", message, duration_ms=6000)
+                else:
+                    messagebox.showerror("Ошибка", message)
+            self.root.after(0, show)
 
         self.employee_vm.refresh(
             self.app_controller,
@@ -161,6 +169,7 @@ class GuiCommands:
             Path(output),
             selected_date,
             self._on_rsch_complete,
+            cancel_event=self.operation_state.cancel_event,
         )
 
     def run_rsch_report_month(self):
@@ -218,6 +227,7 @@ class GuiCommands:
             start_date,
             end_date,
             self._on_rsch_complete,
+            cancel_event=self.operation_state.cancel_event,
         )
 
     def run_reconciliation_report(self):
@@ -267,6 +277,7 @@ class GuiCommands:
             Path(output),
             selected_date,
             self._on_reconciliation_complete,
+            cancel_event=self.operation_state.cancel_event,
         )
 
     def run_auto_reconciliation_day(self):
@@ -314,6 +325,7 @@ class GuiCommands:
             Path(output),
             selected_date,
             self._on_auto_reconciliation_complete,
+            cancel_event=self.operation_state.cancel_event,
         )
 
     def _get_rsch_config(self) -> dict:
@@ -504,7 +516,10 @@ class GuiCommands:
             text = f"Должники за {date_str}:\n" + "\n".join([f"- {m}" for m in missing])
             self.root.clipboard_clear()
             self.root.clipboard_append(text)
-            messagebox.showinfo("Успех", "Список должников скопирован в буфер обмена")
+            if self.toasts:
+                self.toasts.info("Должники", "Список скопирован в буфер обмена", duration_ms=2500)
+            else:
+                messagebox.showinfo("Успех", "Список должников скопирован в буфер обмена")
 
     def filter_tree(self):
         self.employee_vm.search_query = self.employee_table.get_search_query()
@@ -580,6 +595,7 @@ class GuiCommands:
     def _on_rsch_complete(self, ok: bool, msg: str, path: Optional[Path]):
         def fin():
             self.operation_state.end()
+            cancelled = "отменена пользователем" in (msg or "").lower()
             if ok:
                 logging.info(f"Успешно: {msg}")
                 self._record_dashboard_result("РСЧ", ok, msg, path)
@@ -587,10 +603,20 @@ class GuiCommands:
                     "Успех", "РСЧ отчет собран. Открыть файл?"
                 ):
                     open_path(str(path))
+                if self.toasts:
+                    self.toasts.success("РСЧ", msg, duration_ms=4000)
+            elif cancelled:
+                logging.info(f"Отменено: {msg}")
+                self._record_dashboard_result("РСЧ", False, msg, path)
+                if self.toasts:
+                    self.toasts.warning("РСЧ: отменено", msg, duration_ms=4000)
             else:
                 logging.error(f"Ошибка: {msg}")
                 self._record_dashboard_result("РСЧ", ok, msg, path)
-                messagebox.showerror("Ошибка", msg)
+                if self.toasts:
+                    self.toasts.error("РСЧ: ошибка", msg, duration_ms=6000)
+                else:
+                    messagebox.showerror("Ошибка", msg)
 
         self.root.after(0, fin)
 
@@ -602,6 +628,7 @@ class GuiCommands:
     ):
         def fin():
             self.operation_state.end()
+            cancelled = "отменена пользователем" in (msg or "").lower()
             if ok:
                 logging.info(f"Успешно: {msg}")
                 self._record_dashboard_result("РСЧ период", ok, msg, output_dir)
@@ -609,10 +636,20 @@ class GuiCommands:
                     "Успех", "РСЧ отчеты собраны. Открыть папку?"
                 ):
                     open_path(str(output_dir))
+                if self.toasts:
+                    self.toasts.success("РСЧ период", msg, duration_ms=4000)
+            elif cancelled:
+                logging.info(f"Отменено: {msg}")
+                self._record_dashboard_result("РСЧ период", False, msg, output_dir)
+                if self.toasts:
+                    self.toasts.warning("РСЧ период: отменено", msg, duration_ms=4000)
             else:
                 logging.error(f"Ошибка: {msg}")
                 self._record_dashboard_result("РСЧ период", ok, msg, output_dir)
-                messagebox.showerror("Ошибка", msg)
+                if self.toasts:
+                    self.toasts.error("РСЧ период: ошибка", msg, duration_ms=6000)
+                else:
+                    messagebox.showerror("Ошибка", msg)
 
         self.root.after(0, fin)
 
@@ -624,6 +661,7 @@ class GuiCommands:
     ):
         def fin():
             self.operation_state.end()
+            cancelled = "отменена пользователем" in (msg or "").lower()
             if ok:
                 logging.info(f"Успешно: {msg}")
                 self._record_dashboard_result("Автосверка", ok, msg, path)
@@ -631,10 +669,20 @@ class GuiCommands:
                     "Успех", "Автоматический отчет расхождений собран. Открыть файл?"
                 ):
                     open_path(str(path))
+                if self.toasts:
+                    self.toasts.success("Автосверка", msg, duration_ms=4000)
+            elif cancelled:
+                logging.info(f"Отменено: {msg}")
+                self._record_dashboard_result("Автосверка", False, msg, path)
+                if self.toasts:
+                    self.toasts.warning("Автосверка: отменено", msg, duration_ms=4000)
             else:
                 logging.error(f"Ошибка: {msg}")
                 self._record_dashboard_result("Автосверка", ok, msg, path)
-                messagebox.showerror("Ошибка", msg)
+                if self.toasts:
+                    self.toasts.error("Автосверка: ошибка", msg, duration_ms=6000)
+                else:
+                    messagebox.showerror("Ошибка", msg)
 
         self.root.after(0, fin)
 
@@ -646,6 +694,7 @@ class GuiCommands:
     ):
         def fin():
             self.operation_state.end()
+            cancelled = "отменена пользователем" in (msg or "").lower()
             if ok:
                 logging.info(f"Успешно: {msg}")
                 self._record_dashboard_result("Сверка", ok, msg, path)
@@ -653,10 +702,20 @@ class GuiCommands:
                     "Успех", "Отчет расхождений собран. Открыть файл?"
                 ):
                     open_path(str(path))
+                if self.toasts:
+                    self.toasts.success("Сверка", msg, duration_ms=4000)
+            elif cancelled:
+                logging.info(f"Отменено: {msg}")
+                self._record_dashboard_result("Сверка", False, msg, path)
+                if self.toasts:
+                    self.toasts.warning("Сверка: отменено", msg, duration_ms=4000)
             else:
                 logging.error(f"Ошибка: {msg}")
                 self._record_dashboard_result("Сверка", ok, msg, path)
-                messagebox.showerror("Ошибка", msg)
+                if self.toasts:
+                    self.toasts.error("Сверка: ошибка", msg, duration_ms=6000)
+                else:
+                    messagebox.showerror("Ошибка", msg)
 
         self.root.after(0, fin)
 
