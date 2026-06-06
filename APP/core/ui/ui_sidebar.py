@@ -233,6 +233,46 @@ class Sidebar(ttk.Frame):
         )
         self.auto_reconciliation_btn.pack(fill=tk.X, pady=(0, 3))
 
+        # Theme switcher: 3 options (light/dark/system). The "system"
+        # option is auto-disabled on Windows 8 where the registry key
+        # we read is not present — there's nothing to follow.
+        theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=6)
+        theme_frame.pack(fill=tk.X, pady=(0, 6))
+        self.theme_var = tk.StringVar(value="light")
+        from core.ui.system_theme import is_windows_8_or_earlier
+        win8 = is_windows_8_or_earlier()
+        for value, label in (
+            ("light", "☀️ Светлая"),
+            ("dark", "🌙 Тёмная"),
+        ):
+            ttk.Radiobutton(
+                theme_frame,
+                text=label,
+                variable=self.theme_var,
+                value=value,
+                command=self._on_theme_changed,
+            ).pack(anchor=tk.W)
+        # "Системная" only useful on Win 10/11, macOS, modern Linux.
+        rb_system = ttk.Radiobutton(
+            theme_frame,
+            text="💻 Системная" + (" (нет данных)" if win8 else ""),
+            variable=self.theme_var,
+            value="system",
+            command=self._on_theme_changed,
+        )
+        rb_system.pack(anchor=tk.W)
+        if win8:
+            rb_system.state(["disabled"])
+        from core.ui.tooltip import Tooltip
+        Tooltip(rb_system, "Следовать теме ОС. На Windows 8/8.1 недоступно — ОС не публикует тему.")
+
+    def _on_theme_changed(self):
+        """Forward the chosen theme to the master controller."""
+        value = self.theme_var.get()
+        setter = getattr(self.controller, "set_theme", None)
+        if callable(setter):
+            setter(value)
+
     def _set_current_month(self):
         today = datetime.now()
         self.month_start_entry.set_date(today.replace(day=1))

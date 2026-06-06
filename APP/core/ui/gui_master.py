@@ -10,6 +10,11 @@ from core.ui.ui_stats_panel import StatsPanel
 from core.ui.ui_log_panel import LogPanel
 from core.ui.ui_dashboard import DashboardTabs
 from core.ui.theme import ThemeManager
+from core.ui.geometry import (
+    is_geometry_visible,
+    load_geometry,
+    save_geometry,
+)
 from core.ui.operation_state import OperationState
 from core.ui.operation_status_bar import OperationStatusBar
 from core.ui.toast import ToastManager
@@ -36,6 +41,25 @@ def _fit_window_geometry(
     return f"{width}x{height}+{x}+{y}"
 
 
+def _resolve_initial_geometry(
+    preferred: tuple[int, int],
+    screen_width: int,
+    screen_height: int,
+) -> str:
+    """Pick the geometry to use at startup.
+
+    Preference order:
+    1. Persisted geometry (if it still fits the current display).
+    2. Auto-fitted default (centred, capped to 82% of screen width).
+    """
+    saved = load_geometry()
+    if saved and is_geometry_visible(saved, screen_width, screen_height):
+        return saved
+    return _fit_window_geometry(
+        preferred[0], preferred[1], screen_width, screen_height
+    )
+
+
 class GuiMaster:
     def __init__(
         self,
@@ -50,14 +74,17 @@ class GuiMaster:
         )
         self.root.title("🚀 Master-Report v5.5 | Financial Consolidator")
         self.root.geometry(
-            _fit_window_geometry(
-                1100,
-                840,
+            _resolve_initial_geometry(
+                (1100, 840),
                 self.root.winfo_screenwidth(),
                 self.root.winfo_screenheight(),
             )
         )
-        self.root.configure(bg="#f0f2f5")
+        self.root.configure(bg=ThemeManager.COLORS["bg_main"])
+
+        # Persist the geometry on close. The protocol is set by main.py
+        # to call on_close; we intercept that to save the geometry.
+        self._install_geometry_save_handler()
 
         self.employee_vm = EmployeeListViewModel()
         self.operation_state = OperationState()
@@ -213,3 +240,43 @@ class GuiMaster:
 
     def delete_employee(self):
         self.commands.delete_employee()
+
+    def _install_geometry_save_handler(self) -> None:
+        """Wrap WM_DELETE_WINDOW so we can persist the geometry.
+
+        ``main.py`` sets ``root.protocol("WM_DELETE_WINDOW", on_close)``;
+        we replace that protocol with a wrapper that saves the geometry
+        first, then calls the original close handler. We capture the
+        original via a one-shot ``protocol()`` read.
+        """
+        original = self.root.protocol("WM_DELETE_WINDOW")
+
+        def _save_then_close() -> None:
+            try:
+                geom = self.root.geometry()
+                save_geometry(geom)
+            except Exception as e:  # noqa: BLE001
+                logging.debug("Geometry save failed: %s", e)
+            if original:
+                original()
+
+        self.root.protocol("WM_DELETE_WINDOW", _save_then_close)
+
+    def set_theme(self, name: str) -> None:
+        """Switch the active palette and reconfigure ttk styles.
+
+        ``name`` may be "light", "dark", or "system" (the last one
+        resolves to whichever the OS reports — falling back to light
+        on Windows 8). The main window's background is updated to
+        match the new palette so the change is visible immediately.
+        """
+        resolved = ThemeManager.resolve_effective(name)
+        if resolved not in ("light", "dark"):
+            resolved = "light"
+        ThemeManager.set_theme(resolved)
+        self.root.configure(bg=ThemeManager.COLORS["bg_main"])
+        self.toasts.info(
+            "Тема",
+            f"Применена тема: {resolved}",
+            duration_ms=2000,
+        )
