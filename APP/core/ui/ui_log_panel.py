@@ -26,12 +26,17 @@ class LogPanel(ttk.Frame):
         ).pack(side=tk.RIGHT)
         
         self.log_area = scrolledtext.ScrolledText(
-            self, 
-            height=12, 
-            state='disabled', 
-            font=('Consolas', 8), 
-            borderwidth=1, 
-            relief='solid'
+            self,
+            height=12,
+            state='disabled',
+            font=('Consolas', 8),
+            borderwidth=1,
+            relief='solid',
+            bg=ThemeManager.COLORS["bg_panel"],
+            fg=ThemeManager.COLORS["text"],
+            insertbackground=ThemeManager.COLORS["text"],
+            selectbackground=ThemeManager.COLORS["primary"],
+            selectforeground=ThemeManager.COLORS["text_inverse"],
         )
         self.log_area.pack(fill=tk.BOTH, expand=True)
 

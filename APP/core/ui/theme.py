@@ -140,6 +140,23 @@ class ThemeManager:
         )
         style.configure("TButton", font=("Segoe UI", 10), padding=5)
         style.configure(
+            "TButton",
+            background=c["bg_panel"],
+            foreground=c["text"],
+            borderwidth=1,
+        )
+        style.map(
+            "TButton",
+            background=[
+                ("active", c["primary"]),
+                ("disabled", c["bg_panel"]),
+            ],
+            foreground=[
+                ("active", c["text_inverse"]),
+                ("disabled", c["text"]),
+            ],
+        )
+        style.configure(
             "Action.TButton", background=c["primary"], foreground=c["text_inverse"]
         )
         style.map(
@@ -177,14 +194,90 @@ class ThemeManager:
         )
         style.configure("Treeview", font=("Segoe UI", 10), rowheight=30)
         style.configure(
+            "Treeview",
+            background=c["bg_panel"],
+            foreground=c["text"],
+            fieldbackground=c["bg_panel"],
+        )
+        style.configure(
             "Treeview.Heading",
             font=("Segoe UI", 10, "bold"),
-            background=c["bg_panel"],
+            background=c["bg_sidebar"],
+            foreground=c["text"],
+            relief="flat",
         )
         style.map(
             "Treeview",
             background=[("selected", c["primary"])],
             foreground=[("selected", c["text_inverse"])],
+        )
+        style.map(
+            "Treeview.Heading",
+            background=[("active", c["primary"])],
+            foreground=[("active", c["text_inverse"])],
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground=c["bg_panel"],
+            foreground=c["text"],
+            insertcolor=c["text"],
+            selectbackground=c["primary"],
+            selectforeground=c["text_inverse"],
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=c["bg_panel"],
+            foreground=c["text"],
+            arrowcolor=c["text"],
+            selectbackground=c["primary"],
+            selectforeground=c["text_inverse"],
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", c["bg_panel"])],
+            foreground=[("readonly", c["text"])],
+        )
+        style.configure(
+            "Vertical.TScrollbar",
+            background=c["bg_sidebar"],
+            troughcolor=c["bg_panel"],
+            arrowcolor=c["text"],
+        )
+        style.configure(
+            "Horizontal.TScrollbar",
+            background=c["bg_sidebar"],
+            troughcolor=c["bg_panel"],
+            arrowcolor=c["text"],
+        )
+        style.configure(
+            "TNotebook",
+            background=c["bg_main"],
+            borderwidth=0,
+        )
+        style.configure(
+            "TNotebook.Tab",
+            background=c["bg_panel"],
+            foreground=c["text"],
+            padding=(12, 4),
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", c["bg_sidebar"])],
+            foreground=[("selected", c["text"])],
+        )
+        style.configure(
+            "TCheckbutton",
+            background=c["bg_sidebar"],
+            foreground=c["text"],
+        )
+        style.map(
+            "TCheckbutton",
+            background=[("active", c["bg_sidebar"])],
+        )
+        style.configure(
+            "TRadiobutton",
+            background=c["bg_sidebar"],
+            foreground=c["text"],
         )
         style.configure(
             "TProgressbar",
