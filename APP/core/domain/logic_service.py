@@ -49,32 +49,61 @@ class Validator(IValidator):
         )
         amount_val = row.get("amount")
         total_val = row.get("total")
-        if (
-            not customer
-            and not contractor
-            and not filters
-            and (amount_val is None or str(amount_val).strip() == "0")
-        ):
+
+        def _is_empty_zero(v: Any) -> bool:
+            if v is None:
+                return True
+            return str(v).strip() in {"", "0", "0.00", "0.0", "0,00", "0,0"}
+
+        if not customer and not contractor and not filters and _is_empty_zero(amount_val):
             return False
         if (
             not customer
             and not contractor
             and not filters
-            and amount_val is not None
-            and str(amount_val).strip() not in {"", "0"}
-            and total_val is not None
-            and str(total_val).strip() not in {"", "0"}
+            and not _is_empty_zero(amount_val)
+            and not _is_empty_zero(total_val)
         ):
             return False
+
         for val in row.values():
-            if val is not None and str(val).lower().strip(": ") in self._junk_totals:
+            if val is None:
+                continue
+            s_norm = " ".join(str(val).lower().split())
+            s_stripped = s_norm.strip(": ")
+            if s_stripped in self._junk_totals or s_norm in self._junk_totals:
                 return False
-        row_str = " ".join(str(v).lower() for v in row.values() if v is not None)
-        if sum(1 for m in self._junk_markers if m in row_str) >= 2:
+
+        name_field_keys = ("customer", "contractor", "filters", "employee_name", "source")
+        name_fields_filled = sum(
+            1
+            for k in name_field_keys
+            if row.get(k) and str(row.get(k)).strip()
+        )
+
+        non_name_marker_hits = 0
+        for k, v in row.items():
+            if v is None or k in name_field_keys:
+                continue
+            v_str = " ".join(str(v).lower().split())
+            if any(m in v_str for m in self._junk_markers):
+                non_name_marker_hits += 1
+        if non_name_marker_hits >= 2:
             return False
+
         for key in ["amount", "income", "expense", "commission", "total"]:
             v = row.get(key)
-            if v is not None and any(w in str(v).lower() for w in self._header_words):
+            if v is None:
+                continue
+            v_str = " ".join(str(v).lower().split())
+            if v_str in self._junk_totals:
+                return False
+
+        if name_fields_filled >= 2:
+            row_str = " ".join(
+                " ".join(str(v).lower().split()) for v in row.values() if v is not None
+            )
+            if sum(1 for m in self._junk_markers if m in row_str) >= 3:
                 return False
         return True
 
@@ -145,6 +174,9 @@ class LogicService(ILogicService):
         self.inc_over = l_cfg.get("income_overrides", ["доп", "доп сф", "доп.сф", "% посред"])
         self.ret_kw = l_cfg.get("return_keywords", ["возврат"])
         self.commission_is_percent = l_cfg.get("commission_is_percent", True)
+        self.exclude_kw = l_cfg.get(
+            "exclude_keywords", ["недопустимо", "исключить", "исключение"]
+        )
 
     _SANITIZE_CHARS = frozenset(("=", "+", "-", "@", "\t", "\r", "\n"))
 
@@ -312,6 +344,7 @@ class LogicService(ILogicService):
                 any(kw in f_val for kw in self.inc_over),
                 any(kw in f_val for kw in self.ret_kw),
             )
+            is_excluded = any(kw in f_val for kw in self.exclude_kw)
             is_critical = False
             is_warn = False
 
@@ -361,6 +394,9 @@ class LogicService(ILogicService):
                 and not is_critical
             ):
                 continue
+
+            if is_excluded:
+                amt = Decimal("0.00")
 
             inc, exp = self._resolve_flow(amt, is_add, is_ret)
             comm, commission_warn = self._resolve_commission(r.get("commission", 0))

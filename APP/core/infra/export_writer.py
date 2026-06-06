@@ -113,7 +113,13 @@ class MasterWriter(IExporter):
                 wb.move_sheet(n, offset=offset)
 
         path_abs = os.path.abspath(path or self.master_path)
-        Path(path_abs).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            Path(path_abs).parent.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            logger.error(
+                f"Не удалось создать папку для отчёта (нет доступа): {path_abs} | {e}"
+            )
+            return False
         preflight_output_path(Path(path_abs))
         if os.path.exists(path_abs):
             backup_cfg = self.config.get("backup", {}) if isinstance(self.config, dict) else {}
@@ -203,6 +209,23 @@ class MasterWriter(IExporter):
         from collections import OrderedDict
 
         warning_rows = {}
+        row_to_data_idx = {}
+
+        def _safe_float(v, default=0.0):
+            if v is None or v == "":
+                return float(default)
+            if isinstance(v, (int, float)):
+                return float(v)
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Could not convert %r to float; defaulting to 0. Sheet=%s, row=%s",
+                    v,
+                    ws.title,
+                    ws.max_row + 1,
+                )
+                return float(default)
 
         def _get_employee(r):
             if curator == "ivan":
@@ -215,14 +238,14 @@ class MasterWriter(IExporter):
                     r.get("Источник", ""),
                     r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                     r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                    float(r.get("сумма платежа ПРИХОД", 0)),
-                    float(r.get("сумма платежа РАСХОД", 0)),
-                    float(r.get("комиссия", 0)),
-                    float(r.get("ИТОГ", 0)),
+                    _safe_float(r.get("сумма платежа ПРИХОД", 0)),
+                    _safe_float(r.get("сумма платежа РАСХОД", 0)),
+                    _safe_float(r.get("комиссия", 0)),
+                    _safe_float(r.get("ИТОГ", 0)),
                     r.get("% посредника", 0),
-                    float(r.get("посредник 1(кэш)", 0)),
+                    _safe_float(r.get("посредник 1(кэш)", 0)),
                     r.get("% посредник 2", 0),
-                    float(r.get("посредник 2", 0)),
+                    _safe_float(r.get("посредник 2", 0)),
                     r.get("фильтры", ""),
                 ]
             elif curator == "ivan":
@@ -230,14 +253,14 @@ class MasterWriter(IExporter):
                     r.get("Сотрудник", r.get("Источник", "")),
                     r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                     r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                    float(r.get("сумма платежа ПРИХОД", 0)),
-                    float(r.get("сумма платежа РАСХОД", 0)),
-                    float(r.get("комиссия", 0)),
-                    float(r.get("ИТОГ", 0)),
-                    float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
+                    _safe_float(r.get("сумма платежа ПРИХОД", 0)),
+                    _safe_float(r.get("сумма платежа РАСХОД", 0)),
+                    _safe_float(r.get("комиссия", 0)),
+                    _safe_float(r.get("ИТОГ", 0)),
+                    _safe_float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                     r.get("% посредника", 0),
-                    float(r.get("посредник 1(кэш)", 0)),
-                    float(r.get("посредник 2", 0)),
+                    _safe_float(r.get("посредник 1(кэш)", 0)),
+                    _safe_float(r.get("посредник 2", 0)),
                     r.get("курс", ""),
                     r.get("сумма", ""),
                     r.get("валюта", ""),
@@ -248,14 +271,14 @@ class MasterWriter(IExporter):
                     r.get("Источник", ""),
                     r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                     r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                    float(r.get("сумма платежа ПРИХОД", 0)),
-                    float(r.get("сумма платежа РАСХОД", 0)),
-                    float(r.get("комиссия", 0)),
-                    float(r.get("ИТОГ", 0)),
-                    float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
+                    _safe_float(r.get("сумма платежа ПРИХОД", 0)),
+                    _safe_float(r.get("сумма платежа РАСХОД", 0)),
+                    _safe_float(r.get("комиссия", 0)),
+                    _safe_float(r.get("ИТОГ", 0)),
+                    _safe_float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                     r.get("% посредника", 0),
-                    float(r.get("посредник 1(кэш)", 0)),
-                    float(r.get("посредник 2", 0)),
+                    _safe_float(r.get("посредник 1(кэш)", 0)),
+                    _safe_float(r.get("посредник 2", 0)),
                     r.get("фильтры", ""),
                 ]
 
@@ -290,6 +313,13 @@ class MasterWriter(IExporter):
                             "reason": r.get("_template_warning_reason"),
                         }
                     ws.append(_get_row_values(r))
+                    data_row = ws.max_row
+                    try:
+                        data_idx = rows.index(r)
+                    except ValueError:
+                        data_idx = -1
+                    if data_idx >= 0:
+                        row_to_data_idx[data_row] = data_idx
                     apply_cell_hyperlink(
                         ws.cell(ws.max_row, 1),
                         r.get("_source_file_path"),
@@ -297,9 +327,9 @@ class MasterWriter(IExporter):
                         r.get("_source_row_index"),
                     )
 
-            return warning_rows
+            return warning_rows, row_to_data_idx
 
-        for r in rows:
+        for i, r in enumerate(rows):
             warning_kind = r.get("_template_warning_kind")
             if r.get("is_template_warning") and not (curator in {"boris", "ivan"} and warning_kind in {
                 "hard_structure",
@@ -315,14 +345,14 @@ class MasterWriter(IExporter):
                         r.get("Источник", ""),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                        float(r.get("сумма платежа ПРИХОД", 0)),
-                        float(r.get("сумма платежа РАСХОД", 0)),
-                        float(r.get("комиссия", 0)),
-                        float(r.get("ИТОГ", 0)),
+                        _safe_float(r.get("сумма платежа ПРИХОД", 0)),
+                        _safe_float(r.get("сумма платежа РАСХОД", 0)),
+                        _safe_float(r.get("комиссия", 0)),
+                        _safe_float(r.get("ИТОГ", 0)),
                         r.get("% посредника", 0),
-                        float(r.get("посредник 1(кэш)", 0)),
+                        _safe_float(r.get("посредник 1(кэш)", 0)),
                         r.get("% посредник 2", 0),
-                        float(r.get("посредник 2", 0)),
+                        _safe_float(r.get("посредник 2", 0)),
                         r.get("фильтры", ""),
                     ]
                 )
@@ -332,14 +362,14 @@ class MasterWriter(IExporter):
                         r.get("Сотрудник", r.get("Источник", "")),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                        float(r.get("сумма платежа ПРИХОД", 0)),
-                        float(r.get("сумма платежа РАСХОД", 0)),
-                        float(r.get("комиссия", 0)),
-                        float(r.get("ИТОГ", 0)),
-                        float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
+                        _safe_float(r.get("сумма платежа ПРИХОД", 0)),
+                        _safe_float(r.get("сумма платежа РАСХОД", 0)),
+                        _safe_float(r.get("комиссия", 0)),
+                        _safe_float(r.get("ИТОГ", 0)),
+                        _safe_float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                         r.get("% посредника", 0),
-                        float(r.get("посредник 1(кэш)", 0)),
-                        float(r.get("посредник 2", 0)),
+                        _safe_float(r.get("посредник 1(кэш)", 0)),
+                        _safe_float(r.get("посредник 2", 0)),
                         r.get("курс", ""),
                         r.get("сумма", ""),
                         r.get("валюта", ""),
@@ -352,24 +382,26 @@ class MasterWriter(IExporter):
                         r.get("Источник", ""),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                        float(r.get("сумма платежа ПРИХОД", 0)),
-                        float(r.get("сумма платежа РАСХОД", 0)),
-                        float(r.get("комиссия", 0)),
-                        float(r.get("ИТОГ", 0)),
-                        float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
+                        _safe_float(r.get("сумма платежа ПРИХОД", 0)),
+                        _safe_float(r.get("сумма платежа РАСХОД", 0)),
+                        _safe_float(r.get("комиссия", 0)),
+                        _safe_float(r.get("ИТОГ", 0)),
+                        _safe_float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                         r.get("% посредника", 0),
-                        float(r.get("посредник 1(кэш)", 0)),
-                        float(r.get("посредник 2", 0)),
+                        _safe_float(r.get("посредник 1(кэш)", 0)),
+                        _safe_float(r.get("посредник 2", 0)),
                         r.get("фильтры", ""),
                     ]
                 )
+            data_row = ws.max_row
+            row_to_data_idx[data_row] = i
             apply_cell_hyperlink(
                 ws.cell(ws.max_row, 1),
                 r.get("_source_file_path"),
                 r.get("_source_sheet_name"),
                 r.get("_source_row_index"),
             )
-        return warning_rows
+        return warning_rows, row_to_data_idx
 
     def _write_template_errors_sheet(self, wb, template_errors: List[Dict[str, Any]]):
         sheet_name = "ОШИБКИ ШАБЛОНА"
@@ -396,7 +428,7 @@ class MasterWriter(IExporter):
         self._apply_header_style(ws)
         ws.freeze_panes = "A2"
 
-        warning_rows = self._append_data_rows(ws, date, rows, curator=curator)
+        warning_rows, row_to_data_idx = self._append_data_rows(ws, date, rows, curator=curator)
 
         cols, num_indices, percent_broker_cols = detect_header_columns(ws)
 
@@ -409,6 +441,7 @@ class MasterWriter(IExporter):
             percent_broker_cols,
             self.st,
             self.return_keywords,
+            row_to_data_idx=row_to_data_idx,
         )
 
         build_total_row(ws, num_indices, self.st)
@@ -462,6 +495,11 @@ class MasterWriter(IExporter):
             today = datetime.now().date()
             dbd = {}
             for r in data:
+                if r is None:
+                    logger.warning(
+                        "TEMPORAL FILTER: None row encountered and will be skipped."
+                    )
+                    continue
                 d = r.get("Дата")
                 if not d:
                     logger.warning(
@@ -470,15 +508,24 @@ class MasterWriter(IExporter):
                     )
                     continue
 
-                try:
-                    dt = datetime.strptime(str(d), "%d.%m.%Y")
-                except ValueError:
-                    logger.warning(
-                        "TEMPORAL FILTER: Row from %s has invalid date '%s' and will be skipped.",
-                        r.get("Источник"),
-                        d,
-                    )
-                    continue
+                if hasattr(d, "strftime") and hasattr(d, "date"):
+                    d_str = d.strftime("%d.%m.%Y")
+                    dt = d
+                else:
+                    try:
+                        dt = datetime.strptime(str(d), "%d.%m.%Y")
+                        d_str = dt.strftime("%d.%m.%Y")
+                    except ValueError:
+                        try:
+                            dt = datetime.strptime(str(d)[:10], "%Y-%m-%d")
+                            d_str = dt.strftime("%d.%m.%Y")
+                        except ValueError:
+                            logger.warning(
+                                "TEMPORAL FILTER: Row from %s has invalid date '%s' and will be skipped.",
+                                r.get("Источник"),
+                                d,
+                            )
+                            continue
 
                 if dt.date() > today:
                     logger.warning(
@@ -486,9 +533,20 @@ class MasterWriter(IExporter):
                         d,
                         r.get("Источник"),
                     )
+                    try:
+                        from core.domain.data_loss_log import record_loss
+                        record_loss(
+                            source=str(path),
+                            kind="future_date",
+                            reason=f"date {d} is in the future",
+                            field="Дата",
+                            original_value=d,
+                        )
+                    except Exception:
+                        pass
                     continue
 
-                dbd.setdefault(dt.strftime("%d.%m.%Y"), []).append(r)
+                dbd.setdefault(d_str, []).append(r)
 
             if not dbd:
                 logger.error("Write error: no valid dated rows after temporal filtering")

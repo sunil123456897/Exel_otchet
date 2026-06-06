@@ -112,13 +112,15 @@ class Sidebar(ttk.Frame):
         emp_frame = ttk.LabelFrame(self.content, text="👤 СОТРУДНИКИ", padding=6)
         emp_frame.pack(fill=tk.X, pady=(0, 6))
 
-        ttk.Button(
+        self.add_employee_btn = ttk.Button(
             emp_frame, text="➕ Добавить", command=self.controller.add_employee_dialog
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        )
+        self.add_employee_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
 
-        ttk.Button(
+        self.attach_btn = ttk.Button(
             emp_frame, text="📎 Привязать", command=self.controller.attach_file_dialog
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        )
+        self.attach_btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Consolidation Actions
         action_frame = ttk.LabelFrame(self.content, text="🚀 СБОРКА", padding=6)
@@ -231,16 +233,6 @@ class Sidebar(ttk.Frame):
         )
         self.auto_reconciliation_btn.pack(fill=tk.X, pady=(0, 3))
 
-        ttk.Label(action_frame, text="Режим РСЧ:").pack(anchor=tk.W, pady=(2, 0))
-        self.rsch_mode_var = tk.StringVar(value="Общий файл")
-        self.rsch_mode_combo = ttk.Combobox(
-            action_frame,
-            textvariable=self.rsch_mode_var,
-            state="readonly",
-            values=["Общий файл"],
-        )
-        self.rsch_mode_combo.pack(fill=tk.X, pady=(0, 3))
-
     def _set_current_month(self):
         today = datetime.now()
         self.month_start_entry.set_date(today.replace(day=1))
@@ -293,8 +285,34 @@ class Sidebar(ttk.Frame):
         self.reconciliation_btn.config(state=state)
         self.auto_reconciliation_btn.config(state=state)
 
-    def get_rsch_mode(self) -> str:
-        return "combined"
+    # --- global state ---------------------------------------------------
 
-    def set_rsch_mode(self, mode: str) -> None:
-        self.rsch_mode_var.set("Общий файл")
+    _OPERATION_BUTTONS_ATTRS = (
+        "refresh_btn",
+        "add_employee_btn",
+        "attach_btn",
+        "consolidate_btn",
+        "consolidate_all_btn",
+        "consolidate_month_btn",
+        "rsch_btn",
+        "rsch_month_btn",
+        "reconciliation_btn",
+        "auto_reconciliation_btn",
+    )
+
+    def apply(self, snap) -> None:
+        """Apply global operation state to all action widgets.
+
+        When any operation is running, every action button is disabled.
+        This fixes the original bug where only the clicked button was disabled
+        and the user could fire a second operation that conflicted with the first.
+        """
+        busy = snap.current.value != ""
+        state = "disabled" if busy else "normal"
+        for attr in self._OPERATION_BUTTONS_ATTRS:
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                try:
+                    btn.config(state=state)
+                except tk.TclError:
+                    pass

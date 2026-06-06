@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, List
 
 from core.infra import open_path
+from core.ui.operation_state import OperationState, OperationType
 
 
 class GuiCommands:
@@ -20,6 +21,7 @@ class GuiCommands:
         employee_table,
         stats_panel,
         dashboard_tabs=None,
+        operation_state: OperationState | None = None,
     ):
         self.root = root
         self.config_controller = config_controller
@@ -30,12 +32,17 @@ class GuiCommands:
         self.employee_table = employee_table
         self.stats_panel = stats_panel
         self.dashboard_tabs = dashboard_tabs
+        self.operation_state = operation_state or OperationState()
         self._apply_saved_rsch_mode()
 
     def refresh_status(self):
-        self.sidebar.set_refresh_state("disabled")
+        if not self.operation_state.begin(OperationType.REFRESH):
+            return
         self.employee_table.clear_tree()
         self.stats_panel.set_progress(0)
+
+        def on_refresh_complete() -> None:
+            self.operation_state.end()
 
         def on_refresh_error(message: str) -> None:
             self.root.after(0, lambda: messagebox.showerror("Ошибка", message))
@@ -44,6 +51,7 @@ class GuiCommands:
             self.app_controller,
             self.sidebar.get_date(),
             self._on_consolidation_progress,
+            on_complete=on_refresh_complete,
             on_error=on_refresh_error,
         )
 
@@ -58,8 +66,10 @@ class GuiCommands:
         if not messagebox.askyesno("Подтверждение сборки", "Собрать основной отчет?"):
             return
 
+        if not self.operation_state.begin(OperationType.CONSOLIDATION_DAY):
+            return
+
         curator = self.sidebar.get_curator()
-        self.sidebar.set_consolidate_state("disabled")
         self.consolidation_vm.run_consolidation(
             self.app_controller,
             self.sidebar.get_date(),
@@ -72,8 +82,10 @@ class GuiCommands:
         ):
             return
 
+        if not self.operation_state.begin(OperationType.CONSOLIDATION_ALL):
+            return
+
         curator = self.sidebar.get_curator()
-        self.sidebar.set_consolidate_all_state("disabled")
         self.consolidation_vm.run_consolidation_all_dates(
             self.app_controller,
             curator=curator,
@@ -90,8 +102,10 @@ class GuiCommands:
         if not messagebox.askyesno("Подтверждение сборки", "Собрать основной отчет?"):
             return
 
+        if not self.operation_state.begin(OperationType.CONSOLIDATION_MONTH):
+            return
+
         curator = self.sidebar.get_curator()
-        self.sidebar.set_consolidate_month_state("disabled")
         self.consolidation_vm.run_consolidation_month(
             self.app_controller,
             start_date,
@@ -138,9 +152,10 @@ class GuiCommands:
         if not output:
             return
 
-        self._save_rsch_preferences(source_paths, Path(output), mode)
+        self._save_rsch_preferences(source_paths, Path(output))
 
-        self.sidebar.set_rsch_state("disabled")
+        if not self.operation_state.begin(OperationType.RSCH_DAY):
+            return
         self.app_controller.run_rsch_report(
             source_paths,
             Path(output),
@@ -194,8 +209,9 @@ class GuiCommands:
         if not output:
             return
 
-        self._save_rsch_preferences(source_paths, Path(output), "combined")
-        self.sidebar.set_rsch_state("disabled")
+        self._save_rsch_preferences(source_paths, Path(output))
+        if not self.operation_state.begin(OperationType.RSCH_MONTH):
+            return
         self.app_controller.run_rsch_report_period(
             source_paths,
             Path(output),
@@ -243,7 +259,8 @@ class GuiCommands:
         if not output:
             return
 
-        self.sidebar.set_reconciliation_state("disabled")
+        if not self.operation_state.begin(OperationType.RECONCILIATION):
+            return
         self.app_controller.run_reconciliation_report(
             master_paths,
             Path(rsch_path),
@@ -289,8 +306,9 @@ class GuiCommands:
         if not output:
             return
 
-        self._save_rsch_preferences(source_paths, Path(output), "combined")
-        self.sidebar.set_reconciliation_state("disabled")
+        self._save_rsch_preferences(source_paths, Path(output))
+        if not self.operation_state.begin(OperationType.AUTO_RECONCILIATION):
+            return
         self.app_controller.run_auto_reconciliation_day(
             source_paths,
             Path(output),
@@ -438,7 +456,7 @@ class GuiCommands:
         return ""
 
     def _save_rsch_preferences(
-        self, source_paths: List[Path], output_path: Path, mode: str
+        self, source_paths: List[Path], output_path: Path
     ) -> None:
         rsch_cfg = self._get_rsch_config()
         rsch_cfg["recent_sources"] = [str(p) for p in source_paths]
@@ -452,7 +470,6 @@ class GuiCommands:
         rsch_cfg = self._get_rsch_config()
         if rsch_cfg.get("mode") != "combined":
             rsch_cfg["mode"] = "combined"
-        self.sidebar.set_rsch_mode("combined")
 
     def add_employee_dialog(self):
         from core.ui.ui_dialogs import ask_employee_name
@@ -562,7 +579,7 @@ class GuiCommands:
 
     def _on_rsch_complete(self, ok: bool, msg: str, path: Optional[Path]):
         def fin():
-            self.sidebar.set_rsch_state("normal")
+            self.operation_state.end()
             if ok:
                 logging.info(f"Успешно: {msg}")
                 self._record_dashboard_result("РСЧ", ok, msg, path)
@@ -584,7 +601,7 @@ class GuiCommands:
         output_dir: Optional[Path],
     ):
         def fin():
-            self.sidebar.set_rsch_state("normal")
+            self.operation_state.end()
             if ok:
                 logging.info(f"Успешно: {msg}")
                 self._record_dashboard_result("РСЧ период", ok, msg, output_dir)
@@ -606,7 +623,7 @@ class GuiCommands:
         path: Optional[Path],
     ):
         def fin():
-            self.sidebar.set_reconciliation_state("normal")
+            self.operation_state.end()
             if ok:
                 logging.info(f"Успешно: {msg}")
                 self._record_dashboard_result("Автосверка", ok, msg, path)
@@ -628,7 +645,7 @@ class GuiCommands:
         path: Optional[Path],
     ):
         def fin():
-            self.sidebar.set_reconciliation_state("normal")
+            self.operation_state.end()
             if ok:
                 logging.info(f"Успешно: {msg}")
                 self._record_dashboard_result("Сверка", ok, msg, path)

@@ -446,10 +446,15 @@ class AppController:
         use_fresh_employees: bool,
         curator: Optional[str] = None,
         on_failure_code: Optional[Callable[[str], None]] = None,
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         import time as _time
         _t0 = _time.monotonic()
         session_id = str(uuid.uuid4())
+
+        def _is_cancelled() -> bool:
+            return cancel_event is not None and cancel_event.is_set()
+
         try:
             curator_config = self._get_curator_config(curator)
             effective_target_date, effective_start_date, effective_end_date, date_error, range_note = (
@@ -509,11 +514,21 @@ class AppController:
                 on_complete(False, self._build_no_files_message(), None)
                 return
 
+            if _is_cancelled():
+                self.persistence.update_session_status(session_id, "cancelled")
+                on_complete(False, "Операция отменена пользователем", None)
+                return
+
             consolidated_data = self.logic_service.consolidate(
                 session_id,
                 curator=curator,
                 curator_config=curator_config,
             )
+
+            if _is_cancelled():
+                self.persistence.update_session_status(session_id, "cancelled")
+                on_complete(False, "Операция отменена пользователем", None)
+                return
             errors = self.persistence.get_template_errors(session_id)
             file_error_note = self._format_file_error_note(file_errors)
 
@@ -621,6 +636,7 @@ class AppController:
         session_type: str = "daily",
         use_fresh_employees: bool = False,
         curator: Optional[str] = None,
+        cancel_event: Optional[threading.Event] = None,
     ):
         """Core consolidation logic shared by all consolidation entry points.
 
@@ -634,6 +650,8 @@ class AppController:
             end_date_str: Range end (dd.mm.YYYY) or None.
             session_type: 'daily', 'all_dates', or 'monthly'.
             use_fresh_employees: If True, re-discover employees from disk.
+            cancel_event: optional threading.Event; if set, the task stops
+                at the next checkpoint and reports cancelled to the caller.
         """
         curator_config = self._get_curator_config(curator)
         if not self._is_report_writable(curator_config):
@@ -652,6 +670,7 @@ class AppController:
                 session_type,
                 use_fresh_employees,
                 curator,
+                cancel_event=cancel_event,
             )
 
         self._start_thread(task)
@@ -662,6 +681,7 @@ class AppController:
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
+        cancel_event: Optional[threading.Event] = None,
     ):
         """Run consolidation for a single selected date."""
         self._run_consolidation_core(
@@ -670,6 +690,7 @@ class AppController:
             target_date_str=selected_date.strftime("%d.%m.%Y"),
             session_type="daily",
             curator=curator,
+            cancel_event=cancel_event,
         )
 
     def run_consolidation_all_dates(
@@ -677,6 +698,7 @@ class AppController:
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
+        cancel_event: Optional[threading.Event] = None,
     ):
         """Run consolidation for all available dates."""
         self._run_consolidation_core(
@@ -685,6 +707,7 @@ class AppController:
             session_type="all_dates",
             use_fresh_employees=True,
             curator=curator,
+            cancel_event=cancel_event,
         )
 
     def run_consolidation_month(
@@ -694,6 +717,7 @@ class AppController:
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
+        cancel_event: Optional[threading.Event] = None,
     ):
         """Run consolidation for a date range (monthly)."""
         self._run_consolidation_core(
@@ -703,6 +727,7 @@ class AppController:
             end_date_str=end_date.strftime("%d.%m.%Y"),
             session_type="monthly",
             curator=curator,
+            cancel_event=cancel_event,
         )
 
     def _run_consolidation_blocking(

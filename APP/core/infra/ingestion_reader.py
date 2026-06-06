@@ -70,6 +70,8 @@ _STRICT_TEMPLATE_ORDER = (
     "customer",
     "contractor",
     "amount",
+    "income",
+    "expense",
     "commission",
     "total",
     "transit_obligation",
@@ -90,6 +92,8 @@ _STRICT_OPTIONAL_KEYS = frozenset(
         "exchange_rate",
         "currency_amount",
         "currency",
+        "income",
+        "expense",
     }
 )
 _STRICT_SOFT_MISSING_KEYS = frozenset({"filters"})
@@ -132,12 +136,16 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
         try:
             d, month = int(m.group(2)), int(m.group(3))
             year_token = m.group(4)
-            if year_token is None:
+            year_hint = kwargs.get("year_hint")
+            if year_token is None and year_hint is None:
                 return None
 
-            y = int(year_token)
-            if len(year_token) == 2:
-                y += 2000
+            if year_token is not None:
+                y = int(year_token)
+                if len(year_token) == 2:
+                    y += 2000
+            else:
+                y = int(year_hint)
             normalized = datetime(y, month, d).strftime("%d.%m.%Y")
             if kwargs.get("with_year_hint"):
                 return {
@@ -487,9 +495,37 @@ class CalamineReader:
         row_values_lower = [_normalize_header_text(v) for v in row if v is not None]
         for val_lower in row_values_lower:
             for tk in _TRASH_KEYWORDS:
-                if tk in val_lower:
+                if not tk:
+                    continue
+                pattern = r"(?<![а-яёa-z0-9])" + re.escape(tk) + r"(?![а-яёa-z0-9])"
+                if re.search(pattern, val_lower):
                     return True
         return False
+
+    @staticmethod
+    def _record_data_loss(
+        source: str,
+        kind: str,
+        reason: str,
+        row_index: Optional[int] = None,
+        sheet: Optional[str] = None,
+        field: Optional[str] = None,
+        original_value: Any = None,
+    ) -> None:
+        from core.domain.data_loss_log import record_loss
+
+        try:
+            record_loss(
+                source=source,
+                kind=kind,
+                reason=reason,
+                row_index=row_index,
+                sheet=sheet,
+                field=field,
+                original_value=original_value,
+            )
+        except Exception:
+            pass
 
     @staticmethod
     def _should_skip_sheet(sheet_name: str) -> bool:
@@ -649,20 +685,27 @@ class CalamineReader:
             )
             return d_val, d_val != 0, False
         except Exception:
+            normalized_value = _normalize_header_text(val)
+            header_terms = {
+                term
+                for term in (
+                    self._normalized_markers.get(key, [])
+                    + self._normalized_aliases.get(key, [])
+                )
+                if term
+            }
+            if normalized_value in header_terms:
+                return val, False, False
+            self._record_data_loss(
+                source=getattr(self, "_current_file_path", "") or "",
+                kind="numeric_coercion",
+                reason=f"could not parse {key!r} value as number",
+                field=key,
+                original_value=val,
+            )
             if key == "amount":
-                normalized_value = _normalize_header_text(val)
-                amount_header_terms = {
-                    term
-                    for term in (
-                        self._normalized_markers.get(key, [])
-                        + self._normalized_aliases.get(key, [])
-                    )
-                    if term
-                }
-                if normalized_value in amount_header_terms:
-                    return val, False, False
                 return val, False, True
-            return None, False, False
+            return None, False, True
 
     @staticmethod
     def _apply_shifted_columns_fix(
@@ -964,6 +1007,13 @@ class CalamineReader:
                 continue
 
             if self._is_trash_row(row):
+                self._record_data_loss(
+                    source=f_path_abs,
+                    kind="trash_filter",
+                    reason="row matched trash keyword",
+                    row_index=i + 1,
+                    sheet=sheet_name,
+                )
                 continue
 
             payload = self._build_data_row_payload(

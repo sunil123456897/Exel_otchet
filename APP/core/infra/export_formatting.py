@@ -127,7 +127,9 @@ def _is_math_error(is_return, income, expense, total, commission):
 
     if has_money and abs(total) < 0.02:
         return True
-    if has_money and abs(commission) < 0.02 and abs(total - expected_total_no_comm) > 0.02:
+    if has_money and abs(total - expected_total_no_comm) > 0.02:
+        if abs(commission) >= 0.02 and abs(total - (expected_total_no_comm - commission)) <= 0.02:
+            return False
         return True
     return has_total_only
 
@@ -218,16 +220,20 @@ def apply_cell_styling(
     percent_broker_cols,
     st: ExcelStyles,
     return_keywords=None,
+    row_to_data_idx=None,
 ):
     return_keywords = [str(v).lower() for v in (return_keywords or ["возврат"])]
     _, source_col = _get_header_and_source_col(ws)
     warning_target_cache = {}
+    row_to_data_idx = row_to_data_idx or {}
 
     for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row)):
-        warning_info = warning_rows.get(r_idx + 2)
+        actual_row = r_idx + 2
+        data_idx = row_to_data_idx.get(actual_row, r_idx)
+        warning_info = warning_rows.get(actual_row)
         is_warning = warning_info is not None
         fill_row = st.fill_odd if (r_idx + 1) % 2 == 1 else st.fill_even
-        is_return = _is_return_row(rows_data, r_idx, return_keywords)
+        is_return = _is_return_row(rows_data, data_idx, return_keywords)
         warning_target_col = None
         if warning_info:
             warning_cache_key = (
@@ -241,7 +247,11 @@ def apply_cell_styling(
 
         i_val, e_val, t_val, c_val = _extract_money_snapshot(row_cells, cols)
 
-        is_critical = rows_data[r_idx].get("is_critical", False) if r_idx < len(rows_data) else False
+        is_critical = (
+            rows_data[data_idx].get("is_critical", False)
+            if 0 <= data_idx < len(rows_data)
+            else False
+        )
         is_math_err = _is_math_error(is_return, i_val, e_val, t_val, c_val)
 
         for c_idx, cell in enumerate(row_cells, 1):
@@ -354,6 +364,7 @@ def build_total_row(ws, num_indices, st: ExcelStyles):
         st.border_medium,
     )
 
+    last_data_row = total_row - 1
     for c in range(1, ws.max_column + 1):
         if c not in num_indices:
             continue
@@ -364,7 +375,10 @@ def build_total_row(ws, num_indices, st: ExcelStyles):
         ):
             let = get_column_letter(c)
             cell = ws.cell(total_row, c)
-            cell.value = f"=SUM({let}2:{let}{total_row - 1})"
+            if last_data_row < 2:
+                cell.value = 0
+            else:
+                cell.value = f"=SUM({let}2:{let}{last_data_row})"
             cell.fill, cell.font, cell.border, cell.number_format = (
                 st.fill_total,
                 st.font_total,

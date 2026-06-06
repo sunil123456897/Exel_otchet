@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 import concurrent.futures
 import threading
 from datetime import datetime
@@ -191,8 +192,6 @@ def process_file_task(
     file_ids = persistence.save_file_metadata(session_id, [meta])
     file_id = file_ids[0]
     try:
-        import time as _time
-        
         # Build cache key
         file_stat = os.stat(path_str)
         file_mtime = file_stat.st_mtime
@@ -307,9 +306,6 @@ def process_file_task(
 
         if template_errors:
             persistence.save_template_errors_batch(session_id, template_errors)
-            if hasattr(persistence.save_template_error, "assert_called"):
-                for error_info in template_errors:
-                    persistence.save_template_error(session_id, error_info)
 
         if valid_rows:
             persistence.save_staging_data(file_id, valid_rows)

@@ -305,7 +305,7 @@ def _executor_alias_keys(value: Any) -> set[str]:
         aliases.add("прессбук")
     if compact.startswith(("ссс", "спецстафф", "спецстаф")):
         aliases.add("спецстаффсервис")
-    if compact.startswith("воркбрайт") or compact == "вб":
+    if compact.startswith("воркбрайт") or compact == "вб" or "вб" in tokens:
         aliases.add("вб")
     if compact.startswith("ук") and len(compact) >= 3:
         aliases.add("ук")
@@ -398,7 +398,17 @@ def _amount_equal(left: Decimal, right: Decimal) -> bool:
 def _row_amount_matches(master: MasterReconciliationRow, rsch: RschReconciliationRow) -> bool:
     income_matches = master.income != 0 and _amount_equal(master.income, rsch.income)
     expense_matches = master.expense != 0 and _amount_equal(master.expense, rsch.expense)
-    return income_matches or expense_matches
+    if income_matches or expense_matches:
+        return True
+    if master.income < 0 and _amount_equal(abs(master.income), rsch.expense):
+        return True
+    if master.expense < 0 and _amount_equal(abs(master.expense), rsch.income):
+        return True
+    if rsch.income < 0 and _amount_equal(master.income, abs(rsch.income)):
+        return True
+    if rsch.expense < 0 and _amount_equal(master.expense, abs(rsch.expense)):
+        return True
+    return False
 
 
 def _executor_matches(master_executor: str, rsch_executor: str) -> bool:
@@ -410,8 +420,8 @@ def _executor_matches(master_executor: str, rsch_executor: str) -> bool:
         return True
     if _executor_alias_keys(left) & _executor_alias_keys(right):
         return True
-    left_tokens = set(_executor_tokens(left))
-    right_tokens = set(_executor_tokens(right))
+    left_tokens = {t for t in _executor_tokens(left) if len(t) >= 4}
+    right_tokens = {t for t in _executor_tokens(right) if len(t) >= 4}
     if not left_tokens or not right_tokens:
         return False
     return left_tokens.issubset(right_tokens) or right_tokens.issubset(left_tokens)

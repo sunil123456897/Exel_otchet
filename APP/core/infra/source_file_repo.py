@@ -48,6 +48,14 @@ class SourceFileRepository:
                     if inode is None:
                         inode = f.get("id")
 
+                    existing = conn.execute(
+                        "SELECT id FROM source_files WHERE session_id = ? AND file_path = ?",
+                        (session_id, f["path"]),
+                    ).fetchone()
+                    if existing is not None:
+                        ids.append(existing[0])
+                        continue
+
                     cur = conn.execute(
                         "INSERT INTO source_files (session_id, file_path, file_hash, inode, status) VALUES (?, ?, ?, ?, ?)",
                         (

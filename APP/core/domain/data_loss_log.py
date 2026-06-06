@@ -1,0 +1,98 @@
+"""Data loss audit logger.
+
+Records every place where user data is silently dropped or coerced so that
+operators can spot patterns (broken template, wrong column name, network glitch).
+"""
+import json
+import logging
+import os
+import threading
+from datetime import datetime
+from pathlib import Path
+
+_LOCK = threading.Lock()
+_LOGGER_NAME = "data_loss"
+
+_initialised = False
+
+
+def _project_root() -> Path:
+    return Path(os.getcwd())
+
+
+def _get_logger() -> logging.Logger:
+    global _initialised
+    log = logging.getLogger(_LOGGER_NAME)
+    if _initialised:
+        return log
+    log.setLevel(logging.INFO)
+    log.propagate = False
+    log_dir = _project_root() / "logs"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(log_dir / "data_loss.log", encoding="utf-8")
+        fh.setFormatter(
+            logging.Formatter("%(asctime)s %(message)s", "%Y-%m-%dT%H:%M:%S")
+        )
+        log.addHandler(fh)
+    except OSError:
+        pass
+    _initialised = True
+    return log
+
+
+def record_loss(
+    *,
+    source: str,
+    kind: str,
+    reason: str,
+    row_index: int | None = None,
+    sheet: str | None = None,
+    field: str | None = None,
+    original_value=None,
+) -> None:
+    """Append a structured data-loss event to logs/data_loss.log.
+
+    Args:
+        source: file path or pipeline stage identifier.
+        kind: short category (e.g. ``"trash_filter"``, ``"numeric_coercion"``).
+        reason: human-readable explanation.
+        row_index: 1-based row number in the source sheet, if known.
+        sheet: sheet name, if known.
+        field: field/key being dropped, if known.
+        original_value: the value that was lost (will be coerced to str).
+    """
+    payload = {
+        "ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "source": source,
+        "kind": kind,
+        "reason": reason,
+        "row": row_index,
+        "sheet": sheet,
+        "field": field,
+        "value": str(original_value) if original_value is not None else None,
+    }
+    try:
+        line = json.dumps(payload, ensure_ascii=False)
+    except (TypeError, ValueError):
+        line = json.dumps({k: str(v) for k, v in payload.items()}, ensure_ascii=False)
+    log = _get_logger()
+    with _LOCK:
+        log.info(line)
+
+
+def reset_for_testing() -> None:
+    """Drop cached handler so the next call re-binds to the current CWD.
+
+    Tests that change the working directory (e.g. via ``monkeypatch.chdir``)
+    call this to make the logger pick up the new project root.
+    """
+    global _initialised
+    log = logging.getLogger(_LOGGER_NAME)
+    for handler in list(log.handlers):
+        try:
+            handler.close()
+        except Exception:
+            pass
+        log.removeHandler(handler)
+    _initialised = False

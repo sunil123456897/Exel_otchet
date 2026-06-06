@@ -10,6 +10,9 @@ from core.ui.ui_stats_panel import StatsPanel
 from core.ui.ui_log_panel import LogPanel
 from core.ui.ui_dashboard import DashboardTabs
 from core.ui.theme import ThemeManager
+from core.ui.operation_state import OperationState
+from core.ui.operation_status_bar import OperationStatusBar
+from core.ui.toast import ToastManager
 from core.infra import ConfigController, setup_gui_logging, open_path
 from core.app_controller import AppController
 
@@ -57,7 +60,10 @@ class GuiMaster:
         self.root.configure(bg="#f0f2f5")
 
         self.employee_vm = EmployeeListViewModel()
-        self.consolidation_vm = ConsolidationViewModel(app_controller)
+        self.operation_state = OperationState()
+        self.consolidation_vm = ConsolidationViewModel(
+            app_controller, operation_state=self.operation_state
+        )
 
         self.employee_vm.set_update_callback(self._on_employee_vm_update)
         self.consolidation_vm.set_callbacks(
@@ -66,6 +72,9 @@ class GuiMaster:
 
         ThemeManager.apply_styles()
         self.setup_ui()
+        self.operation_state.add_listener(
+            lambda snap: self.root.after(0, lambda: self.sidebar.apply(snap))
+        )
         setup_gui_logging(self.log_panel.get_widget())
 
         self.commands = GuiCommands(
@@ -78,6 +87,7 @@ class GuiMaster:
             self.employee_table,
             self.stats_panel,
             self.dashboard_tabs,
+            self.operation_state,
         )
 
         self.root.after(100, self.commands.refresh_status)
@@ -91,6 +101,13 @@ class GuiMaster:
 
         self.stats_panel = StatsPanel(self.sidebar, self)
         self.stats_panel.pack(fill=tk.X, pady=(0, 10))
+
+        self.status_bar = OperationStatusBar(
+            self.sidebar,
+            self.operation_state,
+            on_cancel=self._request_cancel,
+        )
+        self.status_bar.pack(fill=tk.X, pady=(0, 6))
 
         self.log_panel = LogPanel(self.sidebar, self)
         self.log_panel.pack(fill=tk.BOTH, expand=True)
@@ -108,20 +125,25 @@ class GuiMaster:
         self.employee_table.pack(fill=tk.BOTH, expand=True)
         self.dashboard_tabs.refresh()
 
+        self.toasts = ToastManager(self.root)
+
     def _on_employee_vm_update(self):
         self.root.after(0, self.commands._sync_employee_ui)
 
+    def _request_cancel(self) -> None:
+        if not self.operation_state.is_busy:
+            return
+        cancelled = self.operation_state.request_cancel()
+        if cancelled:
+            self.toasts.info("Отмена", "Операция будет остановлена на ближайшей контрольной точке")
+
     def _on_consolidation_progress(self, progress: float):
-        self.root.after(0, lambda: self.stats_panel.set_progress(progress))
+        # Operation progress is shown in the OperationStatusBar, not the readiness bar.
+        self.operation_state.set_progress(progress)
 
     def _on_consolidation_complete(self, ok: bool, msg: str, path: Optional[Path]):
         def fin():
-            state = self.consolidation_vm.get_button_state()
-            self.sidebar.set_consolidate_state(state)
-            self.sidebar.set_consolidate_all_state(state)
-            self.sidebar.set_consolidate_month_state(state)
-            self.sidebar.set_rsch_state(state)
-            self.stats_panel.set_progress(100 if ok else self.consolidation_vm.progress)
+            self.operation_state.end()
 
             if ok:
                 logging.info(f"Успешно: {msg}")

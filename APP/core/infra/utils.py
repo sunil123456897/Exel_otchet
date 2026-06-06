@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import threading
 import time
+import multiprocessing
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -35,7 +36,7 @@ def is_file_writable(path: str) -> bool:
 _CACHE_DIR = Path(tempfile.gettempdir()) / "master_report_cache"
 _CACHE_CLEANUP_LOCK = threading.Lock()
 _CACHE_CLEANUP_DONE = False
-_CACHE_COPY_LOCK = threading.Lock()
+_CACHE_COPY_LOCK = multiprocessing.Lock()
 _CACHE_MIN_DELETE_AGE_SECONDS = 30 * 60
 _DIGEST_CHUNK_SIZE = 1024 * 1024
 
@@ -171,12 +172,12 @@ def get_local_copy(
             try:
                 stat = os.stat(network_path)
             except OSError:
-                return network_path, None
+                stat = SimpleNamespace(st_mtime=0, st_size=0)
     else:
         try:
             stat = os.stat(network_path)
         except OSError:
-            return network_path, None
+            stat = SimpleNamespace(st_mtime=0, st_size=0)
 
 
     stat_mtime_ns = getattr(stat, "st_mtime_ns", int(float(stat.st_mtime) * 1_000_000_000))
@@ -207,4 +208,4 @@ def get_local_copy(
                 shutil.copy2(network_path, temp_file)
                 return temp_file, temp_file
             except Exception:
-                return network_path, None
+                return str(local_path), None

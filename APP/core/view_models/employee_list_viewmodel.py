@@ -55,10 +55,11 @@ class EmployeeListViewModel:
         on_progress: Callable[[float], None],
         curator=None,
         on_error: Optional[Callable[[str], None]] = None,
+        on_complete: Optional[Callable[[], None]] = None,
     ) -> None:
         """Запустить обновление статуса сотрудников."""
 
-        def on_complete(
+        def on_complete_inner(
             data: List[tuple], employees_map: Dict, rename_detected: bool
         ) -> None:
             with self._lock:
@@ -75,6 +76,8 @@ class EmployeeListViewModel:
 
             if self._on_update:
                 self._on_update()
+            if callable(on_complete):
+                on_complete()
 
         def handle_error(message: str) -> None:
             with self._lock:

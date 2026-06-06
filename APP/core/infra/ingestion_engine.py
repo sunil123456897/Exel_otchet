@@ -260,16 +260,6 @@ class IngestionEngine(IDataSource):
         f_path_abs = os.path.abspath(str(file_path))
         should_isolate = self._should_isolate_calamine(file_path)
 
-        if should_isolate and f_path_abs.lower().endswith(".xlsx"):
-            metadata_dates = _try_get_xlsx_sheet_dates_from_metadata(f_path_abs)
-            if metadata_dates is not None:
-                return metadata_dates
-
-        if should_isolate and f_path_abs.lower().endswith(".xlsx"):
-            metadata_dates = _try_get_xlsx_sheet_dates_from_metadata(f_path_abs)
-            if metadata_dates is not None:
-                return metadata_dates
-
         target_path, temp_file = get_local_copy(
             f_path_abs,
             self.drive_letters,
@@ -365,31 +355,44 @@ class IngestionEngine(IDataSource):
         end_date_str: str | None = None,
     ) -> List[Dict[str, Any]]:
         """Read Excel file with retry logic for transient network errors."""
-        if not file_path.exists():
+        if not self._should_isolate_calamine(file_path) and not file_path.exists():
             if strict_io:
                 raise FileNotFoundError(f"Не найден файл отчета: {file_path}")
             return []
         last_err = None
         for attempt in range(_FILE_READ_RETRIES):
+            temp_file = None
             try:
                 if self._should_isolate_calamine(file_path):
-                    payload = _run_calamine_worker(
-                        "rows",
-                        str(file_path),
-                        self.markers,
-                        self.aliases,
-                        strict_io=strict_io,
-                        target_date_str=target_date_str,
-                        start_date_str=start_date_str,
-                        end_date_str=end_date_str,
+                    f_path_abs = os.path.abspath(str(file_path))
+                    target_path, temp_file = get_local_copy(
+                        f_path_abs,
+                        self.drive_letters,
                     )
-                    if not payload.get("ok"):
-                        raise RuntimeError(
-                            payload.get("error", "unknown calamine worker error")
+                    try:
+                        payload = _run_calamine_worker(
+                            "rows",
+                            target_path,
+                            self.markers,
+                            self.aliases,
+                            strict_io=strict_io,
+                            target_date_str=target_date_str,
+                            start_date_str=start_date_str,
+                            end_date_str=end_date_str,
                         )
-                    if payload.get("stderr"):
-                        logger.warning(payload["stderr"])
-                    return payload.get("result", [])
+                        if not payload.get("ok"):
+                            raise RuntimeError(
+                                payload.get("error", "unknown calamine worker error")
+                            )
+                        if payload.get("stderr"):
+                            logger.warning(payload["stderr"])
+                        return payload.get("result", [])
+                    finally:
+                        if temp_file is not None:
+                            try:
+                                Path(temp_file).unlink(missing_ok=True)
+                            except OSError:
+                                pass
                 if target_date_str or (start_date_str and end_date_str):
                     return self.reader.read(
                         file_path,

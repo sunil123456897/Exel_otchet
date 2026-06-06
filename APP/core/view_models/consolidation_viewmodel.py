@@ -1,7 +1,7 @@
 """Consolidation ViewModel — состояние и логика консолидации."""
 
 import threading
-from typing import Callable
+from typing import Callable, Optional
 from datetime import datetime
 from pathlib import Path
 import logging
@@ -10,8 +10,9 @@ logger = logging.getLogger(__name__)
 
 
 class ConsolidationViewModel:
-    def __init__(self, app_controller=None) -> None:
+    def __init__(self, app_controller=None, operation_state=None) -> None:
         self._app_controller = app_controller
+        self._operation_state = operation_state
         self._lock = threading.Lock()
         self._is_running = False
         self._progress = 0.0
@@ -33,20 +34,30 @@ class ConsolidationViewModel:
             self._is_running = True
             self._progress = 0.0
 
-        def on_progress(p: float) -> None:
-            with self._lock:
-                self._progress = p
-            if self._on_progress:
-                self._on_progress(p)
+        try:
+            def on_progress(p: float) -> None:
+                with self._lock:
+                    self._progress = p
+                if self._on_progress:
+                    self._on_progress(p)
 
-        def on_complete(ok: bool, msg: str, path: Path | None) -> None:
+            def on_complete(ok: bool, msg: str, path: Path | None) -> None:
+                with self._lock:
+                    self._is_running = False
+                    self._progress = 100.0 if ok else self._progress
+                if self._on_complete:
+                    self._on_complete(ok, msg, path)
+
+            action_fn(on_progress, on_complete)
+        except Exception:
             with self._lock:
                 self._is_running = False
-                self._progress = 100.0 if ok else self._progress
-            if self._on_complete:
-                self._on_complete(ok, msg, path)
-
-        action_fn(on_progress, on_complete)
+            if self._operation_state is not None:
+                try:
+                    self._operation_state.end()
+                except Exception:
+                    logger.exception("operation_state.end() failed in VM _execute")
+            raise
 
     def can_run_single_date(self, missing_count: int) -> bool:
         return missing_count == 0
@@ -55,9 +66,12 @@ class ConsolidationViewModel:
         self, app_controller=None, selected_date: datetime | None = None, curator=None,
     ) -> None:
         ctl = app_controller or self._app_controller
+        cancel_event = (
+            self._operation_state.cancel_event if self._operation_state else None
+        )
         self._execute(
             lambda p, c: ctl.run_consolidation(
-                selected_date, p, c, curator=curator,
+                selected_date, p, c, curator=curator, cancel_event=cancel_event,
             )
         )
 
@@ -65,9 +79,12 @@ class ConsolidationViewModel:
         self, app_controller=None, curator=None,
     ) -> None:
         ctl = app_controller or self._app_controller
+        cancel_event = (
+            self._operation_state.cancel_event if self._operation_state else None
+        )
         self._execute(
             lambda p, c: ctl.run_consolidation_all_dates(
-                p, c, curator=curator,
+                p, c, curator=curator, cancel_event=cancel_event,
             )
         )
 
@@ -79,9 +96,12 @@ class ConsolidationViewModel:
         curator=None,
     ) -> None:
         ctl = app_controller or self._app_controller
+        cancel_event = (
+            self._operation_state.cancel_event if self._operation_state else None
+        )
         self._execute(
             lambda p, c: ctl.run_consolidation_month(
-                start_date, end_date, p, c, curator=curator,
+                start_date, end_date, p, c, curator=curator, cancel_event=cancel_event,
             )
         )
 
