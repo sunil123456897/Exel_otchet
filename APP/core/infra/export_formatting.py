@@ -121,15 +121,16 @@ def _is_return_row(rows_data, row_idx, return_keywords):
 def _is_math_error(is_return, income, expense, total, commission):
     if is_return:
         return False
-    expected_total_no_comm = income - expense
     has_money = abs(income) > 0.02 or abs(expense) > 0.02
     has_total_only = not has_money and abs(total) > 0.02
 
     if has_money and abs(total) < 0.02:
         return True
-    if has_money and abs(total - expected_total_no_comm) > 0.02:
-        if abs(commission) >= 0.02 and abs(total - (expected_total_no_comm - commission)) <= 0.02:
-            return False
+    if (
+        has_money
+        and abs(commission) < 0.02
+        and abs(total - (income - expense)) > 0.02
+    ):
         return True
     return has_total_only
 
