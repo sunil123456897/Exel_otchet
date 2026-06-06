@@ -25,27 +25,31 @@ def show_multi_file_select_dialog(
 
     dialog = tk.Toplevel(parent)
     dialog.title(title)
-    dialog.geometry("640x400")
+    dialog.geometry("800x500")
+    dialog.minsize(480, 280)
     dialog.transient(parent)
     dialog.grab_set()
 
-    ttk.Label(dialog, text=title + ":", padding=(10, 10, 10, 0)).pack(anchor=tk.W)
+    _title_label = ttk.Label(
+        dialog, text=f"{title} — выбрано: 0", padding=(10, 10, 10, 0)
+    )
+    _title_label.pack(anchor=tk.W)
 
     list_frame = ttk.Frame(dialog, padding=(10, 4))
     list_frame.pack(fill=tk.BOTH, expand=True)
     tree = ttk.Treeview(
         list_frame,
-        columns=("size", "mtime"),
+        columns=("path", "size", "mtime"),
         show="headings",
-        height=10,
+        height=12,
         selectmode="extended",
     )
-    tree.heading("#0", text="Имя файла")
+    tree.heading("path", text="Путь / файл")
     tree.heading("size", text="Размер")
     tree.heading("mtime", text="Изменён")
-    tree.column("#0", width=320, anchor=tk.W)
-    tree.column("size", width=110, anchor=tk.E)
-    tree.column("mtime", width=160, anchor=tk.W)
+    tree.column("path", width=360, anchor=tk.W)
+    tree.column("size", width=80, anchor=tk.E)
+    tree.column("mtime", width=130, anchor=tk.W)
     tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
     scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -62,6 +66,8 @@ def show_multi_file_select_dialog(
         for row in tree.get_children():
             tree.delete(row)
         for p in paths:
+            pp = Path(p)
+            display_path = str(pp.parent)
             try:
                 st = os.stat(p)
                 size = _format_size(st.st_size)
@@ -74,11 +80,14 @@ def show_multi_file_select_dialog(
                 mtime_str = datetime.fromtimestamp(mtime).strftime(
                     "%d.%m.%Y %H:%M"
                 )
-                tree.insert("", tk.END, iid=p, text=Path(p).name,
-                            values=(size, mtime_str))
+                value_path = f"{display_path}\\{pp.name}"
+                tree.insert("", tk.END, iid=p, values=(value_path, size, mtime_str))
             except OSError:
-                tree.insert("", tk.END, iid=p, text=Path(p).name + " (нет доступа)",
-                            values=("-", "-"))
+                tree.insert(
+                    "", tk.END, iid=p,
+                    values=(f"{display_path}\\{pp.name} (нет доступа)", "-", "-"),
+                )
+        _title_label.configure(text=f"{title} — выбрано: {len(paths)}")
 
     selected: List[str] = list(initial_paths or [])
     _refresh(selected)
@@ -118,7 +127,7 @@ def show_multi_file_select_dialog(
         dialog.destroy()
 
     btn_frame = ttk.Frame(dialog, padding=10)
-    btn_frame.pack(fill=tk.X)
+    btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
     ttk.Button(btn_frame, text="➕ Добавить ещё", command=_add).pack(side=tk.LEFT)
     ttk.Button(btn_frame, text="➖ Удалить", command=_remove).pack(side=tk.LEFT, padx=(5, 0))
     ttk.Button(btn_frame, text="Готово", command=_ok).pack(side=tk.RIGHT)
