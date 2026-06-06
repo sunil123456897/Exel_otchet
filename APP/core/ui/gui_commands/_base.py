@@ -86,6 +86,12 @@ def finish(
     * error          → error toast (or ``messagebox.showerror`` when
                        no toast manager is available)
     """
+    # Release the operation slot BEFORE showing any toasts or messageboxes.
+    # Otherwise the sidebar buttons stay locked during the dialog, and if
+    # the user closes the dialog without clicking through, the slot is
+    # never freed — permanent button freeze.
+    ctx.operation_state.end()
+
     cancelled = (not ok) and _is_cancelled_message(msg)
     if ok:
         logging.info("Успешно (%s): %s", label, msg)
