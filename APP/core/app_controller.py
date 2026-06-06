@@ -16,7 +16,7 @@ from core.app.file_processor import (
     date_matches_target,
 )
 from core.app.performance import default_max_workers, resolve_max_workers
-from core.app.controller_messages import (
+from core.app.message_formatting import (
     build_empty_data_message as build_controller_empty_data_message,
     build_issue_preview,
     build_success_message as build_controller_success_message,

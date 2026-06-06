@@ -64,12 +64,26 @@ class Sidebar(ttk.Frame):
 
     def _bind_mousewheel(self, _event):
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        # X11 / Linux use discrete Button-4 (up) and Button-5 (down) for
+        # the wheel — ``<MouseWheel>`` does not fire on those platforms.
+        self.canvas.bind_all("<Button-4>", self._on_button4)
+        self.canvas.bind_all("<Button-5>", self._on_button5)
 
     def _unbind_mousewheel(self, _event):
         self.canvas.unbind_all("<MouseWheel>")
+        self.canvas.unbind_all("<Button-4>")
+        self.canvas.unbind_all("<Button-5>")
 
     def _on_mousewheel(self, event):
         self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _on_button4(self, _event):
+        self.canvas.yview_scroll(-1, "units")
+        return "break"
+
+    def _on_button5(self, _event):
+        self.canvas.yview_scroll(1, "units")
+        return "break"
 
     def _setup_ui(self):
         ttk.Label(

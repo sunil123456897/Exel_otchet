@@ -1,10 +1,16 @@
 import tkinter as tk
 from tkinter import ttk
 
+from core.ui.debounce import Debouncer
+
+
 class EmployeeTable(ttk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, style='Main.TFrame')
         self.controller = controller
+        self._search_debouncer = Debouncer(
+            self, self.controller.filter_tree, delay_ms=300
+        )
         self._setup_ui()
 
     def _setup_ui(self):
@@ -38,7 +44,7 @@ class EmployeeTable(ttk.Frame):
         search_frame.pack(fill=tk.X, pady=(0, 5))
         
         self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *args: self.controller.filter_tree())
+        self.search_var.trace_add("write", lambda *args: self._search_debouncer())
         
         ttk.Entry(
             search_frame, 
@@ -79,6 +85,10 @@ class EmployeeTable(ttk.Frame):
         
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<Double-1>", lambda e: self.controller.open_employee_file())
+        self.bind("<Destroy>", self._on_destroy, add="+")
+
+    def _on_destroy(self, _event):
+        self._search_debouncer.cancel()
 
     def _show_context_menu(self, event):
         item = self.tree.identify_row(event.y)
