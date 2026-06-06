@@ -101,21 +101,24 @@ class GuiMaster:
         self.setup_ui()
         # Show operation progress in the window title — always visible
         # regardless of tab or layout, zero layout footprint.
-        _BASE_TITLE = "🚀 Master-Report v5.5"
-        self._base_title = _BASE_TITLE
-        self.operation_state.add_listener(
-            lambda snap: self.root.after(
-                0,
-                lambda: self.root.title(
-                    f"{_BASE_TITLE} — {OPERATION_LABELS.get(snap.current, '')} {snap.progress:.0f}%"
-                    if snap.current
-                    else _BASE_TITLE
-                ),
-            )
-        )
-        self.operation_state.add_listener(
-            lambda snap: self.root.after(0, lambda: self.sidebar.apply(snap))
-        )
+        # Uses a periodic GUI-thread timer (100 ms) to poll
+        # OperationState, avoiding the unreliable root.after() +
+        # set_progress() chain from background threads.
+        self._base_title = "🚀 Master-Report v5.5"
+        self._title_poll_id: str | None = None
+
+        def _poll_title() -> None:
+            snap = self.operation_state.snapshot()
+            if snap.current:
+                label = OPERATION_LABELS.get(snap.current, "")
+                self.root.title(
+                    f"{self._base_title} — {label} {snap.progress:.0f}%"
+                )
+            else:
+                self.root.title(self._base_title)
+            self._title_poll_id = self.root.after(100, _poll_title)
+
+        self._title_poll_id = self.root.after(100, _poll_title)
         # Drive the StatsPanel operation progress bar from the same
         # snapshot stream. The OperationStatusBar reads this too, but
         # the StatsPanel bar lives in a different widget that the
@@ -194,8 +197,16 @@ class GuiMaster:
             self.toasts.info("Отмена", "Операция будет остановлена на ближайшей контрольной точке")
 
     def _on_consolidation_progress(self, progress: float):
-        # Operation progress is shown in the OperationStatusBar, not the readiness bar.
         self.operation_state.set_progress(progress)
+
+    def _update_title_from_state(self, _event=None) -> None:
+        """Refresh window title from OperationState — always runs on GUI thread."""
+        snap = self.operation_state.snapshot()
+        if snap.current:
+            label = OPERATION_LABELS.get(snap.current, "")
+            self.root.title(f"{self._base_title} — {label} {snap.progress:.0f}%")
+        else:
+            self.root.title(self._base_title)
 
     def _on_operation_snapshot(self, snap) -> None:
         """Forward the operation progress to the StatsPanel bar."""
