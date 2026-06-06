@@ -23,6 +23,7 @@ _LIGHT = {
     "bg_main": "#f0f2f5",
     "bg_sidebar": "#ffffff",
     "bg_panel": "#e9ecef",
+    "trough": "#ced4da",
     "text": "#212529",
     "text_inverse": "#ffffff",
     "accent": "#007bff",
@@ -42,6 +43,7 @@ _DARK = {
     "bg_main": "#1e1e1e",
     "bg_sidebar": "#252526",
     "bg_panel": "#2d2d30",
+    "trough": "#3c3c3c",
     "text": "#e4e6eb",
     "text_inverse": "#1e1e1e",
     "accent": "#3a7bc8",
@@ -282,7 +284,7 @@ class ThemeManager:
         style.configure(
             "TProgressbar",
             thickness=15,
-            troughcolor=c["bg_panel"],
+            troughcolor=c["trough"],
             background=c["primary"],
         )
         style.configure(

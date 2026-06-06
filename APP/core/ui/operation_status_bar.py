@@ -120,7 +120,9 @@ class OperationStatusBar(ttk.Frame):
             pass
 
     def _on_snapshot(self, snap: OperationSnapshot) -> None:
-        self._render(snap.current, snap.progress, snap.started_at, snap.cancelling)
+        self.after(0, lambda: self._render(
+            snap.current, snap.progress, snap.started_at, snap.cancelling
+        ))
 
     def _render(
         self,

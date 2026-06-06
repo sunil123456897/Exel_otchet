@@ -41,7 +41,7 @@ def test_status_bar_shows_operation_label_when_busy(tk_root):
     bar = OperationStatusBar(tk_root, state, on_cancel=lambda: None)
     state.begin(OperationType.CONSOLIDATION_DAY)
     state.set_progress(42.0)
-    bar.update_idletasks()
+    bar.update()
     label = bar._label_var.get()
     assert "Сборка за день" in label
     assert "42" in bar._pct_label.cget("text") or "42%" in bar._pct_label.cget("text")
@@ -52,7 +52,7 @@ def test_status_bar_cancel_button_invokes_callback(tk_root):
     callback = MagicMock()
     bar = OperationStatusBar(tk_root, state, on_cancel=callback)
     state.begin(OperationType.CONSOLIDATION_DAY)
-    bar.update_idletasks()
+    bar.update()
     bar._cancel_btn.invoke()
     assert callback.called
 
@@ -68,7 +68,7 @@ def test_status_bar_cancel_button_disabled_when_cancelling(tk_root):
     bar = OperationStatusBar(tk_root, state, on_cancel=lambda: None)
     state.begin(OperationType.CONSOLIDATION_DAY)
     state.request_cancel()
-    bar.update_idletasks()
+    bar.update()
     assert bar._cancel_btn.instate(["disabled"])
 
 
@@ -77,11 +77,11 @@ def test_status_bar_elapsed_grows_over_time(tk_root):
     bar = OperationStatusBar(tk_root, state, on_cancel=lambda: None)
     state.begin(OperationType.CONSOLIDATION_MONTH)
     state.set_progress(10.0)
-    bar.update_idletasks()
+    bar.update()
     first = bar._elapsed_var.get()
     time.sleep(0.05)
     bar._render(state.current, state.progress, state.started_at, state.is_cancelling)
-    bar.update_idletasks()
+    bar.update()
     second = bar._elapsed_var.get()
     assert first != "" and second != ""
     assert "0:" in first and "0:" in second
@@ -92,13 +92,13 @@ def test_status_bar_eta_shown_only_when_progress_1_to_99(tk_root):
     bar = OperationStatusBar(tk_root, state, on_cancel=lambda: None)
     state.begin(OperationType.CONSOLIDATION_DAY)
     state.set_progress(0.5)
-    bar.update_idletasks()
+    bar.update()
     assert bar._eta_var.get() == ""
     state.set_progress(50.0)
-    bar.update_idletasks()
+    bar.update()
     assert "осталось" in bar._eta_var.get()
     state.set_progress(100.0)
-    bar.update_idletasks()
+    bar.update()
     assert bar._eta_var.get() == "завершено"
 
 
@@ -107,7 +107,7 @@ def test_status_bar_renders_cancelling_label(tk_root):
     bar = OperationStatusBar(tk_root, state, on_cancel=lambda: None)
     state.begin(OperationType.RSCH_DAY)
     state.request_cancel()
-    bar.update_idletasks()
+    bar.update()
     assert "отмена" in bar._label_var.get().lower()
 
 
