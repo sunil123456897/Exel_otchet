@@ -63,7 +63,6 @@ requirements-dev.txt
 APP/GEMINI.md
 APP/config.yaml
 APP/config.april-2026-test.yaml
-APP/employees.yaml
 APP/templates/
 APP/toxic_run.py
 tools/*

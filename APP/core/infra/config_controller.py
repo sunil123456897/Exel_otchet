@@ -141,11 +141,19 @@ class ConfigController:
         if p.is_absolute():
             return p
         resolved = (Path(self.config_path).parent / p).resolve()
-        # Guard against path traversal: ensure resolved path stays within config directory
+        # Guard against path traversal: resolved path must stay within project root
+        # (config dir or its parent — allows ../Master_Report.xlsx in the project root)
         config_dir = Path(self.config_path).parent.resolve()
-        if not str(resolved).lower().startswith(str(config_dir).lower().rstrip("\\/")):
+        project_root = config_dir.parent.resolve()
+        resolved_str = str(resolved).lower().rstrip("\\/")
+        config_dir_str = str(config_dir).lower().rstrip("\\/")
+        project_root_str = str(project_root).lower().rstrip("\\/")
+        if not (
+            resolved_str.startswith(config_dir_str)
+            or resolved_str.startswith(project_root_str)
+        ):
             raise ValueError(
-                f"Path traversal detected: '{path_str}' resolves outside config directory"
+                f"Path traversal detected: '{path_str}' resolves outside project root"
             )
         return resolved
 
