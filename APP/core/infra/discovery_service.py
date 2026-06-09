@@ -37,7 +37,7 @@ class DiscoveryService:
             seen.add(path_value)
 
     def _detect_default_roots(self, config: Dict[str, Any]) -> List[Path]:
-        network_cfg = config.get("network", {}) if hasattr(config, "get") else {}
+        network_cfg = config.get("network") or {}
         drive_letters = network_cfg.get("drive_letters", ["Q"])
         if not isinstance(drive_letters, list) or not drive_letters:
             drive_letters = ["Q"]
@@ -112,7 +112,7 @@ class DiscoveryService:
 
     @staticmethod
     def _discovery_cache_ttl(config: Dict[str, Any]) -> float:
-        network_cfg = config.get("network", {}) if hasattr(config, "get") else {}
+        network_cfg = config.get("network") or {}
         raw_ttl = network_cfg.get("discovery_cache_ttl_seconds", 12 * 60 * 60)
         try:
             return max(0.0, float(raw_ttl))

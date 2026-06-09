@@ -89,6 +89,15 @@ class MasterWriter(IExporter):
         return wb
 
     def _save_workbook(self, wb, path=None) -> bool:
+        try:
+            return self._save_workbook_inner(wb, path)
+        finally:
+            try:
+                wb.close()
+            except Exception:
+                pass
+
+    def _save_workbook_inner(self, wb, path=None) -> bool:
         SPECIAL_ORDER = ["ВСЕ ОПЕРАЦИИ", "ДАШБОРД", "АНАЛИТИКА", "СВОД"]
 
         def key(n):
@@ -293,6 +302,8 @@ class MasterWriter(IExporter):
         if sh_name in wb.sheetnames:
             del wb[sh_name]
         ws = wb.create_sheet(sh_name)
+        # Make the newly created sheet active so wb.active access works as expected
+        wb.active = wb.sheetnames.index(sh_name)
 
         ws.append(headers or DEFAULT_HEADERS)
         self._apply_header_style(ws)

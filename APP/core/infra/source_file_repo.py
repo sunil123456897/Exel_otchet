@@ -21,6 +21,7 @@ class SourceFileRepository:
             try:
                 item = self.write_queue.get(timeout=0.1)
                 if item is None:
+                    self.write_queue.task_done()
                     break
                 fn, args = item
                 self.connection_manager.execute_with_retry(fn, *args)
@@ -137,6 +138,7 @@ class SourceFileRepository:
         self.write_queue.put((_save, ()))
 
     def close(self):
+        self.wait_for_writes()
         self.write_queue.put(None)
         self.writer_thread.join()
 

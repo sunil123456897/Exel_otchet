@@ -2,6 +2,7 @@ import os
 import logging
 import hashlib
 import re
+import threading
 from pathlib import Path
 from typing import List, Dict, Any
 from ruamel.yaml import YAML
@@ -17,6 +18,7 @@ class ConfigController:
         emp_path = Path(config_path).parent / "employees.yaml"
         self.employees_path = str(emp_path)
         self.employees = self._load_employees()
+        self._employees_lock = threading.Lock()
 
     def _load_employees(self) -> Dict[str, Any]:
         try:
@@ -79,15 +81,17 @@ class ConfigController:
         name = name.strip()
         if not name:
             return
-        self.employees.setdefault(name, [])
+        with self._employees_lock:
+            self.employees.setdefault(name, [])
         self._invalidate_discovery_cache()
         self._save_employees()
 
     def delete_employee(self, name: str):
-        if name in self.employees:
-            del self.employees[name]
-            self._invalidate_discovery_cache()
-            self._save_employees()
+        with self._employees_lock:
+            if name in self.employees:
+                del self.employees[name]
+        self._invalidate_discovery_cache()
+        self._save_employees()
 
     def attach_files(self, emp_name: str, files: List[str], append: bool = True):
         """Attaches files to an employee, updating metadata for smart tracking."""
@@ -122,7 +126,8 @@ class ConfigController:
                 final.append(m)
                 seen.add(p)
 
-        self.employees[emp_name] = final
+        with self._employees_lock:
+            self.employees[emp_name] = final
         self._invalidate_discovery_cache()
         self._save_employees()
 
@@ -135,7 +140,14 @@ class ConfigController:
         p = Path(path_str)
         if p.is_absolute():
             return p
-        return (Path(self.config_path).parent / p).resolve()
+        resolved = (Path(self.config_path).parent / p).resolve()
+        # Guard against path traversal: ensure resolved path stays within config directory
+        config_dir = Path(self.config_path).parent.resolve()
+        if not str(resolved).lower().startswith(str(config_dir).lower().rstrip("\\/")):
+            raise ValueError(
+                f"Path traversal detected: '{path_str}' resolves outside config directory"
+            )
+        return resolved
 
     @staticmethod
     def _is_effectively_absolute(path_str: str) -> bool:

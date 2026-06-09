@@ -530,17 +530,12 @@ class CalamineReader:
         try:
             rows_sample = sheet.to_python()[:MAX_HEADER_SCAN_ROWS]
             return rows_sample, use_to_python
-        except Exception as e:
-            if strict_io:
-                raise
-            logger.debug(f"Could not read sheet {sheet_name}: {e}")
-            return None, use_to_python
         except BaseException as e:
             if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
                 raise
             if strict_io:
                 raise
-            logger.debug(f"PanicException reading sheet {sheet_name}: {e}")
+            logger.debug(f"Could not read sheet {sheet_name}: {e}")
             return None, use_to_python
 
     @staticmethod
@@ -888,17 +883,12 @@ class CalamineReader:
 
         try:
             sheet = wb.get_sheet_by_name(sheet_name)
-        except Exception as e:
-            if strict_io:
-                raise
-            logger.debug(f"Could not load sheet {sheet_name}: {e}")
-            return
         except BaseException as e:
             if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
                 raise
             if strict_io:
                 raise
-            logger.debug(f"PanicException loading sheet {sheet_name}: {e}")
+            logger.debug(f"Could not load sheet {sheet_name}: {e}")
             return
 
         rows_sample, use_to_python = self._load_sheet_sample_rows(
@@ -1046,20 +1036,12 @@ class CalamineReader:
                     strict_io=strict_io,
                 )
 
-        except (OSError, IOError, PermissionError) as e:
-            if strict_io:
-                raise
-            logger.error(f"Calamine error {f_path_abs}: {e}")
-        except Exception as e:
-            if strict_io:
-                raise
-            logger.error(f"Calamine error {f_path_abs}: {e}")
         except BaseException as e:
             if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
                 raise
             if strict_io:
                 raise
-            logger.error(f"Calamine PanicException {f_path_abs}: {e}")
+            logger.error(f"Calamine error {f_path_abs}: {e}")
         finally:
             self._cleanup_temp_file(temp_file)
 

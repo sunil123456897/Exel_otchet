@@ -59,6 +59,10 @@ class AppController:
         self._max_workers = resolve_max_workers(
             getattr(config_controller, "config", None)
         )
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=self._max_workers,
+            thread_name_prefix="hermes-worker",
+        )
         self._lock = threading.Lock()
         self._cached_employees = {}
         self._active_threads: List[threading.Thread] = []
@@ -331,18 +335,18 @@ class AppController:
             total_count = len(unique_names)
             local_data: List[tuple] = []
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-                futures = {
-                    executor.submit(
-                        self._check_employee_refresh_status,
-                        name,
-                        employees_map,
-                        target_date_obj,
-                        today,
-                    ): name
-                    for name in unique_names
-                }
-                for i, future in enumerate(concurrent.futures.as_completed(futures)):
+            executor = self._executor
+            futures = {
+                executor.submit(
+                    self._check_employee_refresh_status,
+                    name,
+                    employees_map,
+                    target_date_obj,
+                    today,
+                ): name
+                for name in unique_names
+            }
+            for i, future in enumerate(concurrent.futures.as_completed(futures)):
                     local_data.append(future.result())
                     on_progress(((i + 1) / total_count) * 100)
 
@@ -1154,6 +1158,10 @@ class AppController:
         """Gracefully shut down: wait for threads and close DB."""
         logging.info("[APP] Завершение: ожидаю завершения записей в БД...")
         self.persistence.wait_for_writes()
+
+        # Shutdown thread pool executor
+        self._executor.shutdown(wait=False)
+        logging.info("[APP] Завершение: пул потоков остановлен.")
 
         # Wait for active task threads to finish (with timeout)
         with self._lock:
