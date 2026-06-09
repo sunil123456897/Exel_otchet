@@ -782,8 +782,10 @@ def _display_len(value: Any) -> int:
 
 
 def _excel_safe_text(value: Any) -> Any:
-    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
-        return "'" + value
+    if isinstance(value, str):
+        stripped = value.lstrip()
+        if stripped and stripped[0] in ("=", "+", "-", "@"):
+            return "'" + value
     return value
 
 

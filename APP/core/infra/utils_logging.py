@@ -36,7 +36,6 @@ class TextHandler(logging.Handler):
         super().__init__()
         self.text_widget = text_widget
         self.msg_queue = queue.Queue(maxsize=10000)
-        self._is_scheduled = False
 
     def emit(self, record):
         msg = self.format(record)
@@ -48,9 +47,6 @@ class TextHandler(logging.Handler):
                 self.msg_queue.put_nowait(msg)
             except queue.Empty:
                 pass
-        if not self._is_scheduled:
-            self._is_scheduled = True
-            self.text_widget.after_idle(self._process_queue)
 
     def _process_queue(self):
         try:
@@ -65,9 +61,7 @@ class TextHandler(logging.Handler):
             self.text_widget.configure(state='disabled')
             self.text_widget.yview(tk.END)
         finally:
-            self._is_scheduled = False
             if not self.msg_queue.empty():
-                self._is_scheduled = True
                 self.text_widget.after(100, self._process_queue)
 
 def setup_gui_logging(log_widget):
@@ -82,4 +76,9 @@ def setup_gui_logging(log_widget):
             root.removeHandler(h)
     root.addHandler(handler)
     root.setLevel(logging.INFO)
+    # Start the queue polling loop from the GUI thread
+    if handler.msg_queue.empty():
+        # Initial empty queue — still schedule first poll so future messages are picked up
+        pass
+    log_widget.after(100, handler._process_queue)
     return handler

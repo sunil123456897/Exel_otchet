@@ -60,15 +60,19 @@ class SQLiteConnectionManager:
             detect_types=sqlite3.PARSE_DECLTYPES,
             timeout=self.config.get("database", {}).get("timeout", 30.0),
         )
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA temp_store = MEMORY;")
-        conn.execute("PRAGMA cache_size = -64000;")
-        conn.execute("PRAGMA mmap_size = 268435456;")
-        conn.execute("PRAGMA busy_timeout = 5000;")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA temp_store = MEMORY;")
+            conn.execute("PRAGMA cache_size = -64000;")
+            conn.execute("PRAGMA mmap_size = 268435456;")
+            conn.execute("PRAGMA busy_timeout = 5000;")
+            return conn
+        except sqlite3.Error:
+            conn.close()
+            raise
 
     def check_integrity(self) -> tuple[bool, str | None]:
         """Run a quick PRAGMA integrity_check and return (ok, error_message).

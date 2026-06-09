@@ -1467,7 +1467,17 @@ def build_combined_reconciliation_report(
                 rows = sorted(rows, key=_reconciliation_sort_key)
 
                 ws = default_ws if idx == 0 else wb_out.create_sheet()
-                ws.title = sheet_name[:31]
+                # Excel sheet names limited to 31 chars; deduplicate if truncated name collides
+                truncated = sheet_name[:31]
+                if truncated in wb_out.sheetnames:
+                    n = 2
+                    while True:
+                        alt = f"{truncated[:28]}({n})"
+                        if alt not in wb_out.sheetnames:
+                            truncated = alt
+                            break
+                        n += 1
+                ws.title = truncated
                 _write_reconciliation_sheet(ws, rows, master_headers)
                 counts[sheet_name] = len(rows)
 

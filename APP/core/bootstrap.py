@@ -86,6 +86,13 @@ def _validate_path_safety(
             f"Path traversal detected: '{resolved}' escapes app root '{app_root}'"
         )
     except OSError:
+        # On OSError (e.g. network path unavailable), fall back to strict string check
+        resolved_str = str(resolved).lower().rstrip("\\/")
+        app_root_str = str(app_root).lower().rstrip("\\/")
+        if not resolved_str.startswith(app_root_str):
+            raise ValueError(
+                f"Path traversal detected: '{resolved}' escapes app root '{app_root}'"
+            )
         return resolved
 
 
@@ -367,7 +374,9 @@ class Bootstrap:
             raw_paths = {}
 
         master_base = app_root.parent if (app_root / "main.py").exists() else app_root
-        p_cfg["master_file"] = str(master_base / "Master_Report.xlsx")
+        # Don't override user's explicit master_file setting
+        if "master_file" not in raw_paths or not raw_paths.get("master_file"):
+            p_cfg["master_file"] = str(master_base / "Master_Report.xlsx")
         p_cfg["source_root"] = resolve_rel(p_cfg.get("source_root", "REPORTS"), "REPORTS")
         if "source_roots" in p_cfg and isinstance(p_cfg["source_roots"], list):
             p_cfg["source_roots"] = [resolve_rel(r) for r in p_cfg["source_roots"]]

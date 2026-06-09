@@ -239,8 +239,8 @@ class SessionRepository(IPersistence):
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             finally:
                 conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.warning("WAL checkpoint failed (non-fatal): %s", e)
         self.source_file_repo.close()
         self.staging_repo.close()
 

@@ -208,4 +208,4 @@ def get_local_copy(
                 shutil.copy2(network_path, temp_file)
                 return temp_file, temp_file
             except Exception:
-                return str(local_path), None
+                raise IOError(f"Network copy failed for {network_path} — no local fallback available")

@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 _LOCK = threading.Lock()
@@ -63,7 +63,7 @@ def record_loss(
         original_value: the value that was lost (will be coerced to str).
     """
     payload = {
-        "ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds") + "Z",
         "source": source,
         "kind": kind,
         "reason": reason,
