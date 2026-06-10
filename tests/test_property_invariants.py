@@ -9,8 +9,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from APP.core.domain.utils_helpers import to_decimal_percent
-from APP.core.infra.reconciliation_report import (
+from core.domain.utils_helpers import to_decimal_percent
+from core.infra.reconciliation_report import (
     _executor_matches,
     _row_amount_matches,
     MasterReconciliationRow,
