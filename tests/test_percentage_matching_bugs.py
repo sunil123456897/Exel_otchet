@@ -1,6 +1,5 @@
 import pytest
 from decimal import Decimal
-from core.domain.utils_helpers import to_decimal_percent
 from core.domain.logic_service import LogicService, BorisCuratorStrategy
 
 @pytest.fixture

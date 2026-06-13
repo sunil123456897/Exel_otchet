@@ -5,7 +5,6 @@ temporary file and never touch a real Tk root.
 """
 from pathlib import Path
 
-import pytest
 
 from core.ui.geometry import (
     is_geometry_visible,

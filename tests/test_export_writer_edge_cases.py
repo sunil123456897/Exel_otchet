@@ -3,7 +3,6 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
-from openpyxl import Workbook
 from core.infra.export_writer import MasterWriter, ExportPreflightError
 
 

@@ -106,7 +106,8 @@ def test_listener_fires_on_transition(state):
 
 def test_removed_listener_does_not_fire(state):
     events: list = []
-    listener = lambda snap: events.append(snap)
+    def listener(snap):
+        events.append(snap)
     state.add_listener(listener)
     state.remove_listener(listener)
     state.begin(OperationType.RSCH_DAY)

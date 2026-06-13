@@ -7,10 +7,8 @@ rather than completing the (now-undesired) work and writing output files.
 """
 import threading
 from datetime import date
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from core.app_controller import AppController, _is_cancelled
 

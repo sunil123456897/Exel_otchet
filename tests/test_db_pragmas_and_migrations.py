@@ -2,11 +2,8 @@
 
 Ref: notebooklm recommendations for SQLite tuning.
 """
-import os
-import re
 import sys
 import tempfile
-import threading
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -155,8 +152,6 @@ def test_migration_table_is_created():
 def test_migration_applies_missing_files(tmp_path):
     """When a .sql migration file exists but hasn't been applied, it gets executed."""
     from core.infra.db_connection import SQLiteConnectionManager
-    import importlib
-    import core.infra.db_connection as dbc_mod
 
     mig_dir = APP_DIR / "migrations"
     mig_dir.mkdir(exist_ok=True)

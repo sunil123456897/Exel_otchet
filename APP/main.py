@@ -8,7 +8,7 @@ app_root = Path(__file__).parent.absolute()
 if str(app_root) not in sys.path:
     sys.path.insert(0, str(app_root))
 
-from core.bootstrap import Bootstrap
+from core.bootstrap import Bootstrap  # noqa: E402
 
 
 def preflight_gui_imports():

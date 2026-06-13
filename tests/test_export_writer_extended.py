@@ -4,15 +4,12 @@
 """
 
 import pytest
-import os
 import tempfile
 from datetime import datetime
-from decimal import Decimal
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import patch
 from core.infra.export_writer import ExportPreflightError, MasterWriter, preflight_output_path
 from openpyxl import Workbook
-from openpyxl.styles import PatternFill
 
 
 @pytest.fixture

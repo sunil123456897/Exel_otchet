@@ -415,8 +415,6 @@ class IngestionEngine(IDataSource):
                 if strict_io:
                     raise
                 return []
-            except Exception:
-                raise
         if strict_io and last_err is not None:
             raise last_err
         logger.error(

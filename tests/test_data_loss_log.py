@@ -29,7 +29,7 @@ def test_record_loss_writes_structured_json():
     )
     log_path = Path(os.getcwd()) / "logs" / "data_loss.log"
     assert log_path.exists(), "data_loss.log was not created"
-    lines = [l for l in log_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = [line for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert lines, "Log file is empty"
     payload = json.loads(lines[-1].split(" ", 1)[1])
     assert payload["source"] == "dummy.xlsx"

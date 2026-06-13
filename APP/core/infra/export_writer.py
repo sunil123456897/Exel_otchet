@@ -1,7 +1,7 @@
 import os
 import logging
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 import openpyxl
 from openpyxl.utils import get_column_letter
@@ -488,7 +488,7 @@ class MasterWriter(IExporter):
         self,
         data: List[Dict[str, Any]],
         path: Path,
-        template_errors: List[Dict[str, Any]] = None,
+        template_errors: Optional[List[Dict[str, Any]]] = None,
         curator=None,
         curator_config=None,
     ) -> bool:

@@ -9,7 +9,6 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 from core.ui.gui_commands._base import (
     CommandContext,

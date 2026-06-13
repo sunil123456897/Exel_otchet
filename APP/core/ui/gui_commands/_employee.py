@@ -6,8 +6,7 @@ reconciliation commands are bigger and get their own modules.
 """
 from __future__ import annotations
 
-import logging
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 from pathlib import Path
 from typing import List
 

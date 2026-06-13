@@ -4,9 +4,7 @@ The detector never imports GUI code, so we can drive every platform
 branch through ``patch``.
 """
 import platform
-from unittest.mock import patch
 
-import pytest
 
 from core.ui.system_theme import (
     detect_system_theme,

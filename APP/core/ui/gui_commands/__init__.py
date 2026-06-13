@@ -18,7 +18,6 @@ from core.ui.gui_commands._base import CommandContext
 from core.ui.gui_commands._consolidation import ConsolidationCommandsMixin
 from core.ui.gui_commands._employee import EmployeeCommandsMixin
 from core.ui.gui_commands._reconciliation import ReconciliationCommandsMixin
-from core.ui.gui_commands._rsch import RschCommandsMixin
 
 
 class GuiCommands(

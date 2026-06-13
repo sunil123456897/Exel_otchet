@@ -9,7 +9,7 @@ the user switches themes.
 from __future__ import annotations
 
 from tkinter import ttk
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 _LIGHT = {
     "primary": "#1f4e79",

@@ -7,7 +7,7 @@ This decouples FileProcessor/AppController from GuiMaster — no more
 
 import queue
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, List
 

@@ -57,7 +57,8 @@ class TextHandler(logging.Handler):
                     msg = self.msg_queue.get_nowait()
                     self.text_widget.insert(tk.END, msg + '\n')
                     count += 1
-                except queue.Empty: break
+                except queue.Empty:
+                    break
             self.text_widget.configure(state='disabled')
             self.text_widget.yview(tk.END)
         finally:

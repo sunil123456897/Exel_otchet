@@ -1,7 +1,7 @@
 """Consolidation ViewModel — состояние и логика консолидации."""
 
 import threading
-from typing import Callable, Optional
+from typing import Callable
 from datetime import datetime
 from pathlib import Path
 import logging
