@@ -23,8 +23,8 @@ from core.app.message_formatting import (
     format_file_error_note as format_controller_file_error_note,
     normalize_consolidation_dates as normalize_controller_consolidation_dates,
 )
-from core.infra.reconciliation_report import build_combined_reconciliation_report
-from core.infra.rsch_report import build_rsch_report
+from core.infra.reconciliation import build_combined_reconciliation_report
+from core.infra.rsch import build_rsch_report
 from core.app.partial import format_partial_note, mark_partial
 from core.infra.utils import cleanup_local_copy_cache
 
@@ -331,7 +331,7 @@ class AppController:
                     status, tag = "🟢 ГОТОВО", "ready"
                     break
         except Exception as e:
-            logging.error(f"Error {name}: {e}")
+            logging.exception("Error %s: %s", name, e)
             status, tag = "[ERR] ОШИБКА", "missing"
 
         return (name, status, path_str, tag)
@@ -380,7 +380,7 @@ class AppController:
             logging.info(f"[PERF] Refresh status: {_elapsed:.1f}s for {total_count} employees")
             on_complete(local_data, employees_map, self.rename_detected)
         except Exception as e:
-            logging.error(f"Refresh error: {e}")
+            logging.exception("Refresh error: %s", e)
             on_complete([], {}, False)
             if callable(on_error):
                 on_error(f"Ошибка обновления статусов: {e}")
@@ -642,7 +642,7 @@ class AppController:
                 master_path,
             )
         except Exception as e:
-            logging.error(f"Error: {e}")
+            logging.exception("Error: %s", e)
             self.persistence.update_session_status(session_id, "failed")
             if callable(on_failure_code):
                 on_failure_code("exception")
@@ -974,7 +974,7 @@ class AppController:
                 )
                 on_complete(True, msg, output_path_resolved)
             except Exception as e:
-                logging.error("Auto reconciliation error: %s", e)
+                logging.exception("Auto reconciliation error: %s", e)
                 on_complete(False, f"Ошибка автоматической сверки: {e}", None)
 
         self._start_thread(task)
@@ -1013,7 +1013,7 @@ class AppController:
                 )
                 on_complete(True, msg, Path(output_path))
             except Exception as e:
-                logging.error("Reconciliation report error: %s", e)
+                logging.exception("Reconciliation report error: %s", e)
                 on_complete(False, f"Ошибка сверки отчетов: {e}", None)
 
         self._start_thread(task)
@@ -1071,7 +1071,7 @@ class AppController:
                     output_path,
                 )
             except Exception as e:
-                logging.error("RSC build error: %s", e)
+                logging.exception("RSC build error: %s", e)
                 on_complete(False, f"Ошибка сборки РСЧ: {e}", None)
 
         self._start_thread(task)
@@ -1126,7 +1126,7 @@ class AppController:
 
                 on_complete(True, msg, output_path)
             except Exception as e:
-                logging.error("RSC period build error: %s", e)
+                logging.exception("RSC period build error: %s", e)
                 on_complete(False, f"Ошибка сборки РСЧ за период: {e}", None)
 
         self._start_thread(task)
@@ -1196,7 +1196,7 @@ class AppController:
 
                 on_complete(True, msg, output_dir_path)
             except Exception as e:
-                logging.error("RSC period batch build error: %s", e)
+                logging.exception("RSC period batch build error: %s", e)
                 on_complete(False, f"Ошибка пакетной сборки РСЧ за период: {e}", None)
 
         self._start_thread(task)
@@ -1271,7 +1271,7 @@ class AppController:
                     output_dir,
                 )
             except Exception as e:
-                logging.error("RSC batch build error: %s", e)
+                logging.exception("RSC batch build error: %s", e)
                 on_complete(False, f"Ошибка пакетной сборки РСЧ: {e}", None)
 
         self._start_thread(task)
@@ -1282,7 +1282,7 @@ class AppController:
         self.persistence.wait_for_writes()
 
         # Shutdown thread pool executor
-        self._executor.shutdown(wait=False)
+        self._executor.shutdown(wait=True)
         logging.info("[APP] Завершение: пул потоков остановлен.")
 
         # Wait for active task threads to finish (with timeout)

@@ -5,14 +5,15 @@ preserve their invariants across a wide range of random inputs.
 """
 from decimal import Decimal
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from core.domain.utils_helpers import to_decimal_percent
-from core.infra.reconciliation_report import (
+from core.infra.reconciliation._resolve import (
     _executor_matches,
     _row_amount_matches,
+)
+from core.infra.reconciliation._types import (
     MasterReconciliationRow,
     RschReconciliationRow,
 )

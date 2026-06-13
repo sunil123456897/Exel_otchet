@@ -157,6 +157,7 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
             logger.warning(
                 "INVALID DATE in sheet '%s'. Date will be skipped.",
                 sheet_name,
+                exc_info=True,
             )
             return None
     return None
@@ -525,7 +526,10 @@ class CalamineReader:
                 original_value=original_value,
             )
         except Exception:
-            pass
+            logger.warning(
+                "Failed to record data loss for source=%s kind=%s reason=%s",
+                source, kind, reason, exc_info=True,
+            )
 
     @staticmethod
     def _should_skip_sheet(sheet_name: str) -> bool:
@@ -554,9 +558,7 @@ class CalamineReader:
                 if idx >= MAX_HEADER_SCAN_ROWS - 1:
                     break
             return rows_sample, use_to_python
-        except BaseException as iter_err:
-            if isinstance(iter_err, (KeyboardInterrupt, SystemExit, GeneratorExit)):
-                raise
+        except Exception as iter_err:
             logger.debug(
                 f"iter_rows failed for sheet {sheet_name} with {type(iter_err).__name__}: {iter_err}. "
                 f"Falling back to to_python()."
@@ -566,9 +568,7 @@ class CalamineReader:
         try:
             rows_sample = sheet.to_python()[:MAX_HEADER_SCAN_ROWS]
             return rows_sample, use_to_python
-        except BaseException as e:
-            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
-                raise
+        except Exception as e:
             if strict_io:
                 raise
             logger.debug(f"Could not read sheet {sheet_name}: {e}")
@@ -680,6 +680,10 @@ class CalamineReader:
             )
             return d_val, d_val != 0, False
         except Exception:
+            logger.debug(
+                "Decimal conversion failed for key=%s val=%s, falling back to text match",
+                key, repr(val), exc_info=True,
+            )
             normalized_value = _normalize_header_text(val)
             header_terms = {
                 term
@@ -885,9 +889,7 @@ class CalamineReader:
                 yield next(row_iterator)
             except StopIteration:
                 return
-            except BaseException as second_pass_err:
-                if isinstance(second_pass_err, (KeyboardInterrupt, SystemExit, GeneratorExit)):
-                    raise
+            except Exception as second_pass_err:
                 if strict_io:
                     raise
                 logger.warning(
@@ -926,9 +928,7 @@ class CalamineReader:
 
         try:
             sheet = wb.get_sheet_by_name(sheet_name)
-        except BaseException as e:
-            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
-                raise
+        except Exception as e:
             if strict_io:
                 raise
             logger.debug(f"Could not load sheet {sheet_name}: {e}")
@@ -1035,7 +1035,7 @@ class CalamineReader:
             try:
                 os.remove(temp_file)
             except Exception:
-                pass
+                logger.debug("Failed to remove temp file %s", temp_file, exc_info=True)
 
     def read(
         self,
@@ -1055,6 +1055,7 @@ class CalamineReader:
         all_rows: List[Dict[str, Any]] = []
         f_path_abs = os.path.abspath(str(file_path))
         file_basename = os.path.basename(f_path_abs)
+        self._current_file_path = f_path_abs
         header_search_terms = self._header_search_terms
 
         try:
@@ -1070,25 +1071,39 @@ class CalamineReader:
             logger.error(f"Calamine error {f_path_abs}: {e}")
             return all_rows
 
+        # Validate file signature (Magic Bytes)
+        try:
+            with open(target_path, "rb") as f:
+                header_bytes = f.read(4)
+            if header_bytes != b"PK\x03\x04":
+                raise ValueError("Invalid file signature: expected Excel ZIP archive (XLSX)")
+        except Exception as sig_err:
+            self._cleanup_temp_file(temp_file)
+            if strict_io:
+                raise
+            logger.error(f"File signature validation failed for {f_path_abs}: {sig_err}")
+            return all_rows
+
         try:
             wb = CalamineWorkbook.from_path(target_path)
-            for sheet_name in wb.sheet_names:
-                self._process_workbook_sheet(
-                    wb,
-                    sheet_name,
-                    f_path_abs,
-                    file_basename,
-                    header_search_terms,
-                    all_rows,
-                    target_date_str=target_date_str,
-                    start_date_str=start_date_str,
-                    end_date_str=end_date_str,
-                    strict_io=strict_io,
-                )
+            try:
+                for sheet_name in wb.sheet_names:
+                    self._process_workbook_sheet(
+                        wb,
+                        sheet_name,
+                        f_path_abs,
+                        file_basename,
+                        header_search_terms,
+                        all_rows,
+                        target_date_str=target_date_str,
+                        start_date_str=start_date_str,
+                        end_date_str=end_date_str,
+                        strict_io=strict_io,
+                    )
+            finally:
+                wb.close()
 
-        except BaseException as e:
-            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
-                raise
+        except Exception as e:
             if strict_io:
                 raise
             logger.error(f"Calamine error {f_path_abs}: {e}")

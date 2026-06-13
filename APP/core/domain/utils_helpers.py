@@ -80,3 +80,9 @@ def to_decimal_percent(val: Any) -> Any:
         return res
     except (ValueError, TypeError, ArithmeticError):
         return Decimal("0")
+
+
+def normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).replace("\xa0", " ").lower().split())

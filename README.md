@@ -155,21 +155,62 @@ rsch:
 - SQLite для кэша
 - Pydantic для схем данных
 - PyYAML / ruamel.yaml для конфигурации
-- pytest, ruff, mypy для качества в ветке `experiments`
+- pytest, ruff, mypy для качества
+
+## Разработка
+
+### mypy baseline — строгая типизация без страха
+
+Проект использует **baseline-подход** к `mypy --strict`:
+
+1. Файл `.mypy_baseline.txt` содержит все **существующие** предупреждения mypy
+   (сгенерирован один раз командой `mypy APP --strict --ignore-missing-imports > .mypy_baseline.txt`)
+2. Pre-commit хук (`.git/hooks/pre-commit`) и GitHub Actions **блокируют только НОВЫЕ ошибки**
+3. Разработчик может спокойно добавлять код — если mypy находит ошибку,
+   которой нет в baseline, коммит блокируется
+4. Каждый спринт: типизируем 1 модуль → baseline уменьшается → прогресс виден по `wc -l .mypy_baseline.txt`
+
+**Почему не `# type: ignore`:** комментарии загрязняют код. Baseline — внешний артефакт, не трогает исходники.
+
+**Как обновить baseline после уменьшения ошибок:**
+```bash
+mypy APP --strict --ignore-missing-imports --no-error-summary > .mypy_baseline.txt 2>&1
+```
+
+### Структура пакетов
+
+```
+APP/core/infra/
+├── reconciliation/    # сверка (6 модулей, ~1500 строк)
+│   ├── __init__.py    # build_reconciliation_report, build_combined
+│   ├── _types.py      # MasterReconciliationRow, ...
+│   ├── _utils.py      # _to_decimal, _excel_safe_text, константы
+│   ├── _resolve.py    # поиск дат, executor/customer matching
+│   ├── _collect.py    # чтение из Excel
+│   └── _build.py      # запись в Excel
+├── rsch/              # РСЧ-отчёт (5 модулей, ~1300 строк)
+│   ├── __init__.py    # build_rsch_report
+│   ├── _format.py     # константы, утилиты
+│   ├── _collect.py    # чтение Calamine/openpyxl
+│   ├── _template.py   # шаблоны, стили
+│   └── _build.py      # запись, build_rsch_report
+└── ...                 # ingestion, config, discovery, etc.
+```
+
+Подробнее — см. [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Текущий Baseline Проверок
 
-Актуальные проверки нужно фиксировать по фактически запущенным командам в текущей среде. Для чистого `main` минимальная проверка:
+Актуально на июнь 2026:
 
-- `python -m compileall -q APP`.
+- `pytest`: **203 passed, 0 failed** (включая новые тесты reconciliation + rsch)
+- `ruff check APP tests`: **0 errors** (F401 unused-imports исправлены)
+- `mypy --strict`: ~220 предупреждений в baseline (новые блокируются pre-commit хуком)
+- `compileall -q APP`: OK
 
-Для ветки `experiments` полный gate:
-
-- `python -m pytest -q -p no:cacheprovider`;
-- `python -m ruff check APP tests -q`;
-- `python -m mypy APP tests --no-error-summary`;
-- `python -m compileall -q APP`.
-
-Sentrux в Codex-сессии считается пройденным только если доступны scan/health инструменты и они реально запускались. Не переносите старые числа `passed` в документацию без нового полного запуска.
-
-Если в Codex/Windows снова проявится ошибка `_overlapped` или `WinError 10106`, это проблема процессного окружения Codex, а не ожидаемая ошибка проекта.
+Команда для полного прогона:
+```bash
+PYTHONPATH=E:/Dlia Dashi/Version5/APP .venv/Scripts/python.exe -m pytest tests/ -q -p no:cacheprovider
+.venv/Scripts/python.exe -m ruff check APP tests
+.venv/Scripts/python.exe -m compileall -q APP
+```

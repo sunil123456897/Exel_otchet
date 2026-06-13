@@ -207,5 +207,28 @@ def get_local_copy(
             try:
                 shutil.copy2(network_path, temp_file)
                 return temp_file, temp_file
-            except Exception:
-                raise IOError(f"Network copy failed for {network_path} — no local fallback available")
+            except Exception as exc:
+                raise IOError(f"Network copy failed for {network_path} — no local fallback available") from exc
+
+
+def path_exists_with_timeout(path: str | Path, timeout: float = 1.0) -> bool:
+    """Check if a path exists without blocking long on slow or offline network paths."""
+    p = Path(path)
+    try:
+        drive = p.drive
+        if drive:
+            import os
+            if hasattr(os, "listdrives"):
+                available_drives = {d.upper().rstrip(":\\") for d in os.listdrives()}
+                if drive.upper().rstrip(":\\") not in available_drives:
+                    return False
+    except Exception:
+        pass
+
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(p.exists)
+        try:
+            return future.result(timeout=timeout)
+        except (concurrent.futures.TimeoutError, Exception):
+            return False

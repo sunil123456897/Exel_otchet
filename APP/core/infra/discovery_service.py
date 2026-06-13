@@ -9,6 +9,7 @@ from core.infra.config_controller import ConfigController
 from core.infra.ingestion_engine import IngestionEngine
 from core.infra.path_resolver import resolve_employee_path
 from core.infra.utils_logging import scrub_path
+from core.infra.utils import path_exists_with_timeout
 
 
 class DiscoveryService:
@@ -54,7 +55,7 @@ class DiscoveryService:
                 continue
             for folder_name in self._DEFAULT_CURATOR_ROOTS:
                 candidate = Path(f"{drive}:/") / folder_name
-                if candidate.exists():
+                if path_exists_with_timeout(candidate):
                     roots.append(candidate)
 
         # dedupe while preserving order
@@ -99,7 +100,7 @@ class DiscoveryService:
             return roots_to_scan
 
         unresolved_root = roots_to_scan[0]
-        if unresolved_root.exists():
+        if path_exists_with_timeout(unresolved_root):
             return roots_to_scan
 
         auto_roots = self._detect_default_roots(config)
@@ -207,7 +208,7 @@ class DiscoveryService:
                     config_controller=self.config_controller,
                 )
                 p_abs = Path(resolved)
-                if not p_abs.is_absolute() or not p_abs.exists():
+                if not p_abs.is_absolute() or not path_exists_with_timeout(p_abs):
                     return False
         return True
 
@@ -269,7 +270,7 @@ class DiscoveryService:
                     config_controller=self.config_controller,
                 )
                 p_abs = Path(resolved)
-                if p_abs.is_absolute() and p_abs.exists():
+                if p_abs.is_absolute() and path_exists_with_timeout(p_abs):
                     continue
                 if file_id or file_hash:
                     return roots_to_scan
@@ -352,7 +353,7 @@ class DiscoveryService:
                 updated_paths.append(self._copy_config_entry(entry))
             else:
                 p_abs = Path(resolved)
-                if p_abs.exists():
+                if path_exists_with_timeout(p_abs):
                     entry_meta = {"path": str(p_abs)}
                     if file_id is not None:
                         entry_meta["id"] = file_id

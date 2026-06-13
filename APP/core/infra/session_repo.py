@@ -243,6 +243,12 @@ class SessionRepository(IPersistence):
             self.logger.warning("WAL checkpoint failed (non-fatal): %s", e)
         self.source_file_repo.close()
         self.staging_repo.close()
+        try:
+            unclean_file = self.db_path.with_name(self.db_path.name + ".unclean")
+            if unclean_file.exists():
+                unclean_file.unlink()
+        except Exception as e:
+            self.logger.warning("Failed to remove unclean shutdown flag: %s", e)
 
     def get_file_cache(self, file_path: str) -> Optional[Dict[str, Any]]:
         return self.source_file_repo.get_file_cache(file_path)

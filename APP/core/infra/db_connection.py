@@ -75,14 +75,23 @@ class SQLiteConnectionManager:
             raise
 
     def check_integrity(self) -> tuple[bool, str | None]:
-        """Run a quick PRAGMA integrity_check and return (ok, error_message).
+        """Run a quick PRAGMA quick_check and return (ok, error_message).
 
         Called at application startup; skips if no prior unclean-shutdown
         flag is found.  Returns (True, None) when the database is healthy.
         """
+        flag_file = self.db_path.with_name(self.db_path.name + ".unclean")
+        if not flag_file.exists():
+            try:
+                flag_file.write_text("unclean", encoding="utf-8")
+            except Exception as e:
+                self.logger.warning("Could not create unclean shutdown flag file: %s", e)
+            return (True, None)
+
+        self.logger.warning("Unclean shutdown detected. Running PRAGMA quick_check...")
         conn = self.get_connection()
         try:
-            row = conn.execute("PRAGMA integrity_check").fetchone()
+            row = conn.execute("PRAGMA quick_check").fetchone()
             msg = row[0] if row else "unknown"
             return (msg == "ok", None if msg == "ok" else msg)
         except Exception as exc:

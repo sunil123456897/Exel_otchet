@@ -1,14 +1,48 @@
+
 from __future__ import annotations
 
+import logging
 from copy import copy
-from datetime import datetime
-from decimal import Decimal
-from typing import Any, Dict, Optional, Sequence
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
+
+
+from ._format import _normalize_text
+from ._collect import _copy_style
+
+logger = logging.getLogger(__name__)
+
+RSCH_HEADERS = [
+    "ИСПОЛНИТЕЛЬ",
+    "ЗАКАЗЧИК",
+    "Контрагент",
+    "Комментарий",
+    "Приход",
+    "Расход",
+    "р/с",
+    "Источник",
+]
+RSCH_TEMPLATE_HEADERS = RSCH_HEADERS
+
+RSCH_TABLE_HEADERS = [
+    "Дата",
+    "ИСПОЛНИТЕЛЬ",
+    "ЗАКАЗЧИК",
+    "Контрагент",
+    "Комментарий",
+    "Приход",
+    "Расход",
+    "р/с",
+    "Источник",
+]
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_RSCH_TEMPLATE_PATH = _REPO_ROOT / "РСЧ" / "шаблон отчета.xlsx"
 
 _INCOME_FILL = PatternFill(
     start_color="FFC6EFCE", end_color="FFC6EFCE", fill_type="solid"
@@ -21,12 +55,8 @@ _WARNING_FILL = PatternFill(
 )
 _INCOME_FONT = Font(color="FF006100", bold=True)
 _EXPENSE_FONT = Font(color="FF9C0006", bold=True)
-_HEADER_FILL = PatternFill(
-    start_color="FF1F4E79", end_color="FF1F4E79", fill_type="solid"
-)
-_TOTAL_FILL = PatternFill(
-    start_color="FFD9E1F2", end_color="FFD9E1F2", fill_type="solid"
-)
+_HEADER_FILL = PatternFill(start_color="FF1F4E79", end_color="FF1F4E79", fill_type="solid")
+_TOTAL_FILL = PatternFill(start_color="FFD9E1F2", end_color="FFD9E1F2", fill_type="solid")
 _HEADER_FONT = Font(color="FFFFFFFF", bold=True)
 _THIN_SIDE = Side(style="thin", color="FF000000")
 _MEDIUM_SIDE = Side(style="medium", color="FF000000")
@@ -48,24 +78,23 @@ _ACCOUNT_ALIGNMENT = Alignment(horizontal="left", vertical="center")
 _AMOUNT_ALIGNMENT = Alignment(horizontal="right", vertical="center")
 _DATE_ALIGNMENT = Alignment(horizontal="left", vertical="center")
 _DEFAULT_AMOUNT_NUMBER_FORMAT = "#,##0.00"
+_SPECIAL_CUSTOMER_MARKERS = (
+    "% по депозиту",
+    "% по выплате",
+    "комиссия",
+    "налог",
+)
+_NO_ACCOUNT_MARKERS = (
+    "факторинг",
+    "факторнинг",
+    "вф",
+    "вафт фокс",
+    "гетворк",
+)
 
 
-def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return " ".join(str(value).replace("\xa0", " ").lower().split())
 
-
-def copy_style(src_cell, dst_cell) -> None:
-    dst_cell.font = copy(src_cell.font)
-    dst_cell.fill = copy(src_cell.fill)
-    dst_cell.border = copy(src_cell.border)
-    dst_cell.alignment = copy(src_cell.alignment)
-    dst_cell.number_format = src_cell.number_format
-    dst_cell.protection = copy(src_cell.protection)
-
-
-def find_total_row(template_ws: Worksheet) -> Optional[int]:
+def _find_total_row(template_ws: Worksheet) -> Optional[int]:
     for row_idx in range(1, template_ws.max_row + 1):
         label = _normalize_text(template_ws.cell(row_idx, 1).value)
         if label.startswith("итого"):
@@ -73,22 +102,20 @@ def find_total_row(template_ws: Worksheet) -> Optional[int]:
     return None
 
 
-def prepare_output_sheet(
-    template_ws: Worksheet,
-    sheet_name: str,
-    headers: Sequence[str],
-    template_headers: Sequence[str],
+def _prepare_output_sheet(
+    template_ws: Worksheet, sheet_name: str
 ) -> tuple[Workbook, Worksheet, Dict[str, Any]]:
     wb = Workbook()
     ws = wb.active
     ws.title = sheet_name
 
-    style_layout = _resolve_template_style_layout(template_ws, template_headers)
-    ws.append(list(headers))
+    style_layout = _resolve_template_style_layout(template_ws)
 
-    for col_idx, _ in enumerate(headers, start=1):
+    ws.append(RSCH_HEADERS)
+
+    for col_idx, _ in enumerate(RSCH_HEADERS, start=1):
         header_source = template_ws.cell(1, style_layout["header_cols"][col_idx])
-        copy_style(header_source, ws.cell(1, col_idx))
+        _copy_style(header_source, ws.cell(1, col_idx))
         col = get_column_letter(col_idx)
         source_col = get_column_letter(style_layout["width_cols"][col_idx])
         src_dim = template_ws.column_dimensions.get(source_col)
@@ -103,11 +130,11 @@ def prepare_output_sheet(
     if header_height:
         ws.row_dimensions[1].height = header_height
 
-    _ensure_header_style(ws, len(headers), style_layout["legacy_template"])
+    _ensure_header_style(ws, style_layout["legacy_template"])
     return wb, ws, style_layout
 
 
-def _template_header_values(template_ws: Worksheet, max_scan: int) -> list[str]:
+def _template_header_values(template_ws: Worksheet, max_scan: int) -> List[str]:
     return [
         _normalize_text(template_ws.cell(1, col_idx).value)
         for col_idx in range(1, max_scan + 1)
@@ -160,7 +187,19 @@ def _find_blank_total_col(
     return default_col
 
 
-def _build_header_style_columns(cols: Dict[str, int]) -> Dict[int, int]:
+def _build_header_style_columns(cols: Dict[str, int], is_table: bool = False) -> Dict[int, int]:
+    if is_table:
+        return {
+            1: cols["date"],
+            2: cols["executor"],
+            3: cols["customer"],
+            4: cols["contractor"],
+            5: cols["comment_style"],
+            6: cols["income"],
+            7: cols["expense"],
+            8: cols["account"],
+            9: cols["comment_style"],
+        }
     return {
         1: cols["executor"],
         2: cols["customer"],
@@ -173,7 +212,19 @@ def _build_header_style_columns(cols: Dict[str, int]) -> Dict[int, int]:
     }
 
 
-def _build_data_style_columns(cols: Dict[str, int], blank_total_col: int) -> Dict[int, int]:
+def _build_data_style_columns(cols: Dict[str, int], blank_total_col: int, is_table: bool = False) -> Dict[int, int]:
+    if is_table:
+        return {
+            1: cols["date"],
+            2: cols["executor"],
+            3: cols["customer"],
+            4: cols["contractor"],
+            5: cols["comment_style"],
+            6: cols["income"] or blank_total_col,
+            7: cols["expense"] or blank_total_col,
+            8: cols["account"],
+            9: cols["comment_style"],
+        }
     return {
         1: cols["executor"],
         2: cols["customer"],
@@ -186,7 +237,19 @@ def _build_data_style_columns(cols: Dict[str, int], blank_total_col: int) -> Dic
     }
 
 
-def _build_total_style_columns(cols: Dict[str, int], blank_total_col: int) -> Dict[int, int]:
+def _build_total_style_columns(cols: Dict[str, int], blank_total_col: int, is_table: bool = False) -> Dict[int, int]:
+    if is_table:
+        return {
+            1: 1,
+            2: blank_total_col,
+            3: blank_total_col,
+            4: blank_total_col,
+            5: blank_total_col,
+            6: cols["income"] or blank_total_col,
+            7: cols["expense"] or blank_total_col,
+            8: blank_total_col,
+            9: blank_total_col,
+        }
     return {
         1: 1,
         2: blank_total_col,
@@ -199,45 +262,41 @@ def _build_total_style_columns(cols: Dict[str, int], blank_total_col: int) -> Di
     }
 
 
-def _is_legacy_template(
-    header_values: Sequence[str], template_headers: Sequence[str]
-) -> bool:
-    expected = [_normalize_text(value) for value in template_headers]
-    return list(header_values[: len(expected)]) != expected
+def _is_legacy_template(header_values: Sequence[str]) -> bool:
+    expected = [_normalize_text(value) for value in RSCH_TEMPLATE_HEADERS]
+    expected_with_date = ["дата", *expected]
+    prefix = list(header_values)
+    return not (
+        prefix[: len(expected)] == expected
+        or prefix[: len(expected_with_date)] == expected_with_date
+    )
 
 
-def _resolve_template_style_layout(
-    template_ws: Worksheet, template_headers: Sequence[str]
-) -> Dict[str, Any]:
+def _resolve_template_style_layout(template_ws: Worksheet, is_table: bool = False) -> Dict[str, Any]:
     max_scan = max(8, min(template_ws.max_column, 32))
     header_values = _template_header_values(template_ws, max_scan)
     cols = _resolve_template_semantic_columns(header_values)
-    total_row_idx = find_total_row(template_ws)
+    total_row_idx = _find_total_row(template_ws)
     blank_total_col = _find_blank_total_col(template_ws, max_scan, total_row_idx)
-    data_cols = _build_data_style_columns(cols, blank_total_col)
-    total_cols = _build_total_style_columns(cols, blank_total_col)
+    data_cols = _build_data_style_columns(cols, blank_total_col, is_table)
+    total_cols = _build_total_style_columns(cols, blank_total_col, is_table)
+
+    income_col_idx = 6 if is_table else 5
+    expense_col_idx = 7 if is_table else 6
 
     return {
-        "header_cols": _build_header_style_columns(cols),
+        "header_cols": _build_header_style_columns(cols, is_table),
         "width_cols": data_cols,
         "data_cols": data_cols,
         "total_cols": total_cols,
-        "legacy_template": _is_legacy_template(header_values, template_headers),
+        "legacy_template": _is_legacy_template(header_values),
         "detail_amount_formats": {
-            5: _resolve_amount_number_format(
-                template_ws, data_cols[5], 2, total_row_idx, 1
-            ),
-            6: _resolve_amount_number_format(
-                template_ws, data_cols[6], 2, total_row_idx, 1
-            ),
+            income_col_idx: _resolve_amount_number_format(template_ws, data_cols[income_col_idx], 2, total_row_idx, 1),
+            expense_col_idx: _resolve_amount_number_format(template_ws, data_cols[expense_col_idx], 2, total_row_idx, 1),
         },
         "total_amount_formats": {
-            5: _resolve_amount_number_format(
-                template_ws, total_cols[5], total_row_idx, 2, 1
-            ),
-            6: _resolve_amount_number_format(
-                template_ws, total_cols[6], total_row_idx, 2, 1
-            ),
+            income_col_idx: _resolve_amount_number_format(template_ws, total_cols[income_col_idx], total_row_idx, 2, 1),
+            expense_col_idx: _resolve_amount_number_format(template_ws, total_cols[expense_col_idx], total_row_idx, 2, 1),
         },
     }
 
@@ -254,147 +313,16 @@ def _resolve_amount_number_format(
     return _DEFAULT_AMOUNT_NUMBER_FORMAT
 
 
-def _ensure_header_style(
-    ws: Worksheet, column_count: int, force_normalize: bool
-) -> None:
-    if not force_normalize:
-        return
-    for col_idx in range(1, column_count + 1):
-        cell = ws.cell(1, col_idx)
-        cell.fill = copy(_HEADER_FILL)
-        cell.font = copy(_HEADER_FONT)
-        cell.alignment = copy(_HEADER_ALIGNMENT)
-        cell.border = copy(_THIN_BORDER)
 
-
-def _ensure_comment_cell_style(cell) -> None:
-    cell.number_format = "General"
-    cell.alignment = copy(_TEXT_ALIGNMENT)
-    cell.border = copy(_THIN_BORDER)
-
-
-def _ensure_account_cell_style(cell) -> None:
-    cell.number_format = "General"
-    cell.alignment = copy(_ACCOUNT_ALIGNMENT)
-    cell.border = copy(_THIN_BORDER)
-
-
-def _ensure_amount_cell_style(cell, number_format: str) -> None:
-    cell.number_format = number_format
-    cell.alignment = copy(_AMOUNT_ALIGNMENT)
-    cell.border = copy(_THIN_BORDER)
-
-
-def _ensure_date_cell_style(cell) -> None:
-    cell.alignment = copy(_DATE_ALIGNMENT)
-    cell.border = copy(_THIN_BORDER)
-
-
-def normalize_legacy_data_row(
-    ws_out: Worksheet, row_idx: int, amount_formats: Dict[int, str]
-) -> None:
-    _ensure_comment_cell_style(ws_out.cell(row_idx, 4))
-    _ensure_amount_cell_style(ws_out.cell(row_idx, 5), amount_formats[5])
-    _ensure_amount_cell_style(ws_out.cell(row_idx, 6), amount_formats[6])
-    _ensure_account_cell_style(ws_out.cell(row_idx, 7))
-    _ensure_comment_cell_style(ws_out.cell(row_idx, 8))
-
-
-def ensure_total_row_style(
-    ws_out: Worksheet,
-    row_idx: int,
-    amount_formats: Dict[int, str],
-    *,
-    force_normalize: bool,
-) -> None:
-    if not force_normalize:
-        return
-
-    label = ws_out.cell(row_idx, 1)
-    label.fill = copy(_TOTAL_FILL)
-    label.font = Font(bold=True)
-    label.border = copy(_TOTAL_BORDER)
-
-    for col_idx in (2, 3, 4, 7, 8):
-        cell = ws_out.cell(row_idx, col_idx)
-        cell.fill = copy(_TOTAL_FILL)
-        cell.font = Font(bold=True)
-        cell.border = copy(_TOTAL_BORDER)
-        cell.number_format = "General"
-
-    for col_idx in (5, 6):
-        cell = ws_out.cell(row_idx, col_idx)
-        cell.fill = copy(_TOTAL_FILL)
-        cell.font = Font(bold=True)
-        cell.border = copy(_TOTAL_BORDER)
-        cell.number_format = amount_formats[col_idx]
-        cell.alignment = copy(_AMOUNT_ALIGNMENT)
-
-
-def _display_len(value: Any) -> int:
-    if value is None:
-        return 0
-    if isinstance(value, datetime):
-        return 10
-    if isinstance(value, Decimal):
-        return len(f"{value:,.2f}")
-    if isinstance(value, (int, float)):
-        return len(f"{value:,.2f}")
-    return len(str(value))
-
-
-def autosize_all_columns(
-    ws_out: Worksheet, min_width: int = 10, max_width: int = 60
-) -> None:
-    for col_idx in range(1, ws_out.max_column + 1):
-        col_letter = get_column_letter(col_idx)
-        max_len = 0
-        for row_idx in range(1, ws_out.max_row + 1):
-            max_len = max(max_len, _display_len(ws_out.cell(row_idx, col_idx).value))
-
-        if col_idx in (5, 6):
-            max_len = max(max_len, 14)
-
-        ws_out.column_dimensions[col_letter].width = max(
-            min_width,
-            min(max_width, max_len + 2),
-        )
-
-
-def apply_amount_highlighting(
-    ws_out: Worksheet,
-    row_idx: int,
-    income: Decimal,
-    expense: Decimal,
-) -> None:
-    income_cell = ws_out.cell(row_idx, 5)
-    expense_cell = ws_out.cell(row_idx, 6)
-
-    if income != 0:
-        income_cell.fill = _INCOME_FILL
-        income_cell.font = copy(_INCOME_FONT)
-
-    if expense != 0:
-        expense_cell.fill = _EXPENSE_FILL
-        expense_cell.font = copy(_EXPENSE_FONT)
-
-
-def apply_warning_row_highlighting(
-    ws_out: Worksheet, row_idx: int, column_count: int
-) -> None:
-    for col_idx in range(1, column_count + 1):
-        ws_out.cell(row_idx, col_idx).fill = copy(_WARNING_FILL)
-
-
-def create_builtin_template_workbook(headers: Sequence[str]) -> Workbook:
+def _create_builtin_template_workbook() -> Workbook:
     wb = Workbook()
     ws = wb.active
     ws.title = "РСЧ"
-    ws.append(list(headers))
+    ws.append(RSCH_HEADERS)
     ws.append(["", "", "", "", 0, 0, "", ""])
     ws.append(["ИТОГО:", None, None, None, "=SUM(E2:E2)", "=SUM(F2:F2)", None, None])
 
-    for col_idx in range(1, len(headers) + 1):
+    for col_idx in range(1, len(RSCH_HEADERS) + 1):
         cell = ws.cell(1, col_idx)
         cell.fill = copy(_HEADER_FILL)
         cell.font = copy(_HEADER_FONT)
@@ -413,19 +341,30 @@ def create_builtin_template_workbook(headers: Sequence[str]) -> Workbook:
         ws[ref].alignment = copy(_AMOUNT_ALIGNMENT)
         ws[ref].border = copy(_THIN_BORDER)
 
-    for col_idx in range(1, len(headers) + 1):
+    for col_idx in range(1, len(RSCH_HEADERS) + 1):
         cell = ws.cell(3, col_idx)
         cell.fill = copy(_TOTAL_FILL)
         cell.font = Font(bold=True)
         cell.border = copy(_TOTAL_BORDER)
-    ws["B3"].number_format = "General"
-    ws["C3"].number_format = "General"
-    ws["D3"].number_format = "General"
-    ws["G3"].number_format = "General"
-    ws["H3"].number_format = "General"
+    for ref in ("B3", "C3", "D3", "G3", "H3"):
+        ws[ref].number_format = "General"
     ws["E3"].number_format = _DEFAULT_AMOUNT_NUMBER_FORMAT
     ws["F3"].number_format = _DEFAULT_AMOUNT_NUMBER_FORMAT
     ws["E3"].alignment = copy(_AMOUNT_ALIGNMENT)
     ws["F3"].alignment = copy(_AMOUNT_ALIGNMENT)
     ws.freeze_panes = "A2"
     return wb
+
+
+def _ensure_header_style(ws: Worksheet, force_normalize: bool, is_table: bool = False) -> None:
+    if not force_normalize:
+        return
+    headers = RSCH_TABLE_HEADERS if is_table else RSCH_HEADERS
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(1, col_idx)
+        cell.fill = copy(_HEADER_FILL)
+        cell.font = copy(_HEADER_FONT)
+        cell.alignment = copy(_HEADER_ALIGNMENT)
+        cell.border = copy(_THIN_BORDER)
+
+

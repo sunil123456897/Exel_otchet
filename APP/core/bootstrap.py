@@ -11,6 +11,7 @@ from typing import Tuple, Optional, Dict, Any, List
 from pydantic import BaseModel
 
 from core.infra import ConfigController, MasterWriter
+from core.infra.utils import path_exists_with_timeout
 from core.infra.ingestion_engine import IngestionEngine
 from core.infra.session_repo import SessionRepository as SQLiteManager
 from core.domain import LogicService, Validator
@@ -85,14 +86,14 @@ def _validate_path_safety(
         raise ValueError(
             f"Path traversal detected: '{resolved}' escapes app root '{app_root}'"
         )
-    except OSError:
+    except OSError as os_err:
         # On OSError (e.g. network path unavailable), fall back to strict string check
         resolved_str = str(resolved).lower().rstrip("\\/")
         app_root_str = str(app_root).lower().rstrip("\\/")
         if not resolved_str.startswith(app_root_str):
             raise ValueError(
                 f"Path traversal detected: '{resolved}' escapes app root '{app_root}'"
-            )
+            ) from os_err
         return resolved
 
 
@@ -258,7 +259,7 @@ class Bootstrap:
 
     @staticmethod
     def _resolve_rel_factory(app_root: Path):
-        def resolve_rel(p: Optional[str], default_filename: str = None) -> str:
+        def resolve_rel(p: Optional[str], default_filename: Optional[str] = None) -> str:
             if not p:
                 if default_filename:
                     return str(app_root / default_filename)
@@ -389,7 +390,7 @@ class Bootstrap:
             "./reports",
         }
 
-        if source_root_is_default and sr and not Path(sr).exists():
+        if source_root_is_default and sr and not path_exists_with_timeout(sr):
             p_cfg["source_root"] = "Q:/Отчет кураторов 1"
             if not p_cfg.get("source_roots"):
                 p_cfg["source_roots"] = [
