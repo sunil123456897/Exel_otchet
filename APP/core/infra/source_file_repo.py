@@ -10,11 +10,30 @@ class SourceFileRepository:
     def __init__(self, connection_manager: SQLiteConnectionManager):
         self.connection_manager = connection_manager
         self.write_queue = queue.Queue()
+        self._write_error: Optional[Exception] = None
+        self._write_error_lock = threading.Lock()
         self.writer_thread = threading.Thread(
             target=self._writer_loop, name="SourceFileWriter", daemon=True
         )
         self.writer_thread.start()
         self._logger = logging.getLogger(__name__)
+
+    def _record_write_error(self, error: Exception) -> None:
+        """Keep the first write error so callers can surface it.
+
+        Mirrors StagingDataRepository: the writer thread must not raise
+        (it would kill the loop and deadlock wait_for_writes), but it
+        also must not silently swallow failures — record the first one
+        so the controller can report that cache writes are degraded.
+        """
+        with self._write_error_lock:
+            if self._write_error is None:
+                self._write_error = error
+
+    @property
+    def write_error(self) -> Optional[Exception]:
+        with self._write_error_lock:
+            return self._write_error
 
     def _writer_loop(self):
         while True:
@@ -30,6 +49,7 @@ class SourceFileRepository:
                 continue
             except Exception as e:
                 self._logger.error(f"SourceFileWriter error: {e}", exc_info=True)
+                self._record_write_error(e)
                 self.write_queue.task_done()
 
     def save_file_metadata(

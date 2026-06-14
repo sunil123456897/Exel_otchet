@@ -4,6 +4,7 @@ import time
 import decimal
 import datetime
 import logging
+import threading
 from typing import Dict, Any
 from pathlib import Path
 
@@ -14,7 +15,7 @@ class DecimalEncoder(json.JSONEncoder):
             return str(obj)
         if hasattr(obj, "isoformat"):
             return obj.isoformat()
-        return super(DecimalEncoder, self).default(obj)
+        return super().default(obj)
 
 
 def sanitize_data(data: Any) -> Any:
@@ -27,13 +28,22 @@ def sanitize_data(data: Any) -> Any:
     return data
 
 
-class SQLiteConnectionManager:
-    def __init__(self, db_path: Path, config: Dict[str, Any]):
-        self.db_path = db_path
-        self.config = config
-        self.logger = logging.getLogger(__name__)
-        self.retry_count = config.get("locking", {}).get("retry_count", 3)
-        self.retry_backoff = config.get("locking", {}).get("retry_backoff", 1.0)
+# Module-level adapter/converter registration. sqlite3.register_adapter
+# and register_converter mutate global process state, so they must run
+# exactly once — calling them in SQLiteConnectionManager.__init__
+# re-registered (and re-wrapped) them on every connection manager. A
+# lock guards the once-flag for import-time thread safety.
+_ADAPTERS_REGISTERED = False
+_ADAPTERS_LOCK = threading.Lock()
+
+
+def _register_sqlite_adapters_once() -> None:
+    global _ADAPTERS_REGISTERED
+    if _ADAPTERS_REGISTERED:
+        return
+    with _ADAPTERS_LOCK:
+        if _ADAPTERS_REGISTERED:
+            return
 
         sqlite3.register_adapter(decimal.Decimal, str)
 
@@ -53,6 +63,24 @@ class SQLiteConnectionManager:
                 return decimal.Decimal("0")
 
         sqlite3.register_converter("NUMERIC", _convert_numeric)
+        _ADAPTERS_REGISTERED = True
+
+
+# Register on import so the first SQLiteConnectionManager is unaffected.
+_register_sqlite_adapters_once()
+
+
+class SQLiteConnectionManager:
+    def __init__(self, db_path: Path, config: Dict[str, Any]):
+        self.db_path = db_path
+        self.config = config
+        self.logger = logging.getLogger(__name__)
+        self.retry_count = config.get("locking", {}).get("retry_count", 3)
+        self.retry_backoff = config.get("locking", {}).get("retry_backoff", 1.0)
+
+        # Adapters/converters are registered once at module import; the
+        # per-instance registration that used to live here was redundant
+        # and re-wrapped the globals on every connection manager.
 
     def get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(
@@ -133,16 +161,65 @@ class SQLiteConnectionManager:
                 name = migration_path.name
                 if name in applied:
                     continue
-                with open(migration_path, "r", encoding="utf-8") as f:
-                    conn.executescript(f.read())
-                conn.execute(
-                    "INSERT INTO _migrations (filename) VALUES (?)",
-                    (name,),
-                )
-                conn.commit()
-                self.logger.info("Applied migration: %s", name)
+                # Apply each migration as one atomic unit: the DDL and the
+                # _migrations row commit together. executescript() implicitly
+                # commits any open transaction, so we drive the migration
+                # statement-by-statement inside an explicit BEGIN IMMEDIATE
+                # instead — that way a crash between 'DDL applied' and
+                # 'migration recorded' can't leave a half-applied migration
+                # that re-runs (and may fail) on the next start.
+                sql_text = migration_path.read_text(encoding="utf-8")
+                statements = self._split_sql_statements(sql_text)
+                try:
+                    conn.execute("BEGIN IMMEDIATE")
+                    try:
+                        for stmt in statements:
+                            if stmt.strip():
+                                conn.execute(stmt)
+                        conn.execute(
+                            "INSERT INTO _migrations (filename) VALUES (?)",
+                            (name,),
+                        )
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        raise
+                    self.logger.info("Applied migration: %s", name)
+                except sqlite3.Error as exc:
+                    # A failing migration must not prevent the rest of
+                    # startup; surface it loudly but keep going so the
+                    # app is at least usable for diagnosis.
+                    self.logger.error(
+                        "Migration %s failed and was rolled back: %s",
+                        name, exc,
+                    )
+                    raise
         finally:
             conn.close()
+
+    @staticmethod
+    def _split_sql_statements(sql_text: str) -> list[str]:
+        """Split a .sql script into individual statements.
+
+        Keeps it simple: split on ';'. Multi-line DDL and comments are
+        fine; the migration files in this project are plain CREATE
+        TABLE / CREATE INDEX scripts without triggers or procedures, so
+        a naive split is sufficient and avoids the implicit-commit
+        behaviour of executescript().
+        """
+        statements: list[str] = []
+        for raw in sql_text.split(";"):
+            # Drop full-line and trailing comments so empty/comment-only
+            # splits don't reach execute() as no-ops that some SQLite
+            # builds reject.
+            lines = [
+                line for line in raw.splitlines()
+                if not line.strip().startswith("--")
+            ]
+            stmt = "\n".join(lines).strip()
+            if stmt:
+                statements.append(stmt + ";")
+        return statements
 
     def execute_with_retry(self, func, *args, **kwargs):
         """Execute a function with exponential backoff on transient SQLite errors."""
