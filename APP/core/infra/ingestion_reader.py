@@ -32,6 +32,17 @@ _TRASH_KEYWORDS = (
     "итог дня",
     "итоги дня",
 )
+# Pre-compiled trash-row detector: _is_trash_row used to rebuild this
+# regex (re.escape + re.search) once per cell × keyword — the profiler
+# showed it dominated ingestion (~86% of wall time on a 10-file batch,
+# 2.27M re.escape calls). Compiling the alternation once collapses
+# that to a single regex search per cell. Word boundaries are kept via
+# the same lookarounds so matching semantics are unchanged.
+_TRASH_PATTERN = re.compile(
+    r"(?<![а-яёa-z0-9])(?:"
+    + "|".join(re.escape(tk) for tk in _TRASH_KEYWORDS if tk)
+    + r")(?![а-яёa-z0-9])"
+)
 _NUMERIC_FIELDS = frozenset(
     {
         "amount",
@@ -493,14 +504,13 @@ class CalamineReader:
 
     @staticmethod
     def _is_trash_row(row: List[Any]) -> bool:
-        row_values_lower = [_normalize_header_text(v) for v in row if v is not None]
-        for val_lower in row_values_lower:
-            for tk in _TRASH_KEYWORDS:
-                if not tk:
-                    continue
-                pattern = r"(?<![а-яёa-z0-9])" + re.escape(tk) + r"(?![а-яёa-z0-9])"
-                if re.search(pattern, val_lower):
-                    return True
+        # One pre-compiled alternation search per cell (see _TRASH_PATTERN).
+        # The previous version rebuilt re.escape+re.search per cell×keyword.
+        for v in row:
+            if v is None:
+                continue
+            if _TRASH_PATTERN.search(_normalize_header_text(v)):
+                return True
         return False
 
     @staticmethod
