@@ -70,6 +70,7 @@ APP/toxic_run.py
 tools/*
 !tools/
 !tools/update_from_github.ps1
+!tools/precommit_check.py
 
 # Temporary test results and scripts
 docs/superpowers/
@@ -83,6 +84,27 @@ APP/output/*_suppressed.xlsx
 **/!*.xlsx
 
 # Local production Excel files and generated workbooks.
+# All spreadsheet outputs are local data, never shipped to the customer repo.
 Master_Report.xlsx
 *.xls
 *.xlsb
+*.xlsx
+
+# Local multi-agent QA workspace (briefings, handoffs, bug reports) — internal only.
+.agents/
+logs/
+console_err.txt
+console_out.txt
+last_bat_err.txt
+last_bat_out.txt
+APP/cache.db*
+
+# Local QA / evaluation tooling and verification outputs — internal only.
+oracle.py
+rlm_eval*.py
+rlm_report/
+RECONCILIATION_*/
+PROJECT.md
+bad.xlsx
+test.xlsx
+Ване/
