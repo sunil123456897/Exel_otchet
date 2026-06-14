@@ -203,14 +203,22 @@ APP/core/infra/
 
 Актуально на июнь 2026:
 
-- `pytest`: **203 passed, 0 failed** (включая новые тесты reconciliation + rsch)
-- `ruff check APP tests`: **0 errors** (F401 unused-imports исправлены)
-- `mypy --strict`: ~220 предупреждений в baseline (новые блокируются pre-commit хуком)
+- `pytest`: **328 passed, 0 failed** (включая регрессионные тесты Фаз 0-3: Tk-marshaling, закрытие workbooks, fail-soft сверки, точность Decimal, поведение financial rules, парсинг дат, DB-репозитории, надёжность EventBus/миграций)
+- `ruff check APP tests`: **0 errors**
+- `mypy --strict`: 561 предупреждение в baseline `.mypy_baseline.txt` (новые блокируются pre-commit хуком; после Фаз 0-3 baseline сокращён на 41 ошибку)
 - `compileall -q APP`: OK
 
-Команда для полного прогона:
+Команда для полного прогона (из корня проекта, тесты запускаются с `APP/` в `sys.path`):
 ```bash
-PYTHONPATH=E:/Dlia Dashi/Version5/APP .venv/Scripts/python.exe -m pytest tests/ -q -p no:cacheprovider
+.venv/Scripts/python.exe -m pytest tests/ -q -p no:cacheprovider
 .venv/Scripts/python.exe -m ruff check APP tests
 .venv/Scripts/python.exe -m compileall -q APP
 ```
+
+## Гарантии надёжности (Фазы 0-3)
+
+Приложение пережило четыре волны стабилизации без изменения финансовой семантики:
+
+- **Phase 0 (стабильность):** Tk-колбэки прогресса маршалируются в GUI-поток; все openpyxl workbook'и закрываются в `try/finally` (нет «файл занят в Excel» при повторе); грязная ячейка суммы в сверке логируется и пропускается, не роняя лист.
+- **Phase 1 (финансы):** `Decimal` из `LogicService` идёт в Excel напрямую (без `float`-приведения); валидатор `FinancialRowSchema` больше не течёт сырыми строками в Decimal-поля.
+- **Phase 3 (надёжность):** `EventBus.get()` под double-checked locking; миграции применяются атомарно (DDL + запись в `_migrations` в одной транзакции); `SourceFileRepository` surfaced writer-thread ошибки через `write_error`; `sqlite3` adapter'ы регистрируются один раз на уровне модуля.
