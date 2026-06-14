@@ -294,6 +294,16 @@ class LogicService(ILogicService):
         is_critical: bool,
         is_warn: bool,
     ) -> Dict[str, Any]:
+        # transit/rate/currency_amount may carry garbage (e.g. a header
+        # label that leaked into a data cell like ' ОТПРАВКА ТРАНЗИТНЫХ
+        # ОБЯЗАТЕЛЬСТВ'). The strict to_decimal() raises NumericParsingError
+        # on such values, which is wrapped for amount/total/brokers above
+        # but was NOT wrapped here — so one dirty transit cell crashed the
+        # whole curator batch (and with it the Ivan sheet of auto-recon).
+        # Use the same fail-soft helper the brokers use.
+        transit_val, _ = self._parse_decimal_or_warn(r.get("transit_obligation", 0))
+        rate_val, _ = self._parse_decimal_or_warn(r.get("exchange_rate", 0))
+        cur_amt_val, _ = self._parse_decimal_or_warn(r.get("currency_amount", 0))
         return {
             "Дата": r.get("date", ""),
             "Источник": r.get("_source_info", "Unknown"),
@@ -313,11 +323,9 @@ class LogicService(ILogicService):
             "посредник 2": b2_val,
             "% посредник 2": pb2_val,
             "Посредник 2 (сумма)": broker2_calc,
-            "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ": to_decimal(
-                r.get("transit_obligation", 0)
-            ),
-            "курс": to_decimal(r.get("exchange_rate", 0)),
-            "сумма": to_decimal(r.get("currency_amount", 0)),
+            "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ": transit_val,
+            "курс": rate_val,
+            "сумма": cur_amt_val,
             "валюта": self._sanitize(r.get("currency", "")),
             "фильтры": self._sanitize(r.get("filters", "")),
             "is_critical": is_critical,
@@ -325,8 +333,8 @@ class LogicService(ILogicService):
             "_template_warning_kind": r.get("_template_warning_kind"),
             "_template_warning_reason": r.get("_template_warning_reason"),
             "_source_file_path": r.get("_file_path"),
-            "_source_sheet_name": r.get("_sheet_name"),
-            "_source_row_index": r.get("_row_index"),
+            "_source_sheet_name": r.get("_source_sheet_name"),
+            "_source_row_index": r.get("_source_row_index"),
         }
 
     def apply_financial_rules(
