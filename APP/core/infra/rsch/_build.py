@@ -432,86 +432,104 @@ def build_rsch_report(
 
     rows: List[Dict[str, Any]] = []
     issues: List[str] = []
-    for src_path in source_paths:
-        rows.extend(
-            _collect_rows_from_workbook(
-                src_path,
-                target_date,
-                issues,
-                start_date=start_date,
-                end_date=end_date,
-                drive_letters=drive_letters,
+    try:
+        for src_path in source_paths:
+            rows.extend(
+                _collect_rows_from_workbook(
+                    src_path,
+                    target_date,
+                    issues,
+                    start_date=start_date,
+                    end_date=end_date,
+                    drive_letters=drive_letters,
+                )
             )
-        )
 
-    if issues_sink is not None:
-        issues_sink.extend(issues)
+        if issues_sink is not None:
+            issues_sink.extend(issues)
 
-    if issues:
-        logger.warning(
-            "РСЧ: обнаружены проблемы в листах (%s). Сборка продолжена по валидным листам.",
-            len(issues),
-        )
+        if issues:
+            logger.warning(
+                "РСЧ: обнаружены проблемы в листах (%s). Сборка продолжена по валидным листам.",
+                len(issues),
+            )
+            if not rows:
+                preview = "; ".join(issues[:3])
+                if len(issues) > 3:
+                    preview += " ..."
+                raise RuntimeError(
+                    "РСЧ: не удалось собрать строки из выбранных файлов. "
+                    f"Проблемы: {preview}"
+                )
+
         if not rows:
-            preview = "; ".join(issues[:3])
-            if len(issues) > 3:
-                preview += " ..."
-            raise RuntimeError(
-                "РСЧ: не удалось собрать строки из выбранных файлов. "
-                f"Проблемы: {preview}"
+            logger.info(
+                "RSC report skipped: no rows matched requested date/range (output=%s, sources=%s)",
+                output_path,
+                len(source_paths),
             )
+            return 0
 
-    if not rows:
+        use_period = start_date is not None and end_date is not None
+        wb_out = Workbook()
+        try:
+            if use_period and rows:
+                rows_by_date: Dict[date, List[Dict[str, Any]]] = {}
+                for row in rows:
+                    rows_by_date.setdefault(row["date"], []).append(row)
+                for idx, row_date in enumerate(sorted(rows_by_date), start=1):
+                    _write_rsch_sheet(
+                        wb_out,
+                        template_ws,
+                        row_date.strftime("%d.%m"),
+                        rows_by_date[row_date],
+                        first_sheet=idx == 1,
+                    )
+                # Сводная таблица за весь период на последнем листе
+                sorted_all_rows = sorted(rows, key=lambda r: r["date"])
+                _write_rsch_sheet(
+                    wb_out,
+                    template_ws,
+                    "Период",
+                    sorted_all_rows,
+                    first_sheet=False,
+                    is_table=True,
+                )
+            else:
+                sheet_date = target_date or start_date
+                sheet_name = sheet_date.strftime("%d.%m") if sheet_date else template_ws.title
+                _write_rsch_sheet(
+                    wb_out,
+                    template_ws,
+                    sheet_name,
+                    rows,
+                    first_sheet=True,
+                )
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            backup_existing_excel_output(output_path)
+            wb_out.save(output_path)
+        finally:
+            # Guarantee the output workbook handle is released even if
+            # writing aborts mid-sheet, otherwise a retry on Windows
+            # fails with a locked-file error.
+            try:
+                wb_out.close()
+            except Exception:
+                pass
+
         logger.info(
-            "RSC report skipped: no rows matched requested date/range (output=%s, sources=%s)",
+            "RSC report generated: %s (rows=%s, sources=%s)",
             output_path,
+            len(rows),
             len(source_paths),
         )
-        return 0
-
-    use_period = start_date is not None and end_date is not None
-    wb_out = Workbook()
-    if use_period and rows:
-        rows_by_date: Dict[date, List[Dict[str, Any]]] = {}
-        for row in rows:
-            rows_by_date.setdefault(row["date"], []).append(row)
-        for idx, row_date in enumerate(sorted(rows_by_date), start=1):
-            _write_rsch_sheet(
-                wb_out,
-                template_ws,
-                row_date.strftime("%d.%m"),
-                rows_by_date[row_date],
-                first_sheet=idx == 1,
-            )
-        # Сводная таблица за весь период на последнем листе
-        sorted_all_rows = sorted(rows, key=lambda r: r["date"])
-        _write_rsch_sheet(
-            wb_out,
-            template_ws,
-            "Период",
-            sorted_all_rows,
-            first_sheet=False,
-            is_table=True,
-        )
-    else:
-        sheet_date = target_date or start_date
-        sheet_name = sheet_date.strftime("%d.%m") if sheet_date else template_ws.title
-        _write_rsch_sheet(
-            wb_out,
-            template_ws,
-            sheet_name,
-            rows,
-            first_sheet=True,
-        )
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    backup_existing_excel_output(output_path)
-    wb_out.save(output_path)
-    wb_template.close()
-    logger.info(
-        "RSC report generated: %s (rows=%s, sources=%s)",
-        output_path,
-        len(rows),
-        len(source_paths),
-    )
-    return len(rows)
+        return len(rows)
+    finally:
+        # The template workbook is only needed during the build; close
+        # it once the sheets are written so we never leak the handle
+        # when an exception aborts the build early.
+        try:
+            wb_template.close()
+        except Exception:
+            pass

@@ -424,43 +424,56 @@ class MasterWriter(IExporter):
         self, date, rows, wb=None, sh_name_override=None, curator=None, headers=None
     ):
         should_save = False
+        owns_wb = False
         if wb is None:
             wb = self._get_workbook()
+            owns_wb = True
             should_save = True
 
-        sh_name = sh_name_override or date.strftime("%d.%m.%Y")
-        if sh_name in wb.sheetnames:
-            del wb[sh_name]
-        ws = wb.create_sheet(sh_name)
-        # Make the newly created sheet active so wb.active access works as expected
-        wb.active = wb.sheetnames.index(sh_name)
+        try:
+            sh_name = sh_name_override or date.strftime("%d.%m.%Y")
+            if sh_name in wb.sheetnames:
+                del wb[sh_name]
+            ws = wb.create_sheet(sh_name)
+            # Make the newly created sheet active so wb.active access works as expected
+            wb.active = wb.sheetnames.index(sh_name)
 
-        ws.append(headers or DEFAULT_HEADERS)
-        self._apply_header_style(ws)
-        ws.freeze_panes = "A2"
+            ws.append(headers or DEFAULT_HEADERS)
+            self._apply_header_style(ws)
+            ws.freeze_panes = "A2"
 
-        warning_rows, row_to_data_idx = self._append_data_rows(ws, date, rows, curator=curator)
+            warning_rows, row_to_data_idx = self._append_data_rows(ws, date, rows, curator=curator)
 
-        cols, num_indices, percent_broker_cols = detect_header_columns(ws)
+            cols, num_indices, percent_broker_cols = detect_header_columns(ws)
 
-        apply_cell_styling(
-            ws,
-            rows,
-            warning_rows,
-            cols,
-            num_indices,
-            percent_broker_cols,
-            self.st,
-            self.return_keywords,
-            row_to_data_idx=row_to_data_idx,
-        )
+            apply_cell_styling(
+                ws,
+                rows,
+                warning_rows,
+                cols,
+                num_indices,
+                percent_broker_cols,
+                self.st,
+                self.return_keywords,
+                row_to_data_idx=row_to_data_idx,
+            )
 
-        build_total_row(ws, num_indices, self.st)
+            build_total_row(ws, num_indices, self.st)
 
-        self._auto_adjust(ws)
-        if should_save:
-            if not self._save_workbook(wb):
-                logger.error("Failed to save workbook in write_daily_data()")
+            self._auto_adjust(ws)
+            if should_save:
+                if not self._save_workbook(wb):
+                    logger.error("Failed to save workbook in write_daily_data()")
+        finally:
+            # When we opened the workbook ourselves, guarantee it is
+            # closed even if an exception aborted the build before the
+            # save branch ran (otherwise the handle stays locked and a
+            # retry hits "file is busy" on Windows).
+            if owns_wb:
+                try:
+                    wb.close()
+                except Exception:
+                    pass
 
     def write_empty_daily_report(
         self,
@@ -475,14 +488,23 @@ class MasterWriter(IExporter):
         wb = self._get_workbook(path=str(path))
         if wb is None:
             return False
-        self.write_daily_data(
-            date,
-            [],
-            wb=wb,
-            curator=curator,
-            headers=headers,
-        )
-        return self._save_workbook(wb, path=str(path))
+        try:
+            self.write_daily_data(
+                date,
+                [],
+                wb=wb,
+                curator=curator,
+                headers=headers,
+            )
+            return self._save_workbook(wb, path=str(path))
+        finally:
+            # _save_workbook closes wb on success; close explicitly on the
+            # error path so a failed empty-report build doesn't leave the
+            # file handle locked.
+            try:
+                wb.close()
+            except Exception:
+                pass
 
     def write_report(
         self,
@@ -566,20 +588,29 @@ class MasterWriter(IExporter):
             wb = self._get_workbook(path=str(path))
             if wb is None:
                 return False
-            for d_str, rows in sorted(dbd.items()):
+            try:
+                for d_str, rows in sorted(dbd.items()):
+                    try:
+                        dt = datetime.strptime(d_str, "%d.%m.%Y")
+                        self.write_daily_data(
+                            dt,
+                            rows,
+                            wb=wb,
+                            curator=curator,
+                            headers=headers,
+                        )
+                    except Exception as e:
+                        logger.error(f"Date error {d_str}: {e}")
+                self._write_template_errors_sheet(wb, template_errors or [])
+                return self._save_workbook(wb, path=str(path))
+            finally:
+                # _save_workbook closes wb on success; this guarantees
+                # close on the error paths too (exception raised between
+                # open and save left the handle locked on disk).
                 try:
-                    dt = datetime.strptime(d_str, "%d.%m.%Y")
-                    self.write_daily_data(
-                        dt,
-                        rows,
-                        wb=wb,
-                        curator=curator,
-                        headers=headers,
-                    )
-                except Exception as e:
-                    logger.error(f"Date error {d_str}: {e}")
-            self._write_template_errors_sheet(wb, template_errors or [])
-            return self._save_workbook(wb, path=str(path))
+                    wb.close()
+                except Exception:
+                    pass
         except Exception as e:
             logger.error(f"Write error: {e}")
             return False

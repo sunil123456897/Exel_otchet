@@ -101,9 +101,11 @@ class GuiMaster:
         self.setup_ui()
         # Show operation progress in the window title.
         # Two mechanisms working together:
-        # 1. <<TitleUpdate>> virtual event: generated from
-        #    _on_consolidation_progress (background thread) via
-        #    event_generate(..., when='tail') — always reaches Tcl queue.
+        # 1. <<TitleUpdate>> virtual event: generated on the GUI thread
+        #    from _on_consolidation_progress (which is itself called
+        #    from the consolidation worker). The event_generate call is
+        #    marshalled via root.after(0, …) so no Tk API is touched
+        #    from a worker thread.
         # 2. Fallback poll every 500ms from GUI thread — catches the
         #    edge case where the virtual event is dropped.
         self._base_title = "🚀 Master-Report v5.5"
@@ -208,8 +210,13 @@ class GuiMaster:
             self.toasts.info("Отмена", "Операция будет остановлена на ближайшей контрольной точке")
 
     def _on_consolidation_progress(self, progress: float):
+        # Called from the consolidation worker thread. OperationState is
+        # thread-safe, but ``event_generate`` (and any Tk call) must run
+        # on the GUI thread — calling it directly from the worker races
+        # the Tcl event loop and corrupts Tk state under load (e.g.
+        # several concurrent consolidations + cancel). Marshal it.
         self.operation_state.set_progress(progress)
-        self.root.event_generate("<<TitleUpdate>>", when="tail")
+        self.root.after(0, lambda: self.root.event_generate("<<TitleUpdate>>"))
 
     def _update_title_from_state(self, _event=None) -> None:
         """Refresh window title from OperationState — always runs on GUI thread."""

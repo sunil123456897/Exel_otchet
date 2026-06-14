@@ -3,6 +3,7 @@ import re
 from decimal import Decimal
 from typing import Any, Callable, Optional
 from openpyxl.worksheet.worksheet import Worksheet
+from core.domain.data_loss_log import record_loss
 from core.infra.excel_hyperlinks import extract_hyperlink_formula_parts
 from ._types import MasterReconciliationRow, RschReconciliationRow, ReconciliationRow
 from ._utils import (_to_decimal, _normalize_text, _is_total_row,
@@ -14,6 +15,51 @@ from ._utils import (_to_decimal, _normalize_text, _is_total_row,
     _text_tokens, _compact_text)
 from ._resolve import (_executor_matches, _row_amount_matches,
     _rsch_customer_matches, _rsch_customer_matches_weak)
+
+
+def _to_decimal_soft(
+    value: Any,
+    *,
+    sheet: str,
+    row_index: int,
+    field: str,
+    source: str,
+) -> Decimal:
+    """Fail-soft amount parsing for reconciliation row collection.
+
+    Mirrors :func:`_to_decimal` but, instead of raising on a dirty cell,
+    logs the loss to ``data_loss.log`` and returns ``Decimal("0")`` so a
+    single bad amount never aborts the whole sheet. Returning 0 lets the
+    surrounding ``income == 0 and expense == 0`` filter drop the row
+    cleanly when both amounts are unusable.
+    """
+    try:
+        return _to_decimal(value)
+    except (ValueError, ArithmeticError):
+        record_loss(
+            source=source,
+            kind="reconciliation_amount_parse",
+            reason="Некорректное числовое значение в сверке; строка пропущена",
+            row_index=row_index,
+            sheet=sheet,
+            field=field,
+            original_value=value,
+        )
+        return Decimal("0")
+
+
+def _sheet_source(ws: Worksheet) -> str:
+    """Stable source identifier for a worksheet.
+
+    openpyxl does not retain the on-disk file path after ``load_workbook``
+    (``Workbook.path`` is the in-archive path ``/xl/workbook.xml``), so we
+    key data-loss entries on the sheet title. The reconciliation callers
+    already pass the on-disk paths to ``build_*_reconciliation_report``,
+    which is where the broader context lives.
+    """
+    return f"reconciliation:{ws.title}"
+
+
 
 def _header_map(ws: Worksheet, *, prefer_last: bool = False) -> dict[str, int]:
     headers: dict[str, int] = {}
@@ -113,8 +159,20 @@ def _collect_master_rows(
         executor = str(ws.cell(row_idx, executor_col).value or "").strip()
         if not customer and not executor:
             continue
-        income = _to_decimal(ws.cell(row_idx, income_col).value)
-        expense = _to_decimal(ws.cell(row_idx, expense_col).value)
+        income = _to_decimal_soft(
+            ws.cell(row_idx, income_col).value,
+            sheet=ws.title,
+            row_index=row_idx,
+            field="Приход",
+            source=_sheet_source(ws),
+        )
+        expense = _to_decimal_soft(
+            ws.cell(row_idx, expense_col).value,
+            sheet=ws.title,
+            row_index=row_idx,
+            field="Расход",
+            source=_sheet_source(ws),
+        )
         if income == 0 and expense == 0:
             continue
         values = [
@@ -145,8 +203,20 @@ def _collect_rsch_rows(ws: Worksheet) -> list[RschReconciliationRow]:
         first = ws.cell(row_idx, 1).value
         if _is_total_row(first):
             continue
-        income = _to_decimal(ws.cell(row_idx, headers["Приход"]).value)
-        expense = _to_decimal(ws.cell(row_idx, headers["Расход"]).value)
+        income = _to_decimal_soft(
+            ws.cell(row_idx, headers["Приход"]).value,
+            sheet=ws.title,
+            row_index=row_idx,
+            field="Приход",
+            source=_sheet_source(ws),
+        )
+        expense = _to_decimal_soft(
+            ws.cell(row_idx, headers["Расход"]).value,
+            sheet=ws.title,
+            row_index=row_idx,
+            field="Расход",
+            source=_sheet_source(ws),
+        )
         if income == 0 and expense == 0:
             continue
         customer = str(ws.cell(row_idx, headers["ЗАКАЗЧИК"]).value or "").strip()
