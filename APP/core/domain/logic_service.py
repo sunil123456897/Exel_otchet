@@ -58,8 +58,20 @@ class Validator(IValidator):
         if not customer and not contractor and not filters and _is_empty_zero(amount_val):
             return False
 
-        for val in row.values():
-            if val is None:
+        # Service metadata fields (private keys starting with '_') carry
+        # diagnostics like _template_warning_reason = 'unsupported header
+        # name: % -> % посредника; ...'. Those descriptions legitimately
+        # contain header words ('комиссия', 'фильтры', 'посредник'). The
+        # header-word filter used to scan EVERY field, so it matched the
+        # diagnostic text and rejected the whole row — which silently
+        # zeroed out the Boris/Ivan curator batches in auto-reconciliation
+        # (both files use aliased headers that trigger soft warnings).
+        # Skip private fields in the junk/header heuristics below.
+        def _is_service_field(key: str) -> bool:
+            return isinstance(key, str) and key.startswith("_")
+
+        for key, val in row.items():
+            if _is_service_field(key) or val is None:
                 continue
             s_norm = " ".join(str(val).lower().split())
             if any(w in s_norm for w in self._header_words):
@@ -74,7 +86,7 @@ class Validator(IValidator):
 
         non_name_marker_hits = 0
         for k, v in row.items():
-            if v is None or k in name_field_keys:
+            if v is None or k in name_field_keys or _is_service_field(k):
                 continue
             v_str = " ".join(str(v).lower().split())
             if any(m in v_str for m in self._junk_totals):
@@ -93,7 +105,9 @@ class Validator(IValidator):
 
         if name_fields_filled >= 2:
             row_str = " ".join(
-                " ".join(str(v).lower().split()) for v in row.values() if v is not None
+                " ".join(str(v).lower().split())
+                for k, v in row.items()
+                if v is not None and not _is_service_field(k)
             )
             if sum(1 for m in self._junk_markers if m in row_str) >= 3:
                 return False
