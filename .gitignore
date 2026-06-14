@@ -51,6 +51,7 @@ Version5.rar
 # Development-only files stay in the local/experiments workspace, not in runtime main.
 .coveragerc
 AGENTS.md
+BUGREPORT.md
 CLAUDE.md
 CHANGELOG.md
 NETWORK_STABILITY_REPORT.md
@@ -63,6 +64,7 @@ requirements-dev.txt
 APP/GEMINI.md
 APP/config.yaml
 APP/config.april-2026-test.yaml
+APP/employees.yaml
 APP/templates/
 APP/toxic_run.py
 tools/*
