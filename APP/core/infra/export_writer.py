@@ -1,12 +1,14 @@
 import os
 import logging
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill
 from core.domain import IExporter
+from core.domain.utils_helpers import to_decimal
 from core.infra import is_file_writable
 from core.infra.excel_backup import backup_existing_excel_output, resolve_excel_backup_keep
 from core.infra.export_formatting import ExcelStyles
@@ -220,21 +222,35 @@ class MasterWriter(IExporter):
         warning_rows = {}
         row_to_data_idx = {}
 
-        def _safe_float(v, default=0.0):
+        def _safe_decimal(v: Any, default: Decimal = Decimal("0")) -> Decimal:
+            """Coerce a financial cell value to Decimal without float loss.
+
+            The consolidated rows already carry Decimal values (built by
+            LogicService._build_result_row); float() here only hid that
+            fact and risked precision loss for >15-significant-digit
+            sums. Decimal passthrough is the honest contract — openpyxl
+            writes it straight into the cell's numeric value. Garbage
+            cells fall back to the domain parser and then to the default.
+            """
             if v is None or v == "":
-                return float(default)
+                return Decimal(default)
+            if isinstance(v, Decimal):
+                return v
+            if isinstance(v, bool):
+                # bool is an int subclass — guard before the int/float branch.
+                return Decimal("1") if v else Decimal("0")
             if isinstance(v, (int, float)):
-                return float(v)
+                return Decimal(str(v))
             try:
-                return float(v)
-            except (TypeError, ValueError):
+                return to_decimal(v)
+            except Exception:
                 logger.warning(
-                    "Could not convert %r to float; defaulting to 0. Sheet=%s, row=%s",
+                    "Could not convert %r to Decimal; defaulting to 0. Sheet=%s, row=%s",
                     v,
                     ws.title,
                     ws.max_row + 1,
                 )
-                return float(default)
+                return Decimal(default)
 
         def _get_employee(r):
             if curator == "ivan":
@@ -247,14 +263,14 @@ class MasterWriter(IExporter):
                     r.get("Источник", ""),
                     r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                     r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                    _safe_float(r.get("сумма платежа ПРИХОД", 0)),
-                    _safe_float(r.get("сумма платежа РАСХОД", 0)),
-                    _safe_float(r.get("комиссия", 0)),
-                    _safe_float(r.get("ИТОГ", 0)),
+                    _safe_decimal(r.get("сумма платежа ПРИХОД", 0)),
+                    _safe_decimal(r.get("сумма платежа РАСХОД", 0)),
+                    _safe_decimal(r.get("комиссия", 0)),
+                    _safe_decimal(r.get("ИТОГ", 0)),
                     r.get("% посредника", 0),
-                    _safe_float(r.get("посредник 1(кэш)", 0)),
+                    _safe_decimal(r.get("посредник 1(кэш)", 0)),
                     r.get("% посредник 2", 0),
-                    _safe_float(r.get("посредник 2", 0)),
+                    _safe_decimal(r.get("посредник 2", 0)),
                     r.get("фильтры", ""),
                 ]
             elif curator == "ivan":
@@ -262,14 +278,14 @@ class MasterWriter(IExporter):
                     r.get("Сотрудник", r.get("Источник", "")),
                     r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                     r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                    _safe_float(r.get("сумма платежа ПРИХОД", 0)),
-                    _safe_float(r.get("сумма платежа РАСХОД", 0)),
-                    _safe_float(r.get("комиссия", 0)),
-                    _safe_float(r.get("ИТОГ", 0)),
-                    _safe_float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
+                    _safe_decimal(r.get("сумма платежа ПРИХОД", 0)),
+                    _safe_decimal(r.get("сумма платежа РАСХОД", 0)),
+                    _safe_decimal(r.get("комиссия", 0)),
+                    _safe_decimal(r.get("ИТОГ", 0)),
+                    _safe_decimal(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                     r.get("% посредника", 0),
-                    _safe_float(r.get("посредник 1(кэш)", 0)),
-                    _safe_float(r.get("посредник 2", 0)),
+                    _safe_decimal(r.get("посредник 1(кэш)", 0)),
+                    _safe_decimal(r.get("посредник 2", 0)),
                     r.get("курс", ""),
                     r.get("сумма", ""),
                     r.get("валюта", ""),
@@ -280,14 +296,14 @@ class MasterWriter(IExporter):
                     r.get("Источник", ""),
                     r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                     r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                    _safe_float(r.get("сумма платежа ПРИХОД", 0)),
-                    _safe_float(r.get("сумма платежа РАСХОД", 0)),
-                    _safe_float(r.get("комиссия", 0)),
-                    _safe_float(r.get("ИТОГ", 0)),
-                    _safe_float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
+                    _safe_decimal(r.get("сумма платежа ПРИХОД", 0)),
+                    _safe_decimal(r.get("сумма платежа РАСХОД", 0)),
+                    _safe_decimal(r.get("комиссия", 0)),
+                    _safe_decimal(r.get("ИТОГ", 0)),
+                    _safe_decimal(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                     r.get("% посредника", 0),
-                    _safe_float(r.get("посредник 1(кэш)", 0)),
-                    _safe_float(r.get("посредник 2", 0)),
+                    _safe_decimal(r.get("посредник 1(кэш)", 0)),
+                    _safe_decimal(r.get("посредник 2", 0)),
                     r.get("фильтры", ""),
                 ]
 
@@ -354,14 +370,14 @@ class MasterWriter(IExporter):
                         r.get("Источник", ""),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                        _safe_float(r.get("сумма платежа ПРИХОД", 0)),
-                        _safe_float(r.get("сумма платежа РАСХОД", 0)),
-                        _safe_float(r.get("комиссия", 0)),
-                        _safe_float(r.get("ИТОГ", 0)),
+                        _safe_decimal(r.get("сумма платежа ПРИХОД", 0)),
+                        _safe_decimal(r.get("сумма платежа РАСХОД", 0)),
+                        _safe_decimal(r.get("комиссия", 0)),
+                        _safe_decimal(r.get("ИТОГ", 0)),
                         r.get("% посредника", 0),
-                        _safe_float(r.get("посредник 1(кэш)", 0)),
+                        _safe_decimal(r.get("посредник 1(кэш)", 0)),
                         r.get("% посредник 2", 0),
-                        _safe_float(r.get("посредник 2", 0)),
+                        _safe_decimal(r.get("посредник 2", 0)),
                         r.get("фильтры", ""),
                     ]
                 )
@@ -371,14 +387,14 @@ class MasterWriter(IExporter):
                         r.get("Сотрудник", r.get("Источник", "")),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                        _safe_float(r.get("сумма платежа ПРИХОД", 0)),
-                        _safe_float(r.get("сумма платежа РАСХОД", 0)),
-                        _safe_float(r.get("комиссия", 0)),
-                        _safe_float(r.get("ИТОГ", 0)),
-                        _safe_float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
+                        _safe_decimal(r.get("сумма платежа ПРИХОД", 0)),
+                        _safe_decimal(r.get("сумма платежа РАСХОД", 0)),
+                        _safe_decimal(r.get("комиссия", 0)),
+                        _safe_decimal(r.get("ИТОГ", 0)),
+                        _safe_decimal(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                         r.get("% посредника", 0),
-                        _safe_float(r.get("посредник 1(кэш)", 0)),
-                        _safe_float(r.get("посредник 2", 0)),
+                        _safe_decimal(r.get("посредник 1(кэш)", 0)),
+                        _safe_decimal(r.get("посредник 2", 0)),
                         r.get("курс", ""),
                         r.get("сумма", ""),
                         r.get("валюта", ""),
@@ -391,14 +407,14 @@ class MasterWriter(IExporter):
                         r.get("Источник", ""),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
-                        _safe_float(r.get("сумма платежа ПРИХОД", 0)),
-                        _safe_float(r.get("сумма платежа РАСХОД", 0)),
-                        _safe_float(r.get("комиссия", 0)),
-                        _safe_float(r.get("ИТОГ", 0)),
-                        _safe_float(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
+                        _safe_decimal(r.get("сумма платежа ПРИХОД", 0)),
+                        _safe_decimal(r.get("сумма платежа РАСХОД", 0)),
+                        _safe_decimal(r.get("комиссия", 0)),
+                        _safe_decimal(r.get("ИТОГ", 0)),
+                        _safe_decimal(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                         r.get("% посредника", 0),
-                        _safe_float(r.get("посредник 1(кэш)", 0)),
-                        _safe_float(r.get("посредник 2", 0)),
+                        _safe_decimal(r.get("посредник 1(кэш)", 0)),
+                        _safe_decimal(r.get("посредник 2", 0)),
                         r.get("фильтры", ""),
                     ]
                 )
