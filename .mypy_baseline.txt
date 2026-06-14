@@ -104,8 +104,8 @@ APP\core\infra\export_formatting.py:349: error: Function is missing a type annot
 APP\core\infra\export_formatting.py:359: error: Function is missing a return type annotation  [no-untyped-def]
 APP\core\infra\export_formatting.py:359: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 APP\core\infra\excel_backup.py:9: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
-APP\core\infra\db_connection.py:12: error: Function is missing a type annotation  [no-untyped-def]
-APP\core\infra\db_connection.py:147: error: Function is missing a type annotation  [no-untyped-def]
+APP\core\infra\db_connection.py:13: error: Function is missing a type annotation  [no-untyped-def]
+APP\core\infra\db_connection.py:224: error: Function is missing a type annotation  [no-untyped-def]
 APP\core\infra\rsch\_format.py:146: error: Missing type parameters for generic type "tuple"  [type-arg]
 APP\core\infra\rsch\_format.py:196: error: Returning Any from function declared to return "bool"  [no-any-return]
 APP\core\domain\data_loss_log.py:44: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
@@ -130,29 +130,25 @@ APP\core\infra\staging_repo.py:164: error: Call to untyped function "stop" in ty
 APP\core\infra\staging_repo.py:167: error: Function is missing a return type annotation  [no-untyped-def]
 APP\core\infra\staging_repo.py:167: note: Use "-> None" if function does not return a value
 APP\core\infra\source_file_repo.py:12: error: Need type annotation for "write_queue"  [var-annotated]
-APP\core\infra\source_file_repo.py:19: error: Function is missing a return type annotation  [no-untyped-def]
-APP\core\infra\source_file_repo.py:19: note: Use "-> None" if function does not return a value
-APP\core\infra\source_file_repo.py:27: error: Call to untyped function "execute_with_retry" in typed context  [no-untyped-call]
 APP\core\infra\source_file_repo.py:38: error: Function is missing a return type annotation  [no-untyped-def]
-APP\core\infra\source_file_repo.py:79: error: Returning Any from function declared to return "list[int]"  [no-any-return]
-APP\core\infra\source_file_repo.py:79: error: Call to untyped function "execute_with_retry" in typed context  [no-untyped-call]
-APP\core\infra\source_file_repo.py:119: error: Function is missing a return type annotation  [no-untyped-def]
-APP\core\infra\source_file_repo.py:119: note: Use "-> None" if function does not return a value
-APP\core\infra\source_file_repo.py:158: error: Returning Any from function declared to return "list[dict[str, Any]] | None"  [no-any-return]
-APP\core\infra\source_file_repo.py:171: error: Function is missing a return type annotation  [no-untyped-def]
-APP\core\infra\source_file_repo.py:171: note: Use "-> None" if function does not return a value
-APP\core\infra\source_file_repo.py:207: error: Returning Any from function declared to return "list[dict[str, Any]] | None"  [no-any-return]
-APP\core\infra\source_file_repo.py:215: error: Function is missing a return type annotation  [no-untyped-def]
-APP\core\infra\source_file_repo.py:215: note: Use "-> None" if function does not return a value
-APP\core\infra\source_file_repo.py:237: error: Function is missing a return type annotation  [no-untyped-def]
-APP\core\infra\source_file_repo.py:237: note: Use "-> None" if function does not return a value
-APP\core\infra\source_file_repo.py:238: error: Call to untyped function "wait_for_writes" in typed context  [no-untyped-call]
-APP\core\infra\source_file_repo.py:242: error: Function is missing a return type annotation  [no-untyped-def]
-APP\core\infra\source_file_repo.py:242: note: Use "-> None" if function does not return a value
-APP\core\infra\command_router.py:26: error: Missing type parameters for generic type "tuple"  [type-arg]
-APP\core\infra\command_router.py:27: error: Missing type parameters for generic type "dict"  [type-arg]
-APP\core\infra\command_router.py:42: error: Missing type parameters for generic type "Callable"  [type-arg]
-APP\core\infra\command_router.py:67: error: Unpacked dict entry 0 has incompatible type "dict[Any, Any] | None"; expected "SupportsKeysAndGetItem[Any, Any]"  [dict-item]
+APP\core\infra\source_file_repo.py:38: note: Use "-> None" if function does not return a value
+APP\core\infra\source_file_repo.py:46: error: Call to untyped function "execute_with_retry" in typed context  [no-untyped-call]
+APP\core\infra\source_file_repo.py:58: error: Function is missing a return type annotation  [no-untyped-def]
+APP\core\infra\source_file_repo.py:99: error: Returning Any from function declared to return "list[int]"  [no-any-return]
+APP\core\infra\source_file_repo.py:99: error: Call to untyped function "execute_with_retry" in typed context  [no-untyped-call]
+APP\core\infra\source_file_repo.py:139: error: Function is missing a return type annotation  [no-untyped-def]
+APP\core\infra\source_file_repo.py:139: note: Use "-> None" if function does not return a value
+APP\core\infra\source_file_repo.py:178: error: Returning Any from function declared to return "list[dict[str, Any]] | None"  [no-any-return]
+APP\core\infra\source_file_repo.py:191: error: Function is missing a return type annotation  [no-untyped-def]
+APP\core\infra\source_file_repo.py:191: note: Use "-> None" if function does not return a value
+APP\core\infra\source_file_repo.py:227: error: Returning Any from function declared to return "list[dict[str, Any]] | None"  [no-any-return]
+APP\core\infra\source_file_repo.py:235: error: Function is missing a return type annotation  [no-untyped-def]
+APP\core\infra\source_file_repo.py:235: note: Use "-> None" if function does not return a value
+APP\core\infra\source_file_repo.py:257: error: Function is missing a return type annotation  [no-untyped-def]
+APP\core\infra\source_file_repo.py:257: note: Use "-> None" if function does not return a value
+APP\core\infra\source_file_repo.py:258: error: Call to untyped function "wait_for_writes" in typed context  [no-untyped-call]
+APP\core\infra\source_file_repo.py:262: error: Function is missing a return type annotation  [no-untyped-def]
+APP\core\infra\source_file_repo.py:262: note: Use "-> None" if function does not return a value
 APP\core\ui\ui_stats_panel.py:20: error: Function is missing a type annotation  [no-untyped-def]
 APP\core\ui\ui_stats_panel.py:23: error: Call to untyped function "_setup_ui" in typed context  [no-untyped-call]
 APP\core\ui\ui_stats_panel.py:25: error: Function is missing a return type annotation  [no-untyped-def]
@@ -198,11 +194,11 @@ APP\core\ui\ui_sidebar.py:399: error: Function is missing a type annotation  [no
 APP\core\ui\ui_sidebar.py:402: error: Function is missing a type annotation  [no-untyped-def]
 APP\core\ui\ui_sidebar.py:407: error: Function is missing a type annotation  [no-untyped-def]
 APP\core\ui\ui_sidebar.py:426: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
-APP\core\domain\logic_service.py:130: error: Missing type parameters for generic type "tuple"  [type-arg]
-APP\core\domain\logic_service.py:138: error: Function is missing a type annotation  [no-untyped-def]
-APP\core\domain\logic_service.py:153: error: Function is missing a type annotation  [no-untyped-def]
-APP\core\domain\logic_service.py:332: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
-APP\core\domain\logic_service.py:450: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
+APP\core\domain\logic_service.py:144: error: Missing type parameters for generic type "tuple"  [type-arg]
+APP\core\domain\logic_service.py:152: error: Function is missing a type annotation  [no-untyped-def]
+APP\core\domain\logic_service.py:167: error: Function is missing a type annotation  [no-untyped-def]
+APP\core\domain\logic_service.py:354: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
+APP\core\domain\logic_service.py:472: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 APP\core\infra\config_controller.py:32: error: Function is missing a return type annotation  [no-untyped-def]
 APP\core\infra\config_controller.py:32: note: Use "-> None" if function does not return a value
 APP\core\infra\config_controller.py:68: error: Function is missing a return type annotation  [no-untyped-def]
@@ -258,21 +254,21 @@ APP\core\infra\session_repo.py:228: error: Call to untyped function "wait_for_wr
 APP\core\infra\session_repo.py:237: error: Call to untyped function "_get_connection" in typed context  [no-untyped-call]
 APP\core\infra\session_repo.py:244: error: Call to untyped function "close" in typed context  [no-untyped-call]
 APP\core\infra\session_repo.py:245: error: Call to untyped function "close" in typed context  [no-untyped-call]
-APP\core\infra\ingestion_reader.py:121: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
-APP\core\infra\ingestion_reader.py:148: error: Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"  [arg-type]
-APP\core\infra\ingestion_reader.py:151: error: Incompatible return value type (got "dict[str, object]", expected "str | None")  [return-value]
-APP\core\infra\ingestion_reader.py:195: error: Unsupported operand types for >= ("date" and "None")  [operator]
-APP\core\infra\ingestion_reader.py:195: note: Left operand is of type "date | None"
-APP\core\infra\ingestion_reader.py:195: error: Unsupported operand types for <= ("date" and "None")  [operator]
-APP\core\infra\ingestion_reader.py:195: note: Right operand is of type "date | None"
-APP\core\infra\ingestion_reader.py:211: error: Missing type parameters for generic type "tuple"  [type-arg]
-APP\core\infra\ingestion_reader.py:547: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
-APP\core\infra\ingestion_reader.py:589: error: Missing type parameters for generic type "set"  [type-arg]
-APP\core\infra\ingestion_reader.py:639: error: Missing type parameters for generic type "tuple"  [type-arg]
-APP\core\infra\ingestion_reader.py:777: error: Missing type parameters for generic type "tuple"  [type-arg]
-APP\core\infra\ingestion_reader.py:879: error: Function is missing a return type annotation  [no-untyped-def]
-APP\core\infra\ingestion_reader.py:879: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
-APP\core\infra\ingestion_reader.py:901: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
+APP\core\infra\ingestion_reader.py:132: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
+APP\core\infra\ingestion_reader.py:159: error: Argument 1 to "int" has incompatible type "Any | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"  [arg-type]
+APP\core\infra\ingestion_reader.py:162: error: Incompatible return value type (got "dict[str, object]", expected "str | None")  [return-value]
+APP\core\infra\ingestion_reader.py:206: error: Unsupported operand types for >= ("date" and "None")  [operator]
+APP\core\infra\ingestion_reader.py:206: note: Left operand is of type "date | None"
+APP\core\infra\ingestion_reader.py:206: error: Unsupported operand types for <= ("date" and "None")  [operator]
+APP\core\infra\ingestion_reader.py:206: note: Right operand is of type "date | None"
+APP\core\infra\ingestion_reader.py:222: error: Missing type parameters for generic type "tuple"  [type-arg]
+APP\core\infra\ingestion_reader.py:557: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
+APP\core\infra\ingestion_reader.py:599: error: Missing type parameters for generic type "set"  [type-arg]
+APP\core\infra\ingestion_reader.py:649: error: Missing type parameters for generic type "tuple"  [type-arg]
+APP\core\infra\ingestion_reader.py:787: error: Missing type parameters for generic type "tuple"  [type-arg]
+APP\core\infra\ingestion_reader.py:889: error: Function is missing a return type annotation  [no-untyped-def]
+APP\core\infra\ingestion_reader.py:889: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
+APP\core\infra\ingestion_reader.py:911: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 APP\core\infra\rsch\_collect.py:23: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
 APP\core\infra\rsch\_collect.py:32: error: Missing type parameters for generic type "tuple"  [type-arg]
 APP\core\infra\rsch\_collect.py:48: error: Missing type parameters for generic type "tuple"  [type-arg]
