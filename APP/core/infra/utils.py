@@ -21,6 +21,38 @@ def open_path(path: str):
         subprocess.run(["xdg-open", path], check=False)
 
 
+def atomic_save_workbook(wb, output_path: Path) -> None:
+    """Save an openpyxl workbook to output_path atomically.
+
+    Writes to a sibling temp file then os.replace's it over the target, so a
+    crash or window-close mid-save never leaves a truncated/half-written
+    workbook. The backup_existing_excel_output call (done by the caller)
+    protects the previous version; this guards the live file.
+
+    Mirrors the proven pattern in export_writer._save_workbook_inner, but as
+    a free function so rsch/ and reconciliation/ can share one implementation.
+    """
+    output_path = Path(output_path)
+    tmp = str(output_path) + ".tmp"
+    # Long Windows paths need the \\?\ prefix.
+    if os.name == "nt" and len(tmp) > 250:
+        tmp = "\\\\?\\" + tmp
+        target = "\\\\?\\" + str(output_path)
+    else:
+        target = str(output_path)
+    try:
+        wb.save(tmp)
+        os.replace(tmp, target)
+    except Exception:
+        # Clean up the partial temp file so a retry does not collide.
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def is_file_writable(path: str) -> bool:
     p = Path(path)
     if not p.exists():

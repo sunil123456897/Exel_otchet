@@ -220,7 +220,7 @@ class LogicService(ILogicService):
         """
         return {
             "Дата": r.get("date", ""),
-            "Источник": r.get("_source_info", "Unknown"),
+            "Источник": self._sanitize(r.get("_source_info", "Unknown")),
             "Сотрудник": self._sanitize(r.get("employee_name", "")),
             "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": self._sanitize(
                 r.get("customer", "")
@@ -320,7 +320,7 @@ class LogicService(ILogicService):
         cur_amt_val, _ = self._parse_decimal_or_warn(r.get("currency_amount", 0))
         return {
             "Дата": r.get("date", ""),
-            "Источник": r.get("_source_info", "Unknown"),
+            "Источник": self._sanitize(r.get("_source_info", "Unknown")),
             "Сотрудник": self._sanitize(r.get("employee_name", "")),
             "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": self._sanitize(
                 r.get("customer", "")

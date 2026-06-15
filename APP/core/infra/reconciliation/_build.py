@@ -9,6 +9,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from core.infra.excel_hyperlinks import apply_cell_hyperlink
 from core.infra.excel_backup import backup_existing_excel_output
+from core.infra.utils import atomic_save_workbook
 from ._types import RschReconciliationRow, ReconciliationRow
 from ._utils import (_COMBINED_SHEET_PRIORITY,
     _is_numeric_header, _is_percent_header,
@@ -308,7 +309,7 @@ def build_reconciliation_report(
             wb_out = _build_workbook(effective_date, rows, master_headers)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             backup_existing_excel_output(output_path)
-            wb_out.save(output_path)
+            atomic_save_workbook(wb_out, output_path)
             return len(rows)
         finally:
             if master_wb is not None:
@@ -414,7 +415,7 @@ def build_combined_reconciliation_report(
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             backup_existing_excel_output(output_path)
-            wb_out.save(output_path)
+            atomic_save_workbook(wb_out, output_path)
             return counts
         finally:
             if rsch_wb is not None:

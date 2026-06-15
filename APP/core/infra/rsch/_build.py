@@ -16,6 +16,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from core.infra.excel_hyperlinks import apply_cell_hyperlink
 from core.infra.excel_backup import backup_existing_excel_output
+from core.infra.utils import atomic_save_workbook
 
 from ._format import _display_len, _excel_safe_text, _is_problem_row
 from ._collect import _collect_rows_from_workbook, _copy_style, _normalize_source_paths
@@ -508,7 +509,7 @@ def build_rsch_report(
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             backup_existing_excel_output(output_path)
-            wb_out.save(output_path)
+            atomic_save_workbook(wb_out, output_path)
         finally:
             # Guarantee the output workbook handle is released even if
             # writing aborts mid-sheet, otherwise a retry on Windows

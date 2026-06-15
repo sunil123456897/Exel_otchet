@@ -286,8 +286,8 @@ class MasterWriter(IExporter):
                     r.get("% посредника", 0),
                     _safe_decimal(r.get("посредник 1(кэш)", 0)),
                     _safe_decimal(r.get("посредник 2", 0)),
-                    r.get("курс", ""),
-                    r.get("сумма", ""),
+                    _safe_decimal(r.get("курс", 0)),
+                    _safe_decimal(r.get("сумма", 0)),
                     r.get("валюта", ""),
                     r.get("фильтры", ""),
                 ]
@@ -395,8 +395,8 @@ class MasterWriter(IExporter):
                         r.get("% посредника", 0),
                         _safe_decimal(r.get("посредник 1(кэш)", 0)),
                         _safe_decimal(r.get("посредник 2", 0)),
-                        r.get("курс", ""),
-                        r.get("сумма", ""),
+                        _safe_decimal(r.get("курс", 0)),
+                        _safe_decimal(r.get("сумма", 0)),
                         r.get("валюта", ""),
                         r.get("фильтры", ""),
                     ]
