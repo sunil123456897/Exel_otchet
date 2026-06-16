@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$RepoOwner = "sunil123456897",
     [string]$RepoName = "Exel_otchet",
     [string]$Branch = "main",
@@ -432,10 +432,22 @@ function Update-Dependencies {
     $venvPython = Join-Path $Root ".venv\Scripts\python.exe"
     $requirements = Join-Path $Root "requirements.txt"
     if ((Test-Path -LiteralPath $venvPython) -and (Test-Path -LiteralPath $requirements)) {
-        Write-Log "Обновляю зависимости в локальном .venv..."
-        & $venvPython -m pip install -r $requirements | Tee-Object -FilePath $LogFile -Append
-        if ($LASTEXITCODE -ne 0) {
-            throw "pip install завершился с кодом $LASTEXITCODE"
+        $size = (Get-Item -LiteralPath $venvPython).Length
+        $valid = $false
+        if ($size -gt 10000) {
+            $null = & $venvPython --version 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $valid = $true
+            }
+        }
+        if ($valid) {
+            Write-Log "Обновляю зависимости в локальном .venv..."
+            & $venvPython -m pip install -r $requirements | Tee-Object -FilePath $LogFile -Append
+            if ($LASTEXITCODE -ne 0) {
+                throw "pip install завершился с кодом $LASTEXITCODE"
+            }
+        } else {
+            Write-Warning "Локальное виртуальное окружение .venv неисправно. Пропускаю обновление зависимостей в апдейтере. ЗАПУСК.bat автоматически пересоздаст окружение."
         }
     }
 }
