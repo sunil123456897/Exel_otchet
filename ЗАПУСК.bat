@@ -162,7 +162,7 @@ exit /b 0
 :find_python
 rem 1. Prefer an isolated local virtual environment next to the launcher.
 if exist "%VENV_DIR%\Scripts\python.exe" (
-    "%VENV_DIR%\Scripts\python.exe" --version >nul 2>&1
+    call :check_venv_valid
     if not errorlevel 1 (
         set "PYTHON_CMD=%VENV_DIR%\Scripts\python.exe"
         set "PYTHON_IS_VENV=1"
@@ -170,10 +170,7 @@ if exist "%VENV_DIR%\Scripts\python.exe" (
         goto python_launcher_done
     )
     call :log "WARNING: Local .venv is broken (likely copied from another PC). Re-creating..."
-    set "TEMP_VENV=%VENV_DIR%_broken_%RANDOM%"
-    move "%VENV_DIR%" "%TEMP_VENV%" >nul 2>&1
-    if exist "%VENV_DIR%" rd /s /q "%VENV_DIR%" >nul 2>&1
-    if exist "%TEMP_VENV%" rd /s /q "%TEMP_VENV%" >nul 2>&1
+    call :cleanup_broken_venv
 )
 
 rem 2. Try to create the local virtual environment using different Python handles.
@@ -228,3 +225,17 @@ if not errorlevel 1 (
 
 :python_launcher_done
 exit /b 0
+
+:cleanup_broken_venv
+set "TEMP_VENV=%VENV_DIR%_broken_%RANDOM%"
+move "%VENV_DIR%" "%TEMP_VENV%" >nul 2>&1
+if exist "%VENV_DIR%" rd /s /q "%VENV_DIR%" >nul 2>&1
+if exist "%TEMP_VENV%" rd /s /q "%TEMP_VENV%" >nul 2>&1
+exit /b 0
+
+:check_venv_valid
+for %%I in ("%VENV_DIR%\Scripts\python.exe") do (
+    if %%~zI LSS 10000 exit /b 1
+)
+"%VENV_DIR%\Scripts\python.exe" --version >nul 2>&1
+exit /b %errorlevel%
