@@ -35,6 +35,13 @@ class EmployeeListViewModel:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        # Separate lock for config saves. save_config() is invoked from
+        # worker-thread completion callbacks (refresh_status → on_complete)
+        # and writes config.yaml to disk; without serialization this races
+        # with GUI-thread writes (add_employee, attach_files) and can
+        # corrupt the file. Kept distinct from _lock so a slow disk write
+        # does not block UI reads of viewmodel state.
+        self._save_lock = threading.Lock()
         self._all_employees: List[EmployeeStatus] = []
         self._employees_map: Dict[str, List[Dict[str, Any]]] = {}
         self._search_query: str = ""
@@ -72,7 +79,8 @@ class EmployeeListViewModel:
                 self._last_error = None
 
             if rename_detected:
-                app_controller.config_controller.save_config()
+                with self._save_lock:
+                    app_controller.config_controller.save_config()
 
             if self._on_update:
                 self._on_update()

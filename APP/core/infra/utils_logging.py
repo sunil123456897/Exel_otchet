@@ -62,8 +62,17 @@ class TextHandler(logging.Handler):
             self.text_widget.configure(state='disabled')
             self.text_widget.yview(tk.END)
         finally:
-            if not self.msg_queue.empty():
+            # ALWAYS reschedule the next poll. Previously this was gated on
+            # `if not self.msg_queue.empty()`, so once the queue drained the
+            # polling loop died and any subsequent records emitted from
+            # worker threads sat in the queue forever, never reaching the
+            # GUI. The 100 ms delay throttles the loop — it is NOT a tight
+            # spin.
+            try:
                 self.text_widget.after(100, self._process_queue)
+            except Exception:
+                # Widget may have been destroyed during shutdown; ignore.
+                pass
 
 def setup_gui_logging(log_widget):
     if tk is None:

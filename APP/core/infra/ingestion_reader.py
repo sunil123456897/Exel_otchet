@@ -155,7 +155,10 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
             if year_token is not None:
                 y = int(year_token)
                 if len(year_token) == 2:
-                    y += 2000
+                    # Y2K pivot (Excel default): 00-29 → 20XX, 30-99 → 19XX.
+                    # Without this, "01.01.99" became 2099 (future) and the
+                    # whole sheet's rows were silently dropped by the date filter.
+                    y += 2000 if y < 30 else 1900
             else:
                 y = int(year_hint)
             normalized = datetime(y, month, d).strftime("%d.%m.%Y")

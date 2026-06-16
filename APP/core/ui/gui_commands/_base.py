@@ -53,15 +53,38 @@ class CommandContext:
         self.root.after(0, fn)
 
 
-def _is_cancelled_message(msg: str) -> bool:
-    """True if ``msg`` looks like a 'cancelled by user' message.
+class CancelledByUser(str):
+    """Marker signalling a user-initiated cancellation.
 
-    The controller's task() functions return a fixed phrase when the
-    user pressed Cancel. The completion handlers use that phrase as a
-    heuristic to choose between a warning toast (cancelled) and an
-    error toast (genuine failure).
+    Subclasses ``str`` (rather than ``Exception``) so it flows unchanged
+    through every existing callback that expects a string message —
+    ``logging.info("%s", msg)``, ``messagebox.showerror(..., msg)``,
+    the toast manager, and the duplicate substring check in
+    ``gui_master._on_*_complete``. Detection in :func:`finish` uses
+    ``isinstance(msg, CancelledByUser)`` rather than substring matching
+    on the Russian phrase, so a reworded message or a localized UI no
+    longer breaks the cancelled-vs-error branch.
+
+    The cancellation site (``app_controller._cancel_message``) constructs
+    this marker instead of a bare ``str``; both paths produce identical
+    string output, but only the marker is reliably detectable here.
     """
-    return "отменена пользователем" in (msg or "").lower()
+
+    __slots__ = ()
+
+
+def _is_cancelled_message(msg) -> bool:
+    """True if ``msg`` signals a 'cancelled by user' completion.
+
+    Detection is type-based (``isinstance``) instead of Russian substring
+    matching so the cancelled-vs-error branch in :func:`finish` survives
+    a reworded message or a localized UI. The legacy substring fallback
+    covers any cancellation site that still passes a plain ``str``
+    (e.g. ``gui_master`` re-routes completions through its own path).
+    """
+    if isinstance(msg, CancelledByUser):
+        return True
+    return "отменена пользователем" in str(msg or "").lower()
 
 
 def finish(
@@ -120,4 +143,4 @@ def finish(
         messagebox.showerror("Ошибка", msg)
 
 
-__all__ = ["CommandContext", "finish"]
+__all__ = ["CancelledByUser", "CommandContext", "finish"]

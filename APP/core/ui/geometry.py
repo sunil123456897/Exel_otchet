@@ -35,12 +35,20 @@ def _parse_geometry(geom: str) -> Optional[Tuple[int, int, int, int]]:
 def _is_visible(
     width: int, height: int, x: int, y: int, screen_w: int, screen_h: int
 ) -> bool:
-    """Reject saved geometries that no longer fit on the current display."""
+    """Reject saved geometries that no longer fit on the current display.
+
+    The check is deliberately permissive about multi-monitor setups:
+    ``winfo_screenwidth/height`` returns the *primary* monitor's
+    geometry on some platforms, so a window legitimately placed on a
+    secondary monitor (x > screen_w) would be rejected by a strict
+    bound. We only discard the saved value when the top-left corner is
+    more than ~half a screen beyond any edge of the virtual desktop.
+    """
     if width < 100 or height < 100:
         return False
-    if x < -width + 50 or y < -height + 50:
+    if x < -screen_w * 0.5 or y < -screen_h * 0.5:
         return False
-    if x > screen_w - 50 or y > screen_h - 50:
+    if x > screen_w * 1.5 or y > screen_h * 1.5:
         return False
     return True
 

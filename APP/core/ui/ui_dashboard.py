@@ -1,7 +1,10 @@
+import logging
+import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
+from typing import Callable, TypeVar
 
 from core.infra import open_path
 from core.ui.dashboard_state import (
@@ -16,6 +19,14 @@ from core.ui.dashboard_state import (
     save_runtime_results,
     status_text,
 )
+from core.ui.theme import ThemeManager
+
+_T = TypeVar("_T")
+
+
+def _c(key, fallback):
+    """Safe theme-color lookup with fallback for keys POLISH-1 may add."""
+    return ThemeManager.COLORS.get(key, fallback)
 
 
 class DashboardTabs:
@@ -63,22 +74,22 @@ class DashboardTabs:
             quick_frame,
             text="Открыть последний Master",
             command=lambda: self._open_report_by_label("Master_Report.xlsx"),
-        ).pack(side=tk.LEFT)
+        ).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(
             quick_frame,
             text="Открыть последнюю сверку",
             command=lambda: self._open_report_by_label("Последняя сверка"),
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        ).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(
             quick_frame,
             text="Открыть backup",
             command=self._open_backup_folder,
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        ).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(
             quick_frame,
             text="Открыть логи",
             command=lambda: self._open_path(self.repo_root),
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        ).pack(side=tk.LEFT)
 
         last_frame = ttk.LabelFrame(self.home_tab, text="Последние результаты", padding=8)
         last_frame.pack(fill=tk.BOTH, expand=True)
@@ -91,14 +102,28 @@ class DashboardTabs:
         for column, text, width in (
             ("type", "Тип", 120),
             ("status", "Статус", 90),
-            ("time", "Время", 120),
+            ("time", "Время", 140),
             ("path", "Путь", 260),
             ("message", "Сообщение", 360),
         ):
             self.results_tree.heading(column, text=text)
             self.results_tree.column(column, width=width, anchor=tk.W)
+        # Empty-state placeholder: when no results have been recorded
+        # yet, show a muted hint instead of a blank tree.
+        self.results_tree.tag_configure(
+            "empty", foreground=_c("text_muted", _c("text", "#6c757d"))
+        )
         self.results_tree.pack(fill=tk.BOTH, expand=True)
         self.results_tree.bind("<Double-1>", lambda _event: self._open_selected_result())
+        # Initial empty-state hint so the tree isn't a blank grid on
+        # first launch — replaced by real rows once ``_refresh_home``
+        # completes (or re-inserted if there are no results yet).
+        self.results_tree.insert(
+            "",
+            tk.END,
+            values=("Нет данных", "", "", "", "Запустите сборку отчета"),
+            tags=("empty",),
+        )
 
     def _setup_reports(self) -> None:
         action_frame = ttk.Frame(self.reports_tab, style="Main.TFrame")
@@ -185,6 +210,9 @@ class DashboardTabs:
         ttk.Label(self.logs_tab, text="Последние ошибки:").pack(anchor=tk.W)
         self.log_errors = tk.Text(self.logs_tab, height=12, state="disabled", wrap=tk.WORD)
         self.log_errors.pack(fill=tk.BOTH, expand=True)
+        # tk.Text uses an explicit colour scheme that does not follow
+        # ttk styles — register so dark-mode switches re-colour it.
+        ThemeManager.register(self.log_errors, bg_key="bg_panel", fg_key="text")
 
     def _setup_settings(self) -> None:
         action_frame = ttk.Frame(self.settings_tab, style="Main.TFrame")
@@ -202,6 +230,7 @@ class DashboardTabs:
             wrap=tk.WORD,
         )
         self.settings_text.pack(fill=tk.BOTH, expand=True)
+        ThemeManager.register(self.settings_text, bg_key="bg_panel", fg_key="text")
 
     def refresh(self) -> None:
         self._refresh_reports()
@@ -257,55 +286,124 @@ class DashboardTabs:
         save_runtime_results(self.runtime_state_path, self._last_results)
         self.refresh()
 
+    def _run_in_background(
+        self, work: Callable[[], _T], on_done: Callable[[_T], None]
+    ) -> None:
+        """Run ``work`` on a daemon thread, then call ``on_done`` on the
+        GUI thread via ``root.after(0, ...)``.
+
+        Used to keep ``path.exists()`` / network-drive probes off the
+        Tk event loop so consolidations do not freeze the UI.
+        """
+
+        def runner() -> None:
+            try:
+                result = work()
+            except Exception:
+                logging.exception("Background dashboard task failed")
+                result = None
+
+            def safe_done() -> None:
+                try:
+                    on_done(result)
+                except tk.TclError:
+                    pass
+
+            try:
+                self.notebook.after(0, safe_done)
+            except tk.TclError:
+                pass
+
+        threading.Thread(target=runner, daemon=True).start()
+
     def _refresh_reports(self) -> None:
         for item in self.reports_tree.get_children():
             self.reports_tree.delete(item)
-        for item in collect_report_paths(self.config_controller, self.app_root):
-            status = "найден" if item.exists else "не найден"
-            self.reports_tree.insert(
-                "",
-                tk.END,
-                values=(
-                    item.label,
-                    f"✅ {status}" if item.exists else f"⚠️ {status}",
-                    item.mtime,
-                    item.size,
-                    str(item.path) if item.path else "",
-                ),
-            )
+        self.reports_tree.insert("", tk.END, values=("проверка...", "", "", "", ""))
+
+        def work():
+            return collect_report_paths(self.config_controller, self.app_root)
+
+        def done(payload):
+            if payload is None:
+                return
+            for item in self.reports_tree.get_children():
+                self.reports_tree.delete(item)
+            for item in payload:
+                status = "найден" if item.exists else "не найден"
+                self.reports_tree.insert(
+                    "",
+                    tk.END,
+                    values=(
+                        item.label,
+                        f"✅ {status}" if item.exists else f"⚠️ {status}",
+                        item.mtime,
+                        item.size,
+                        str(item.path) if item.path else "",
+                    ),
+                )
+
+        self._run_in_background(work, done)
 
     def _refresh_home(self) -> None:
-        diagnostics = run_light_diagnostics(self.config_controller, self.app_root)
-        errors = sum(1 for item in diagnostics if item.status == "error")
-        warnings = sum(1 for item in diagnostics if item.status == "warning")
-        reports = collect_report_paths(self.config_controller, self.app_root)
-        existing_reports = sum(1 for item in reports if item.exists)
-        self.state_label.config(
-            text=(
-                f"Готовность: {'можно работать' if errors == 0 else 'есть ошибки'}\n"
-                f"Диагностика: ошибок {errors}, предупреждений {warnings}\n"
-                f"Найдено результатов: {existing_reports}/{len(reports)}"
-            )
-        )
+        self.state_label.config(text="проверка...")
 
-        for item in self.results_tree.get_children():
-            self.results_tree.delete(item)
-        for result in self._last_results:
-            time_text = result.created_at.strftime("%d.%m.%Y %H:%M") if result.created_at else "-"
-            message = result.message
-            if result.rows is not None:
-                message = f"{message} | строк: {result.rows}"
-            self.results_tree.insert(
-                "",
-                tk.END,
-                values=(
-                    result.label,
-                    "✅ успех" if result.ok else "❌ ошибка",
-                    time_text,
-                    str(result.path) if result.path else "",
-                    message,
-                ),
+        def work():
+            diagnostics = run_light_diagnostics(self.config_controller, self.app_root)
+            reports = collect_report_paths(self.config_controller, self.app_root)
+            return diagnostics, reports
+
+        def done(payload):
+            if payload is None:
+                return
+            diagnostics, reports = payload
+            errors = sum(1 for item in diagnostics if item.status == "error")
+            warnings = sum(1 for item in diagnostics if item.status == "warning")
+            existing_reports = sum(1 for item in reports if item.exists)
+            self.state_label.config(
+                text=(
+                    f"Готовность: {'можно работать' if errors == 0 else 'есть ошибки'}\n"
+                    f"Диагностика: ошибок {errors}, предупреждений {warnings}\n"
+                    f"Найдено результатов: {existing_reports}/{len(reports)}"
+                )
             )
+
+            for item in self.results_tree.get_children():
+                self.results_tree.delete(item)
+            if not self._last_results:
+                # Empty-state hint so the tree isn't a blank grid on
+                # first launch (before any consolidation has run).
+                self.results_tree.insert(
+                    "",
+                    tk.END,
+                    values=(
+                        "Нет данных",
+                        "",
+                        "",
+                        "",
+                        "Запустите сборку отчета",
+                    ),
+                    tags=("empty",),
+                )
+                return
+            for result in self._last_results:
+                time_text = result.created_at.strftime("%d.%m.%Y %H:%M") if result.created_at else "-"
+                message = result.message
+                if result.rows is not None:
+                    message = f"{message} | строк: {result.rows}"
+                self.results_tree.insert(
+                    "",
+                    tk.END,
+                    values=(
+                        result.label,
+                        "✅ успех" if result.ok else "❌ ошибка",
+                        time_text,
+                        str(result.path) if result.path else "",
+                        message,
+                    ),
+                )
+
+        self._run_in_background(work, done)
 
     def _refresh_logs(self) -> None:
         errors = self._recent_log_errors()

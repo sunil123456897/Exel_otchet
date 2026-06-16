@@ -6,14 +6,21 @@ operators can spot patterns (broken template, wrong column name, network glitch)
 import json
 import logging
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+
+from core.infra.utils_logging import scrub_path
 
 _LOCK = threading.Lock()
 _LOGGER_NAME = "data_loss"
 
 _initialised = False
+
+# Redact obvious monetary amounts (e.g. "1234.56", "99,50") before writing
+# to disk so the log file does not accumulate financial PII in plaintext.
+_AMOUNT_RE = re.compile(r"\d+[.,]\d{2}")
 
 
 def _project_root() -> Path:
@@ -30,11 +37,20 @@ def _get_logger() -> logging.Logger:
     log_dir = _project_root() / "logs"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
-        fh = logging.FileHandler(log_dir / "data_loss.log", encoding="utf-8")
+        log_path = log_dir / "data_loss.log"
+        fh = logging.FileHandler(log_path, encoding="utf-8")
         fh.setFormatter(
             logging.Formatter("%(asctime)s %(message)s", "%Y-%m-%dT%H:%M:%S")
         )
         log.addHandler(fh)
+        # Restrict to owner-only — the log captures Excel-derived values
+        # (paths, amounts) that must not be world-readable on shared PCs.
+        try:
+            os.chmod(log_path, 0o600)
+        except OSError as chmod_err:
+            logging.warning(
+                "Could not restrict %s permissions: %s", log_path, chmod_err
+            )
     except OSError:
         pass
     _initialised = True
@@ -76,6 +92,10 @@ def record_loss(
         line = json.dumps(payload, ensure_ascii=False)
     except (TypeError, ValueError):
         line = json.dumps({k: str(v) for k, v in payload.items()}, ensure_ascii=False)
+    # Defense-in-depth: redact Windows user paths / UNC shares and obvious
+    # monetary amounts before the line hits disk. Does NOT change the JSON
+    # structure or the kind/reason fields — only PII-bearing substrings.
+    line = _AMOUNT_RE.sub("[AMOUNT]", scrub_path(line))
     log = _get_logger()
     with _LOCK:
         log.info(line)

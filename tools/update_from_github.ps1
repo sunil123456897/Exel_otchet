@@ -2,6 +2,14 @@
     [string]$RepoOwner = "sunil123456897",
     [string]$RepoName = "Exel_otchet",
     [string]$Branch = "main",
+    # Pin a specific commit SHA for integrity verification. When set,
+    # the updater ABORTS if the fetched commit does not match the pin —
+    # this stops a compromised repository (or MITM with a valid TLS
+    # cert) from pushing arbitrary code to user PCs. Empty = accept
+    # branch HEAD (LESS SECURE — only use during development).
+    # Bumping the pin requires manual review of the diff between the
+    # old and new SHA on github.com/<owner>/<repo>/compare/<old>...<new>.
+    [string]$PinnedCommitSha = "",
     [switch]$Launch
 )
 
@@ -188,6 +196,27 @@ function Get-InstalledSha {
     return $FallbackSha
 }
 
+function Assert-PinnedCommit {
+    param([string]$ResolvedSha)
+
+    # Integrity gate: refuse to apply an update whose commit SHA does not
+    # match the operator-pinned value. Without this check, a compromised
+    # GitHub repo (or a TLS-MITM with a valid cert) could push arbitrary
+    # code to every user PC running ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat.
+    if (-not $PinnedCommitSha) {
+        Write-Warning "PinnedCommitSha не задан — обновление из ветки '$Branch' без проверки целостности. Задайте -PinnedCommitSha для защиты от компрометации репозитория."
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace($ResolvedSha)) {
+        throw "Не удалось определить SHA загруженного коммита. Обновление отменено (нет целостности)."
+    }
+    $resolvedNorm = $ResolvedSha.Trim().ToLowerInvariant()
+    $pinnedNorm = $PinnedCommitSha.Trim().ToLowerInvariant()
+    if ($resolvedNorm -ne $pinnedNorm) {
+        throw "Целостность обновления НЕ подтверждена: полученный commit '$resolvedNorm' не совпадает с закреплённым '$pinnedNorm'. Обновление ОТМЕНЕНО. Для обновления пина вручную проверьте diff на github.com/$RepoOwner/$RepoName/compare/$pinnedNorm...$resolvedNorm и обновите -PinnedCommitSha."
+    }
+}
+
 function Copy-UpdateItems {
     param([string]$SourceRoot)
 
@@ -260,6 +289,7 @@ function Update-WithGit {
         $headSha = (& $Git rev-parse HEAD).Trim()
         $localSha = Get-InstalledSha $headSha
         $remoteSha = (& $Git rev-parse "origin/$Branch").Trim()
+        Assert-PinnedCommit $remoteSha
         if ($localSha -eq $remoteSha) {
             Write-Log "Новых версий нет. Текущая версия: $localSha"
             return $true
@@ -318,6 +348,7 @@ function Update-WithGitSnapshot {
         }
 
         $remoteSha = (& $Git rev-parse FETCH_HEAD).Trim()
+        Assert-PinnedCommit $remoteSha
         $localSha = Get-InstalledSha ""
         if ($localSha -eq $remoteSha) {
             Write-Log "Новых версий нет. Текущая версия: $localSha"
@@ -350,6 +381,7 @@ function Update-WithGitSnapshot {
 function Update-WithZip {
     param([string]$Token)
     $remoteSha = Get-RemoteSha $Token
+    Assert-PinnedCommit $remoteSha
     $lastShaFile = Join-Path $StateDir "last_sha.txt"
     if ($remoteSha -and (Test-Path -LiteralPath $lastShaFile)) {
         $currentSha = (Get-Content -LiteralPath $lastShaFile -Raw).Trim()

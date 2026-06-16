@@ -62,7 +62,7 @@ call :step "Step 3/5. Checking packaging tools"
 if errorlevel 1 goto tool_upgrade_failed
 
 call :step "Step 4/5. Checking libraries"
-"%PYTHON_CMD%" -c "import tkinter, pandas, openpyxl, yaml, ruamel.yaml, tkcalendar, pyxlsb, pydantic, python_calamine" >> "%LOGFILE%" 2>&1
+"%PYTHON_CMD%" -c "import tkinter, openpyxl, yaml, ruamel.yaml, tkcalendar, pyxlsb, pydantic, python_calamine" >> "%LOGFILE%" 2>&1
 if errorlevel 1 goto install_requirements
 goto after_requirements
 

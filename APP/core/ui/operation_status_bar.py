@@ -90,7 +90,7 @@ class OperationStatusBar(ttk.Frame):
             timings,
             textvariable=self._elapsed_var,
             style="StatusBar.TLabel",
-            font=("Segoe UI", 8),
+            font=("Consolas", 9),
         )
         self._elapsed_label.pack(side=tk.LEFT)
 
@@ -105,6 +105,7 @@ class OperationStatusBar(ttk.Frame):
         self._cancel_btn = ttk.Button(
             self,
             text="⛔ Отмена",
+            style="Danger.TButton",
             command=self._on_cancel_clicked,
             width=12,
         )
@@ -120,9 +121,16 @@ class OperationStatusBar(ttk.Frame):
             pass
 
     def _on_snapshot(self, snap: OperationSnapshot) -> None:
-        self.after(0, lambda: self._render(
-            snap.current, snap.progress, snap.started_at, snap.cancelling
-        ))
+        # ``self.after`` raises ``TclError`` once the widget is torn down.
+        # If that happens, unsubscribe from OperationState so we stop
+        # receiving snapshots (otherwise every future notify would
+        # schedule another doomed ``after`` call and log a TclError).
+        try:
+            self.after(0, lambda: self._render(
+                snap.current, snap.progress, snap.started_at, snap.cancelling
+            ))
+        except tk.TclError:
+            self._operation_state.remove_listener(self._on_snapshot)
 
     def _render(
         self,

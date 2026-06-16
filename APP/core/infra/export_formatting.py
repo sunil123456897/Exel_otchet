@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
@@ -299,11 +300,11 @@ def format_numeric_cell(
 ):
     val = cell.value or 0
 
-    if c_idx == cols["приход"] and isinstance(val, (int, float)) and val > 0.01:
+    if c_idx == cols["приход"] and isinstance(val, (int, float, Decimal)) and val > 0.01:
         if not is_critical and not is_math_err:
             cell.fill = st.fill_income
         cell.font = st.font_income
-    elif c_idx == cols["расход"] and isinstance(val, (int, float)) and abs(val) > 0.01:
+    elif c_idx == cols["расход"] and isinstance(val, (int, float, Decimal)) and abs(val) > 0.01:
         if not is_critical and not is_math_err:
             cell.fill = st.fill_expense
         cell.font = st.font_expense

@@ -97,6 +97,10 @@ class SQLiteConnectionManager:
             conn.execute("PRAGMA cache_size = -64000;")
             conn.execute("PRAGMA mmap_size = 268435456;")
             conn.execute("PRAGMA busy_timeout = 5000;")
+            # Overwrite deleted content with zeros so that subsequent VACUUM
+            # genuinely removes the bytes from the file (defense-in-depth
+            # for PII retention; no business-logic change).
+            conn.execute("PRAGMA secure_delete = ON;")
             return conn
         except sqlite3.Error:
             conn.close()

@@ -1,7 +1,6 @@
 """Bootstrap — Composition Root для Dependency Injection."""
 
 import logging
-import logging.handlers
 import importlib.util
 import re
 import sqlite3
@@ -156,21 +155,34 @@ def _check_db_integrity_on_startup(persistence) -> None:
     inconsistent state (e.g. after a hard shutdown during a write), the
     check will surface a visible warning so the user can restore from
     backup or regenerate the index.
+
+    The warning message is also stashed on ``Bootstrap._integrity_warning``
+    so that the GUI layer (main.py) can surface it via a messagebox after
+    the Tk root has been created. Headless callers already get the log
+    line.
     """
     try:
         ok, msg = persistence.connection_manager.check_integrity()
         if not ok:
-            logging.warning(
-                "PRAGMA integrity_check failed: %s. "
-                "Data may be corrupted — consider restoring from backup.",
-                msg,
+            warning = (
+                "PRAGMA integrity_check failed: "
+                f"{msg}. "
+                "Data may be corrupted — consider restoring from backup."
             )
+            logging.error(warning)
+            Bootstrap._integrity_warning = warning
     except Exception:
         pass  # never block startup on integrity check failures
 
 
 class Bootstrap:
     """Статический класс для инициализации всех зависимостей приложения."""
+
+    # Surfaced by _check_db_integrity_on_startup when PRAGMA
+    # integrity_check fails. main.py reads this after creating the Tk
+    # root and shows a messagebox. Headless callers already get the
+    # log line.
+    _integrity_warning: Optional[str] = None
 
     @staticmethod
     def _has_required_dependency() -> bool:
@@ -391,13 +403,17 @@ class Bootstrap:
         }
 
         if source_root_is_default and sr and not path_exists_with_timeout(sr):
-            p_cfg["source_root"] = "Q:/Отчет кураторов 1"
-            if not p_cfg.get("source_roots"):
-                p_cfg["source_roots"] = [
-                    "Q:/Отчет кураторов 1",
-                    "Q:/Отчет кураторов 2",
-                    "Q:/Отчет кураторов 3",
-                ]
+            # Don't silently invent a Q:/ fallback — break on non-Windows /
+            # non-mapped-Q systems. Downstream DiscoveryService already
+            # auto-detects configured network drive_letters (Q/Z) when
+            # source_roots is empty, so leaving it empty is safe.
+            logging.warning(
+                "source_root по умолчанию (%s) недоступен и source_roots не "
+                "заданы в config.yaml. Приложение продолжит работу, но "
+                "реальные отчёты могут быть не найдены. Настройте "
+                "paths.source_roots в config.yaml.",
+                sr,
+            )
 
     @staticmethod
     def _build_runtime_components(
@@ -427,14 +443,17 @@ class Bootstrap:
         """Инициализировать все зависимости и вернуть контроллеры.
 
         Returns:
-            (config_controller, app_controller, persistence) или (None, None, None)
-            при отсутствии критической зависимости.
+            (config_controller, app_controller, persistence).
+        Raises:
+            RuntimeError: если критическая зависимость (python-calamine)
+                не найдена. Вызывающий код должен перехватить и показать
+                пользователю дружелюбное сообщение.
         """
         if not Bootstrap._has_required_dependency():
-            logging.critical(
-                "Критическая ошибка: библиотека 'python-calamine' не найдена!"
+            raise RuntimeError(
+                "Не найдена обязательная библиотека 'python-calamine'. "
+                "Установите её: pip install python-calamine==0.6.2"
             )
-            return None, None, None
 
         cfg_ctl = ConfigController(config_path)
         cfg, raw_cfg = Bootstrap._validate_and_normalize_config(cfg_ctl)

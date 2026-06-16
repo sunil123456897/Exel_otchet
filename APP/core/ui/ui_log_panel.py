@@ -29,7 +29,7 @@ class LogPanel(ttk.Frame):
             self,
             height=12,
             state='disabled',
-            font=('Consolas', 8),
+            font=('Consolas', 9),
             borderwidth=1,
             relief='solid',
             bg=ThemeManager.COLORS["bg_panel"],
@@ -38,7 +38,10 @@ class LogPanel(ttk.Frame):
             selectbackground=ThemeManager.COLORS["primary"],
             selectforeground=ThemeManager.COLORS["text_inverse"],
         )
-        self.log_area.pack(fill=tk.BOTH, expand=True)
+        # ScrolledText uses explicit colours that do not follow ttk
+        # styles — register so dark-mode switches re-colour the bg/fg.
+        ThemeManager.register(self.log_area, bg_key="bg_panel", fg_key="text")
+        self.log_area.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
     def clear_logs(self):
         self.log_area.configure(state='normal')

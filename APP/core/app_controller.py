@@ -69,7 +69,18 @@ def _cancel_message(
     for path in output_paths:
         partials.extend(mark_partial(path))
     note = format_partial_note(partials)
-    on_complete(False, "Операция отменена пользователем." + note, None)
+    message = "Операция отменена пользователем." + note
+    try:
+        # Tag the message so the GUI completion handler can detect
+        # cancellation by type (isinstance) instead of Russian substring
+        # matching — see core.ui.gui_commands._base.CancelledByUser.
+        # Lazy import keeps the controller decoupled from tkinter at
+        # module load (headless paths do not import the UI layer).
+        from core.ui.gui_commands._base import CancelledByUser
+        tagged = CancelledByUser(message)
+    except Exception:
+        tagged = message
+    on_complete(False, tagged, None)
 
 
 class AppController:
@@ -369,9 +380,32 @@ class AppController:
                 ): name
                 for name in unique_names
             }
-            for i, future in enumerate(concurrent.futures.as_completed(futures)):
+            try:
+                for i, future in enumerate(
+                    concurrent.futures.as_completed(futures, timeout=30)
+                ):
                     local_data.append(future.result())
                     on_progress(((i + 1) / total_count) * 100)
+            except concurrent.futures.TimeoutError:
+                # A single hung stat lookup (network drive stall, etc.)
+                # used to block the whole refresh indefinitely because
+                # as_completed had no per-future deadline. Cancel the
+                # stragglers, surface which employees we skipped, and
+                # keep going with whatever we collected so the user
+                # sees a partial result instead of a frozen UI.
+                timed_out = [n for fut, n in futures.items() if not fut.done()]
+                logging.warning(
+                    "[NET] Refresh status timed out after 30s; "
+                    "%d/%d employees not finished: %s",
+                    len(timed_out),
+                    total_count,
+                    ", ".join(timed_out[:10])
+                    + ("..." if len(timed_out) > 10 else ""),
+                )
+                for fut in futures:
+                    if not fut.done():
+                        fut.cancel()
+                on_progress((len(local_data) / total_count) * 100)
 
             local_data.sort(key=lambda x: x[0])
             with self._lock:

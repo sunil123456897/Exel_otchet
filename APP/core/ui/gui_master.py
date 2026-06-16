@@ -80,6 +80,11 @@ class GuiMaster:
                 self.root.winfo_screenheight(),
             )
         )
+        # Prevent the user from shrinking the window below a size at
+        # which the sidebar/notebook/status bar start to overlap and
+        # become unusable. No maxsize: large monitors benefit from a
+        # freely growable window.
+        self.root.minsize(900, 600)
         self.root.configure(bg=ThemeManager.COLORS["bg_main"])
 
         # Persist the geometry on close. The protocol is set by main.py
@@ -160,6 +165,10 @@ class GuiMaster:
         )
 
         self.root.after(100, self.commands.refresh_status)
+        # Begin polling the OS theme every 5 s so that when the user
+        # has picked "Системная" we follow OS dark/light changes without
+        # an app restart. No-op when the user has chosen light/dark.
+        self.start_theme_polling()
 
     def setup_ui(self):
         self.sidebar = Sidebar(self.root, self)
@@ -309,23 +318,84 @@ class GuiMaster:
     def _install_geometry_save_handler(self) -> None:
         """Wrap WM_DELETE_WINDOW so we can persist the geometry.
 
-        ``main.py`` sets ``root.protocol("WM_DELETE_WINDOW", on_close)``;
-        we replace that protocol with a wrapper that saves the geometry
-        first, then calls the original close handler. We capture the
-        original via a one-shot ``protocol()`` read.
+        ``main.py`` sets ``root.protocol("WM_DELETE_WINDOW", on_close)``
+        *after* ``GuiMaster.__init__`` runs, which clobbers any protocol
+        we install here. As a robust fallback we also bind to the root
+        ``<Destroy>`` event — that fires when the root is torn down no
+        matter which close path was taken, so the geometry is persisted
+        even when ``main.py``'s handler is the one that ran.
+
+        ``_persist_geometry`` is idempotent (guarded by a flag) so it is
+        safe for both bindings to fire on the same shutdown.
         """
+        self._geometry_saved = False
         original = self.root.protocol("WM_DELETE_WINDOW")
 
         def _save_then_close() -> None:
-            try:
-                geom = self.root.geometry()
-                save_geometry(geom)
-            except Exception as e:  # noqa: BLE001
-                logging.debug("Geometry save failed: %s", e)
+            self._persist_geometry()
             if original:
                 original()
 
         self.root.protocol("WM_DELETE_WINDOW", _save_then_close)
+        # Fallback for the case where main.py overwrites WM_DELETE_WINDOW
+        # after __init__ returns. <Destroy> propagates up from any child
+        # widget, so filter to root only.
+        self.root.bind(
+            "<Destroy>",
+            lambda e: self._persist_geometry() if e.widget is self.root else None,
+            add="+",
+        )
+
+    def _persist_geometry(self) -> None:
+        """Save the current window geometry to disk — idempotent."""
+        if getattr(self, "_geometry_saved", False):
+            return
+        try:
+            save_geometry(self.root.geometry())
+        except Exception as e:  # noqa: BLE001
+            logging.debug("Geometry save failed: %s", e)
+        finally:
+            self._geometry_saved = True
+
+    def save_geometry_and_close(self) -> None:
+        """Persist the window geometry and then destroy the root."""
+        self._persist_geometry()
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
+
+    def start_theme_polling(self) -> None:
+        """Begin polling the OS theme every 5 s.
+
+        Only re-applies the theme when the user has selected "Системная"
+        in the sidebar AND the resolved OS value has changed since the
+        last poll. This avoids touching Tk widgets unnecessarily on every
+        tick (which would also fight manual light/dark choices).
+        """
+        try:
+            self._last_system_theme = ThemeManager.resolve_effective("system")
+        except Exception:
+            self._last_system_theme = "light"
+        self._poll_system_theme()
+
+    def _poll_system_theme(self) -> None:
+        try:
+            theme_var = getattr(self.sidebar, "theme_var", None)
+            if theme_var is not None and theme_var.get() == "system":
+                current = ThemeManager.resolve_effective("system")
+                if current != self._last_system_theme:
+                    self._last_system_theme = current
+                    ThemeManager.set_theme(current)
+                    self.root.configure(bg=ThemeManager.COLORS["bg_main"])
+        except (tk.TclError, AttributeError):
+            # Root or sidebar destroyed — let the polling loop die
+            # quietly.
+            return
+        try:
+            self.root.after(5000, self._poll_system_theme)
+        except tk.TclError:
+            pass
 
     def set_theme(self, name: str) -> None:
         """Switch the active palette and reconfigure ttk styles.

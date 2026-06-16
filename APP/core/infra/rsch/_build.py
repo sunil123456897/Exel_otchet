@@ -406,6 +406,13 @@ def build_rsch_report(
 ) -> int:
     source_paths = _normalize_source_paths(source_path)
     output_path = Path(output_path)
+
+    # BUG 5 guard: without a date, the sheet-naming branch below would
+    # try `None.strftime(...)` (AttributeError) or silently fall back to
+    # the template sheet title. Fail fast with a clear message instead.
+    if target_date is None and start_date is None:
+        raise ValueError("build_rsch_report: требуется target_date или start_date")
+
     template_to_use = (
         Path(template_path) if template_path else DEFAULT_RSCH_TEMPLATE_PATH
     )
@@ -478,7 +485,32 @@ def build_rsch_report(
                 rows_by_date: Dict[date, List[Dict[str, Any]]] = {}
                 for row in rows:
                     rows_by_date.setdefault(row["date"], []).append(row)
-                for idx, row_date in enumerate(sorted(rows_by_date), start=1):
+                sorted_dates = sorted(rows_by_date)
+                # BUG 4 guard: the per-day sheets are named "%d.%m" (no
+                # year). If the period spans January of two consecutive
+                # years (e.g. 31.12.2024 + 01.01.2025), openpyxl rejects
+                # the duplicate sheet name with a low-level ValueError
+                # long after we've already started writing — detect the
+                # collision up-front and tell the user to include the year.
+                name_to_dates: Dict[str, List[date]] = {}
+                for d in sorted_dates:
+                    name_to_dates.setdefault(d.strftime("%d.%m"), []).append(d)
+                duplicates = {
+                    name: ds for name, ds in name_to_dates.items() if len(ds) > 1
+                }
+                if duplicates:
+                    parts = []
+                    for name, ds in duplicates.items():
+                        ds_str = ", ".join(d.strftime("%d.%m.%Y") for d in ds)
+                        parts.append(
+                            f"даты [{ds_str}] дают одинаковый лист '{name}'"
+                        )
+                    raise ValueError(
+                        "Конфликт имён листов: "
+                        + "; ".join(parts)
+                        + ". Укажите период с указанием года."
+                    )
+                for idx, row_date in enumerate(sorted_dates, start=1):
                     _write_rsch_sheet(
                         wb_out,
                         template_ws,

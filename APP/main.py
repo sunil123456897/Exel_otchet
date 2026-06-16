@@ -3,6 +3,7 @@ import tkinter as tk
 import logging
 import logging.handlers
 from pathlib import Path
+from tkinter import messagebox
 
 app_root = Path(__file__).parent.absolute()
 if str(app_root) not in sys.path:
@@ -38,8 +39,35 @@ def main():
     root = None
     try:
         GuiMaster = preflight_gui_imports()
-        cfg_ctl, app_ctl, db = Bootstrap.setup(app_root, str(app_root / "config.yaml"))
+        try:
+            cfg_ctl, app_ctl, db = Bootstrap.setup(
+                app_root, str(app_root / "config.yaml")
+            )
+        except RuntimeError as e:
+            # Bootstrap signals missing critical dependency (or other
+            # hard config failures) by raising RuntimeError. Surface a
+            # friendly dialog *before* Tk root exists; messagebox will
+            # spin up a default root for us.
+            logger.critical(f"Bootstrap failed: {e}")
+            try:
+                messagebox.showerror("Ошибка запуска", str(e))
+            except Exception:
+                pass
+            sys.exit(1)
         root = tk.Tk()
+        if Bootstrap._integrity_warning:
+            # Surfaced by _check_db_integrity_on_startup during bootstrap.
+            # Tk root is now available so we can show a real messagebox.
+            try:
+                messagebox.showwarning(
+                    "Предупреждение: целостность БД",
+                    Bootstrap._integrity_warning,
+                )
+            except Exception:
+                logger.warning(
+                    "Could not show integrity warning dialog: %s",
+                    Bootstrap._integrity_warning,
+                )
         GuiMaster(root, cfg_ctl, app_ctl)
 
         def on_close():

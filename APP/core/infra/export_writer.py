@@ -26,6 +26,22 @@ class ExportPreflightError(RuntimeError):
     pass
 
 
+def _safe_text(value: Any) -> Any:
+    """Mitigate Excel formula injection (CWE-1236).
+
+    Prepends a single quote to any string that starts with ``=``, ``+``,
+    ``-`` or ``@`` so Excel treats it as text instead of evaluating it as
+    a formula. Non-string values (Decimal, int, float, None) pass through
+    unchanged. Mirrors the existing ``_excel_safe_text`` helpers in
+    ``reconciliation/_utils.py`` and ``rsch/_format.py``.
+    """
+    if isinstance(value, str):
+        stripped = value.lstrip()
+        if stripped and stripped[0] in ("=", "+", "-", "@"):
+            return "'" + value
+    return value
+
+
 def preflight_output_path(path: Path) -> None:
     output_path = Path(path)
     if not output_path.parent.exists():
@@ -259,7 +275,7 @@ class MasterWriter(IExporter):
 
         def _get_row_values(r):
             if curator == "boris":
-                return [
+                return [_safe_text(v) for v in [
                     r.get("Источник", ""),
                     r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                     r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
@@ -272,9 +288,9 @@ class MasterWriter(IExporter):
                     r.get("% посредник 2", 0),
                     _safe_decimal(r.get("посредник 2", 0)),
                     r.get("фильтры", ""),
-                ]
+                ]]
             elif curator == "ivan":
-                return [
+                return [_safe_text(v) for v in [
                     r.get("Сотрудник", r.get("Источник", "")),
                     r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                     r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
@@ -290,9 +306,9 @@ class MasterWriter(IExporter):
                     _safe_decimal(r.get("сумма", 0)),
                     r.get("валюта", ""),
                     r.get("фильтры", ""),
-                ]
+                ]]
             else:
-                return [
+                return [_safe_text(v) for v in [
                     r.get("Источник", ""),
                     r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                     r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
@@ -305,7 +321,7 @@ class MasterWriter(IExporter):
                     _safe_decimal(r.get("посредник 1(кэш)", 0)),
                     _safe_decimal(r.get("посредник 2", 0)),
                     r.get("фильтры", ""),
-                ]
+                ]]
 
         if curator in ("boris", "ivan"):
             grouped = OrderedDict()
@@ -315,7 +331,7 @@ class MasterWriter(IExporter):
 
             for emp_name, emp_rows in grouped.items():
                 header_row_num = ws.max_row + 1
-                ws.append([emp_name] + [None] * (ws.max_column - 1))
+                ws.append([_safe_text(emp_name)] + [None] * (ws.max_column - 1))
                 header_cell = ws.cell(header_row_num, 1)
                 header_cell.font = self.st.font_bold
                 header_cell.fill = PatternFill("solid", fgColor="D9E1F2")
@@ -366,7 +382,7 @@ class MasterWriter(IExporter):
                 }
             if curator == "boris":
                 ws.append(
-                    [
+                    [_safe_text(v) for v in [
                         r.get("Источник", ""),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
@@ -379,11 +395,11 @@ class MasterWriter(IExporter):
                         r.get("% посредник 2", 0),
                         _safe_decimal(r.get("посредник 2", 0)),
                         r.get("фильтры", ""),
-                    ]
+                    ]]
                 )
             elif curator == "ivan":
                 ws.append(
-                    [
+                    [_safe_text(v) for v in [
                         r.get("Сотрудник", r.get("Источник", "")),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
@@ -399,11 +415,11 @@ class MasterWriter(IExporter):
                         _safe_decimal(r.get("сумма", 0)),
                         r.get("валюта", ""),
                         r.get("фильтры", ""),
-                    ]
+                    ]]
                 )
             else:
                 ws.append(
-                    [
+                    [_safe_text(v) for v in [
                         r.get("Источник", ""),
                         r.get("ЗАКАЗЧИК (название проекта, наименование ЮЛ)", ""),
                         r.get("ИСПОЛНИТЕЛЬ (наименование ЮЛ, банк)", ""),
@@ -416,7 +432,7 @@ class MasterWriter(IExporter):
                         _safe_decimal(r.get("посредник 1(кэш)", 0)),
                         _safe_decimal(r.get("посредник 2", 0)),
                         r.get("фильтры", ""),
-                    ]
+                    ]]
                 )
             data_row = ws.max_row
             row_to_data_idx[data_row] = i

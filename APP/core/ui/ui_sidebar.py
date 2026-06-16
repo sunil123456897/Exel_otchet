@@ -1,3 +1,4 @@
+import sys
 import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
@@ -46,6 +47,9 @@ class Sidebar(ttk.Frame):
             highlightthickness=0,
             background=ThemeManager.COLORS["bg_sidebar"],
         )
+        # Canvas uses explicit colours (not a ttk style), so register
+        # it to be re-themed on ThemeManager.set_theme().
+        ThemeManager.register(self.canvas, bg_key="bg_sidebar")
         self.scrollbar = ttk.Scrollbar(
             self, orient=tk.VERTICAL, command=self.canvas.yview
         )
@@ -84,7 +88,14 @@ class Sidebar(ttk.Frame):
         self.canvas.unbind("<Button-5>")
 
     def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        # macOS reports delta as ±1 (small integers); Windows uses
+        # multiples of 120. ``int(delta / 120)`` truncates to zero on
+        # macOS, so use the platform-specific scaling.
+        if sys.platform == "darwin":
+            steps = -event.delta
+        else:
+            steps = -int(event.delta / 120)
+        self.canvas.yview_scroll(steps, "units")
 
     def _on_button4(self, _event):
         self.canvas.yview_scroll(-1, "units")
@@ -104,7 +115,7 @@ class Sidebar(ttk.Frame):
 
         # Date Selection
         date_frame = ttk.LabelFrame(self.content, text="📅 ВЫБОР ДАТЫ", padding=6)
-        date_frame.pack(fill=tk.X, pady=(0, 6))
+        date_frame.pack(fill=tk.X, pady=(4, 8))
 
         self.date_entry = DateEntry(
             date_frame,
@@ -119,7 +130,7 @@ class Sidebar(ttk.Frame):
             if "accent" in ThemeManager.COLORS
             else "#007bff",
         )
-        self.date_entry.pack(pady=(0, 5), fill=tk.X)
+        self.date_entry.pack(pady=(0, 4), fill=tk.X)
         self.date_entry.bind(
             "<<DateEntrySelected>>", lambda e: self._date_debouncer()
         )
@@ -130,11 +141,11 @@ class Sidebar(ttk.Frame):
             text="🔄 Обновить статус",
             command=self.controller.refresh_status,
         )
-        self.refresh_btn.pack(fill=tk.X)
+        self.refresh_btn.pack(fill=tk.X, pady=(0, 4))
 
         # Employee Management
         emp_frame = ttk.LabelFrame(self.content, text="👤 СОТРУДНИКИ", padding=6)
-        emp_frame.pack(fill=tk.X, pady=(0, 6))
+        emp_frame.pack(fill=tk.X, pady=(0, 8))
 
         self.add_employee_btn = ttk.Button(
             emp_frame, text="➕ Добавить", command=self.controller.add_employee_dialog
@@ -148,7 +159,7 @@ class Sidebar(ttk.Frame):
 
         # Consolidation Actions
         action_frame = ttk.LabelFrame(self.content, text="🚀 СБОРКА", padding=6)
-        action_frame.pack(fill=tk.X, pady=(0, 6))
+        action_frame.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(action_frame, text="Кураторский отчет:").pack(anchor=tk.W)
         self.curator_var = tk.StringVar(value="Общий отчет")
@@ -158,7 +169,7 @@ class Sidebar(ttk.Frame):
             state="readonly",
             values=["Общий отчет", "Куратор Борис", "Куратор Иван"],
         )
-        self.curator_combo.pack(fill=tk.X, pady=(0, 3))
+        self.curator_combo.pack(fill=tk.X, pady=(0, 4))
 
         self.consolidate_btn = ttk.Button(
             action_frame,
@@ -166,18 +177,18 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_consolidation,
         )
-        self.consolidate_btn.pack(fill=tk.X, pady=(0, 3))
+        self.consolidate_btn.pack(fill=tk.X, pady=(0, 4))
 
         self.consolidate_all_btn = ttk.Button(
             action_frame,
             text="🌍 СОБРАТЬ ВСЕ ДАТЫ",
             command=self.controller.run_consolidation_all_dates,
         )
-        self.consolidate_all_btn.pack(fill=tk.X, pady=(0, 3))
+        self.consolidate_all_btn.pack(fill=tk.X, pady=(0, 4))
 
         # Monthly Range Section
         month_frame = ttk.LabelFrame(self.content, text="📆 СБОРКА ЗА ПЕРИОД", padding=6)
-        month_frame.pack(fill=tk.X, pady=(0, 6))
+        month_frame.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(month_frame, text="С:").pack(anchor=tk.W)
         self.month_start_entry = DateEntry(
@@ -237,7 +248,7 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_consolidation_month,
         )
-        self.consolidate_month_btn.pack(fill=tk.X, pady=(0, 3))
+        self.consolidate_month_btn.pack(fill=tk.X, pady=(0, 4))
 
         self.rsch_month_btn = ttk.Button(
             month_frame,
@@ -251,14 +262,14 @@ class Sidebar(ttk.Frame):
             text="🧾 СОБРАТЬ РСЧ",
             command=self.controller.run_rsch_report,
         )
-        self.rsch_btn.pack(fill=tk.X, pady=(0, 3))
+        self.rsch_btn.pack(fill=tk.X, pady=(0, 4))
 
         self.reconciliation_btn = ttk.Button(
             action_frame,
             text="✅ СВЕРИТЬ С РСЧ",
             command=self.controller.run_reconciliation_report,
         )
-        self.reconciliation_btn.pack(fill=tk.X, pady=(0, 3))
+        self.reconciliation_btn.pack(fill=tk.X, pady=(0, 4))
 
         self.auto_reconciliation_btn = ttk.Button(
             action_frame,
@@ -266,13 +277,13 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_auto_reconciliation_day,
         )
-        self.auto_reconciliation_btn.pack(fill=tk.X, pady=(0, 3))
+        self.auto_reconciliation_btn.pack(fill=tk.X, pady=(0, 4))
 
         # Theme switcher: 3 options (light/dark/system). The "system"
         # option is auto-disabled on Windows 8 where the registry key
         # we read is not present — there's nothing to follow.
         theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=6)
-        theme_frame.pack(fill=tk.X, pady=(0, 6))
+        theme_frame.pack(fill=tk.X, pady=(0, 8))
         self.theme_var = tk.StringVar(value="light")
         from core.ui.system_theme import is_windows_8_or_earlier
         win8 = is_windows_8_or_earlier()

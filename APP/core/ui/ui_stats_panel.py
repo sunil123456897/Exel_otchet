@@ -27,7 +27,7 @@ class StatsPanel(ttk.LabelFrame):
             self,
             text="Сотрудников: 0\nОтчетов готово: 0\nОшибок: 0",
             justify=tk.LEFT,
-            background=ThemeManager.COLORS['bg_sidebar']
+            style="Sidebar.TLabel",
         )
         self.stats_label.pack(fill=tk.X)
 
@@ -36,7 +36,7 @@ class StatsPanel(ttk.LabelFrame):
         self._readiness_caption = ttk.Label(
             self,
             text="Готовность сотрудников:",
-            background=ThemeManager.COLORS['bg_sidebar'],
+            style="Sidebar.TLabel",
         )
         self._readiness_caption.pack(fill=tk.X, pady=(10, 0))
         self.readiness_var = tk.DoubleVar()
@@ -54,7 +54,7 @@ class StatsPanel(ttk.LabelFrame):
         self._operation_caption = ttk.Label(
             self,
             text="Текущая операция:",
-            background=ThemeManager.COLORS['bg_sidebar'],
+            style="Sidebar.TLabel",
         )
         self._operation_caption.pack(fill=tk.X, pady=(8, 0))
         self.operation_var = tk.DoubleVar()

@@ -5,51 +5,105 @@ re-applies the ttk styles so widgets that are created later pick up
 the active palette. Widgets already in the tree pick up the changes
 on the next ``configure`` call, which the GuiMaster triggers after
 the user switches themes.
+
+Design tokens
+-------------
+- ``COLORS``    : active palette (dict of hex strings).
+- ``FONTS``     : typography hierarchy (display / heading / body / ...).
+- ``SPACING``   : 4-step spacing scale (xs/sm/md/lg/xl/xxl).
+- ``animate_background`` : classmethod helper for smooth bg transitions.
 """
 from __future__ import annotations
 
 from tkinter import ttk
 from typing import ClassVar
 
+# ---------------------------------------------------------------------------
+# Palettes
+# ---------------------------------------------------------------------------
+# All pre-existing keys (primary, primary_active, success, success_active,
+# danger, warning, info, info_active, bg_main, bg_sidebar, bg_panel, trough,
+# text, text_inverse, accent, tooltip_bg, tooltip_fg) are preserved verbatim
+# so existing call sites keep working. New refined keys are appended:
+#   danger_active, text_muted, border_subtle, border_default,
+#   success_subtle, danger_subtle, warning_subtle, info_subtle.
 _LIGHT = {
-    "primary": "#1f4e79",
-    "primary_active": "#153654",
-    "success": "#28a745",
-    "success_active": "#218838",
-    "danger": "#dc3545",
-    "warning": "#ffc107",
-    "info": "#17a2b8",
-    "info_active": "#138496",
-    "bg_main": "#f0f2f5",
+    # --- accent / semantic ---
+    "primary": "#2563eb",
+    "primary_active": "#1d4ed8",
+    "success": "#16a34a",
+    "success_active": "#15803d",
+    "danger": "#dc2626",
+    "danger_active": "#b91c1c",
+    "warning": "#d97706",
+    "info": "#0891b2",
+    "info_active": "#0e7490",
+    "accent": "#2563eb",
+    # --- backgrounds (warm off-white) ---
+    "bg_main": "#f3f4f6",
     "bg_sidebar": "#ffffff",
     "bg_panel": "#e9ecef",
-    "trough": "#ced4da",
-    "text": "#212529",
+    "trough": "#cbd5e1",
+    # --- text ---
+    "text": "#334155",
+    "text_muted": "#64748b",
     "text_inverse": "#ffffff",
-    "accent": "#007bff",
-    "tooltip_bg": "#ffffe0",
-    "tooltip_fg": "#212529",
+    # --- borders ---
+    "border_subtle": "#e2e8f0",
+    "border_default": "#cbd5e1",
+    # --- subtle semantic fills (badges / cards) ---
+    "success_subtle": "#dcfce7",
+    "danger_subtle": "#fee2e2",
+    "warning_subtle": "#fef3c7",
+    "info_subtle": "#e0f2fe",
+    # --- misc ---
+    "tooltip_bg": "#0f172a",
+    "tooltip_fg": "#e2e8f0",
 }
 
 _DARK = {
-    "primary": "#3a7bc8",
-    "primary_active": "#5a96dc",
-    "success": "#3fb950",
-    "success_active": "#5cc76d",
-    "danger": "#f47174",
-    "warning": "#d4a72c",
-    "info": "#39c5cf",
-    "info_active": "#5dd2dc",
-    "bg_main": "#1e1e1e",
-    "bg_sidebar": "#252526",
-    "bg_panel": "#2d2d30",
-    "trough": "#3c3c3c",
-    "text": "#e4e6eb",
-    "text_inverse": "#1e1e1e",
-    "accent": "#3a7bc8",
-    "tooltip_bg": "#3c3c3c",
-    "tooltip_fg": "#e4e6eb",
+    # --- accent / semantic ---
+    "primary": "#60a5fa",
+    "primary_active": "#93c5fd",
+    "success": "#4ade80",
+    "success_active": "#86efac",
+    "danger": "#f87171",
+    "danger_active": "#fca5a5",
+    "warning": "#fbbf24",
+    "info": "#22d3ee",
+    "info_active": "#67e8f9",
+    "accent": "#60a5fa",
+    # --- backgrounds (rich charcoal) ---
+    "bg_main": "#0f172a",
+    "bg_sidebar": "#1e293b",
+    "bg_panel": "#334155",
+    "trough": "#334155",
+    # --- text ---
+    "text": "#e2e8f0",
+    "text_muted": "#94a3b8",
+    "text_inverse": "#0f172a",
+    # --- borders ---
+    "border_subtle": "#334155",
+    "border_default": "#475569",
+    # --- subtle semantic fills ---
+    "success_subtle": "#052e16",
+    "danger_subtle": "#450a0a",
+    "warning_subtle": "#422006",
+    "info_subtle": "#082f49",
+    # --- misc ---
+    "tooltip_bg": "#020617",
+    "tooltip_fg": "#e2e8f0",
 }
+
+
+def _lerp_hex(a: str, b: str, t: float) -> str:
+    """Linearly interpolate between two ``#rrggbb`` colours (0<=t<=1)."""
+    ar, ag, ab = int(a[1:3], 16), int(a[3:5], 16), int(a[5:7], 16)
+    br, bg, bb = int(b[1:3], 16), int(b[3:5], 16), int(b[5:7], 16)
+    r = round(ar + (br - ar) * t)
+    g = round(ag + (bg - ag) * t)
+    bl = round(ab + (bb - ab) * t)
+    return f"#{r:02x}{g:02x}{bl:02x}"
 
 
 class ThemeManager:
@@ -62,6 +116,42 @@ class ThemeManager:
 
     COLORS: ClassVar[dict[str, str]] = dict(_LIGHT)
     _current: ClassVar[str] = "light"
+
+    # Typography hierarchy. "Segoe UI Semibold" is not universally available
+    # on Windows; ("Segoe UI", N, "bold") is, and visually close enough.
+    FONTS: ClassVar[dict[str, tuple]] = {
+        "display": ("Segoe UI", 14, "bold"),
+        "heading": ("Segoe UI", 12, "bold"),
+        "body": ("Segoe UI", 10),
+        "body_bold": ("Segoe UI", 10, "bold"),
+        "caption": ("Segoe UI", 9),
+        "mono": ("Consolas", 10),
+        "button": ("Segoe UI", 10),
+    }
+
+    # 4-step spacing scale (pixels). Other modules may reference
+    # ThemeManager.SPACING["md"] instead of hardcoded numbers.
+    SPACING: ClassVar[dict[str, int]] = {
+        "xs": 4,
+        "sm": 8,
+        "md": 12,
+        "lg": 16,
+        "xl": 24,
+        "xxl": 32,
+    }
+
+    # Widgets that use explicit ``background=ThemeManager.COLORS[...]``
+    # (tk.Canvas, tk.Text, DateEntry, ...) do not pick up ttk style
+    # changes automatically. Register them here so ``set_theme`` can
+    # re-apply the current palette's colours to each. Entries are
+    # ``(widget, bg_key, fg_key)`` tuples; destroyed widgets are pruned
+    # lazily on the next ``set_theme`` call.
+    _themed_widgets: ClassVar[list] = []
+
+    @classmethod
+    def register(cls, widget, *, bg_key: str = "bg_panel", fg_key: str = "text") -> None:
+        """Track a non-ttk widget so its colours follow theme switches."""
+        cls._themed_widgets.append((widget, bg_key, fg_key))
 
     @classmethod
     def current_theme(cls) -> str:
@@ -87,6 +177,19 @@ class ThemeManager:
             # the styles are still in place and the next GUI boot will
             # call apply_styles() with the right palette active.
             pass
+        # Re-apply explicit colours to non-ttk widgets (Canvas, Text,
+        # DateEntry, ...). Destroyed widgets are pruned silently.
+        for entry in list(cls._themed_widgets):
+            try:
+                widget, bg_key, fg_key = entry
+                widget.configure(
+                    background=cls.COLORS[bg_key], foreground=cls.COLORS[fg_key]
+                )
+            except Exception:
+                try:
+                    cls._themed_widgets.remove(entry)
+                except ValueError:
+                    pass
 
     @classmethod
     def palette(cls) -> dict[str, str]:
@@ -109,9 +212,65 @@ class ThemeManager:
 
         return detect_system_theme() or "light"
 
+    # ------------------------------------------------------------------
+    # Smooth background animation helper
+    # ------------------------------------------------------------------
+    @classmethod
+    def animate_background(
+        cls,
+        widget,
+        target: str,
+        steps: int = 8,
+        delay_ms: int = 16,
+    ) -> None:
+        """Interpolate ``widget`` background to ``target`` over ~``steps*delay_ms`` ms.
+
+        Cancels any in-flight animation for the same widget before starting
+        a new one (avoids flicker when Enter/Leave fire in quick succession).
+        Intended for plain ``tk`` widgets (Frame, Label, ...). ttk widgets
+        ignore ``background=`` for the most part — callers should pick
+        appropriate targets. Best-effort: silently bails on any Tcl error.
+        """
+        try:
+            current = widget.cget("background")
+        except Exception:
+            return
+        # Cancel pending animation for this widget, if any.
+        prev = getattr(widget, "_theme_anim_ids", None)
+        if prev:
+            for aid in prev:
+                try:
+                    widget.after_cancel(aid)
+                except Exception:
+                    pass
+        ids: list[str] = []
+
+        def _step(i: int) -> None:
+            if i > steps:
+                return
+            t = i / steps
+            try:
+                widget.configure(background=_lerp_hex(current, target, t))
+            except Exception:
+                return
+
+        for i in range(1, steps + 1):
+            try:
+                ids.append(widget.after(delay_ms * i, _step, i))
+            except Exception:
+                return
+        try:
+            widget._theme_anim_ids = ids  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # ttk style configuration
+    # ------------------------------------------------------------------
     @classmethod
     def apply_styles(cls) -> None:
         c = cls.COLORS
+        f = cls.FONTS
         style = ttk.Style()
         try:
             style.theme_use("clam")
@@ -120,32 +279,43 @@ class ThemeManager:
             # 'clam' is bundled with Tk; if even that fails we leave
             # whatever theme is active so the app still starts.
             pass
+
+        # --- Frames -------------------------------------------------------
         style.configure("Main.TFrame", background=c["bg_main"])
         style.configure("Sidebar.TFrame", background=c["bg_sidebar"], relief="flat")
+
+        # --- Labels -------------------------------------------------------
         style.configure(
             "TLabel",
             background=c["bg_main"],
             foreground=c["text"],
-            font=("Segoe UI", 10),
+            font=f["body"],
         )
         style.configure(
             "Sidebar.TLabel",
             background=c["bg_sidebar"],
             foreground=c["text"],
-            font=("Segoe UI", 10),
+            font=f["body"],
         )
         style.configure(
             "Header.TLabel",
-            font=("Segoe UI", 12, "bold"),
+            font=f["display"],
             foreground=c["primary"],
             background=c["bg_main"],
         )
-        style.configure("TButton", font=("Segoe UI", 10), padding=5)
+
+        # --- Buttons (base + variants) -----------------------------------
+        # Flat, breathable padding. Hover handled via style.map (instant,
+        # reliable). Smooth animation is available via animate_background
+        # for non-ttk widgets (toast frames, etc.).
         style.configure(
             "TButton",
+            font=f["button"],
+            padding=(12, 8),
+            relief="flat",
+            borderwidth=0,
             background=c["bg_panel"],
             foreground=c["text"],
-            borderwidth=1,
         )
         style.map(
             "TButton",
@@ -155,58 +325,141 @@ class ThemeManager:
             ],
             foreground=[
                 ("active", c["text_inverse"]),
-                ("disabled", c["text"]),
+                ("disabled", c["text_muted"]),
             ],
         )
+        # Primary action (was: Action.TButton). Keep exact name.
         style.configure(
-            "Action.TButton", background=c["primary"], foreground=c["text_inverse"]
+            "Action.TButton",
+            font=f["button"],
+            padding=(12, 8),
+            relief="flat",
+            borderwidth=0,
+            background=c["primary"],
+            foreground=c["text_inverse"],
         )
         style.map(
             "Action.TButton",
-            background=[("active", c["primary_active"])],
-            foreground=[("disabled", c["text"])],
+            background=[("active", c["primary_active"]), ("disabled", c["bg_panel"])],
+            foreground=[("disabled", c["text_muted"])],
         )
+        # Success (positive actions).
         style.configure(
-            "Success.TButton", background=c["success"], foreground=c["text_inverse"]
+            "Success.TButton",
+            font=f["button"],
+            padding=(12, 8),
+            relief="flat",
+            borderwidth=0,
+            background=c["success"],
+            foreground=c["text_inverse"],
         )
         style.map(
             "Success.TButton",
-            background=[("active", c["success_active"])],
-            foreground=[("disabled", c["text"])],
+            background=[("active", c["success_active"]), ("disabled", c["bg_panel"])],
+            foreground=[("disabled", c["text_muted"])],
         )
+        # Audit (informational, was: info/blue).
         style.configure(
-            "Audit.TButton", background=c["info"], foreground=c["text_inverse"]
+            "Audit.TButton",
+            font=f["button"],
+            padding=(12, 8),
+            relief="flat",
+            borderwidth=0,
+            background=c["info"],
+            foreground=c["text_inverse"],
         )
         style.map(
             "Audit.TButton",
-            background=[("active", c["info_active"])],
-            foreground=[("disabled", c["text"])],
+            background=[("active", c["info_active"]), ("disabled", c["bg_panel"])],
+            foreground=[("disabled", c["text_muted"])],
         )
+        # Danger (destructive actions like delete).
+        style.configure(
+            "Danger.TButton",
+            font=f["button"],
+            padding=(12, 8),
+            relief="flat",
+            borderwidth=0,
+            background=c["danger"],
+            foreground=c["text_inverse"],
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("active", c["danger_active"]), ("disabled", c["bg_panel"])],
+            foreground=[("disabled", c["text_muted"])],
+        )
+        # Ghost (transparent secondary; border surfaces on hover).
+        style.configure(
+            "Ghost.TButton",
+            font=f["button"],
+            padding=(12, 8),
+            relief="flat",
+            borderwidth=0,
+            background=c["bg_main"],
+            foreground=c["text"],
+        )
+        style.map(
+            "Ghost.TButton",
+            background=[
+                ("active", c["bg_panel"]),
+                ("disabled", c["bg_main"]),
+            ],
+            foreground=[
+                ("active", c["primary"]),
+                ("disabled", c["text_muted"]),
+            ],
+        )
+
+        # --- LabelFrame / Card -------------------------------------------
+        # Modern flat card: subtle border, muted label (not primary —
+        # muted reads as a refined card title rather than a heading).
         style.configure(
             "TLabelframe",
             background=c["bg_sidebar"],
-            relief="groove",
+            relief="flat",
             borderwidth=1,
+            bordercolor=c["border_subtle"],
         )
         style.configure(
             "TLabelframe.Label",
             background=c["bg_sidebar"],
-            foreground=c["primary"],
-            font=("Segoe UI", 9, "bold"),
+            foreground=c["text_muted"],
+            font=f["heading"],
         )
-        style.configure("Treeview", font=("Segoe UI", 10), rowheight=30)
+        # Card variant — same look, explicit so callers can opt in.
+        style.configure(
+            "Card.TLabelframe",
+            background=c["bg_sidebar"],
+            relief="flat",
+            borderwidth=1,
+            bordercolor=c["border_subtle"],
+        )
+        style.configure(
+            "Card.TLabelframe.Label",
+            background=c["bg_sidebar"],
+            foreground=c["text_muted"],
+            font=f["heading"],
+        )
+
+        # --- Treeview -----------------------------------------------------
         style.configure(
             "Treeview",
-            background=c["bg_panel"],
+            font=f["body"],
+            rowheight=32,
+            background=c["bg_sidebar"],
+            fieldbackground=c["bg_sidebar"],
             foreground=c["text"],
-            fieldbackground=c["bg_panel"],
+            bordercolor=c["border_subtle"],
+            borderwidth=0,
         )
         style.configure(
             "Treeview.Heading",
-            font=("Segoe UI", 10, "bold"),
-            background=c["bg_sidebar"],
-            foreground=c["text"],
+            font=f["body_bold"],
+            background=c["bg_panel"],
+            foreground=c["text_muted"],
             relief="flat",
+            borderwidth=0,
+            padding=(8, 6),
         )
         style.map(
             "Treeview",
@@ -215,78 +468,132 @@ class ThemeManager:
         )
         style.map(
             "Treeview.Heading",
-            background=[("active", c["primary"])],
-            foreground=[("active", c["text_inverse"])],
+            background=[("active", c["border_default"])],
         )
+
+        # --- Entry / Combobox --------------------------------------------
         style.configure(
             "TEntry",
-            fieldbackground=c["bg_panel"],
+            fieldbackground=c["bg_sidebar"],
+            background=c["bg_sidebar"],
             foreground=c["text"],
-            insertcolor=c["text"],
+            insertcolor=c["primary"],
+            bordercolor=c["border_default"],
+            lightcolor=c["border_default"],
+            darkcolor=c["border_default"],
             selectbackground=c["primary"],
             selectforeground=c["text_inverse"],
+            padding=(6, 4),
+        )
+        style.map(
+            "TEntry",
+            bordercolor=[("focus", c["primary"])],
+            lightcolor=[("focus", c["primary"])],
+            darkcolor=[("focus", c["primary"])],
         )
         style.configure(
             "TCombobox",
-            fieldbackground=c["bg_panel"],
+            fieldbackground=c["bg_sidebar"],
+            background=c["bg_sidebar"],
             foreground=c["text"],
-            arrowcolor=c["text"],
+            arrowcolor=c["text_muted"],
+            bordercolor=c["border_default"],
+            lightcolor=c["border_default"],
+            darkcolor=c["border_default"],
             selectbackground=c["primary"],
             selectforeground=c["text_inverse"],
+            padding=(6, 4),
         )
         style.map(
             "TCombobox",
-            fieldbackground=[("readonly", c["bg_panel"])],
+            fieldbackground=[("readonly", c["bg_sidebar"])],
             foreground=[("readonly", c["text"])],
+            bordercolor=[("focus", c["primary"])],
+            lightcolor=[("focus", c["primary"])],
+            darkcolor=[("focus", c["primary"])],
+            arrowcolor=[("active", c["primary"])],
         )
-        style.configure(
-            "Vertical.TScrollbar",
-            background=c["bg_sidebar"],
-            troughcolor=c["bg_panel"],
-            arrowcolor=c["text"],
-        )
-        style.configure(
-            "Horizontal.TScrollbar",
-            background=c["bg_sidebar"],
-            troughcolor=c["bg_panel"],
-            arrowcolor=c["text"],
-        )
+
+        # --- Scrollbars (thinner, subtler) -------------------------------
+        for orient in ("Vertical", "Horizontal"):
+            style.configure(
+                f"{orient}.TScrollbar",
+                background=c["border_default"],
+                troughcolor=c["bg_main"],
+                arrowcolor=c["text_muted"],
+                bordercolor=c["bg_main"],
+                relief="flat",
+                width=10 if orient == "Vertical" else 10,
+            )
+            style.map(
+                f"{orient}.TScrollbar",
+                background=[("active", c["text_muted"])],
+                arrowcolor=[("active", c["text"])],
+            )
+
+        # --- Notebook / Tabs ---------------------------------------------
         style.configure(
             "TNotebook",
             background=c["bg_main"],
             borderwidth=0,
+            tabmargins=(0, 4, 0, 0),
         )
         style.configure(
             "TNotebook.Tab",
-            background=c["bg_panel"],
-            foreground=c["text"],
-            padding=(12, 4),
+            font=f["body"],
+            background=c["bg_main"],
+            foreground=c["text_muted"],
+            padding=(16, 10),
+            borderwidth=0,
         )
         style.map(
             "TNotebook.Tab",
-            background=[("selected", c["bg_sidebar"])],
-            foreground=[("selected", c["text"])],
+            background=[
+                ("selected", c["bg_sidebar"]),
+                ("active", c["bg_panel"]),
+            ],
+            foreground=[
+                ("selected", c["primary"]),
+                ("active", c["text"]),
+            ],
         )
+
+        # --- Checkbutton / Radiobutton -----------------------------------
         style.configure(
             "TCheckbutton",
             background=c["bg_sidebar"],
             foreground=c["text"],
+            font=f["body"],
         )
         style.map(
             "TCheckbutton",
             background=[("active", c["bg_sidebar"])],
+            foreground=[("disabled", c["text_muted"])],
         )
         style.configure(
             "TRadiobutton",
             background=c["bg_sidebar"],
             foreground=c["text"],
+            font=f["body"],
         )
+        style.map(
+            "TRadiobutton",
+            background=[("active", c["bg_sidebar"])],
+            foreground=[("disabled", c["text_muted"])],
+        )
+
+        # --- Progressbar (slimmer) ---------------------------------------
         style.configure(
             "TProgressbar",
-            thickness=15,
-            troughcolor=c["trough"],
+            thickness=12,
+            troughcolor=c["bg_panel"],
             background=c["primary"],
+            bordercolor=c["border_subtle"],
+            lightcolor=c["primary"],
+            darkcolor=c["primary"],
         )
+
+        # --- Status bar ---------------------------------------------------
         style.configure(
             "StatusBar.TFrame",
             background=c["bg_panel"],
@@ -295,8 +602,8 @@ class ThemeManager:
         style.configure(
             "StatusBar.TLabel",
             background=c["bg_panel"],
-            foreground=c["text"],
-            font=("Segoe UI", 9),
+            foreground=c["text_muted"],
+            font=f["caption"],
         )
 
 

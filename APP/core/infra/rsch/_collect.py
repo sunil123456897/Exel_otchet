@@ -358,8 +358,9 @@ def _collect_rows_from_calamine_workbook(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
 ) -> List[Dict[str, Any]]:
-    wb_source = CalamineWorkbook.from_path(target_path)
+    wb_source = None
     try:
+        wb_source = CalamineWorkbook.from_path(target_path)
         rows: List[Dict[str, Any]] = []
         for sheet_name in wb_source.sheet_names:
             if sheet_name.startswith("_"):
@@ -385,7 +386,11 @@ def _collect_rows_from_calamine_workbook(
                     issues_sink.append(issue)
         return rows
     finally:
-        wb_source.close()
+        # Guard: if CalamineWorkbook.from_path raised before assignment,
+        # `wb_source` is still None — calling .close() here would raise
+        # UnboundLocalError and mask the original cause.
+        if wb_source is not None:
+            wb_source.close()
 
 
 def _collect_rows_from_workbook(
