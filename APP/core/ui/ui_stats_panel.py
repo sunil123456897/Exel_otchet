@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import ttk
-from core.ui.theme import ThemeManager
 
 
 class StatsPanel(ttk.LabelFrame):

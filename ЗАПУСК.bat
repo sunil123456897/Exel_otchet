@@ -41,10 +41,14 @@ call :step "Step 1/5. Finding Python"
 call :refresh_paths
 call :find_python
 
-if defined PYTHON_CMD goto python_ok
-    call :log "Python not found. Install it from python.org"
-    set "FAIL_MESSAGE=Python not found. Please install Python 3.10 or newer."
-    goto fail
+if "%PYTHON_CMD%"=="" goto python_not_found
+if "%PYTHON_CMD%"=="""" goto python_not_found
+goto python_ok
+
+:python_not_found
+call :log "Python not found. Install it from python.org"
+set "FAIL_MESSAGE=Python not found. Please install Python 3.10 or newer and make sure it is in PATH."
+goto fail
 
 :python_ok
 
@@ -156,40 +160,71 @@ set "PATH=%PATH%;%USERPROFILE%\AppData\Local\Microsoft\WindowsApps;%LocalAppData
 exit /b 0
 
 :find_python
-rem Prefer an isolated local virtual environment next to the launcher.
+rem 1. Prefer an isolated local virtual environment next to the launcher.
+if exist "%VENV_DIR%\Scripts\python.exe" (
+    "%VENV_DIR%\Scripts\python.exe" --version >nul 2>&1
+    if not errorlevel 1 (
+        set "PYTHON_CMD=%VENV_DIR%\Scripts\python.exe"
+        set "PYTHON_IS_VENV=1"
+        if exist "%VENV_DIR%\Scripts\pythonw.exe" set "PYTHONW_CMD=%VENV_DIR%\Scripts\pythonw.exe"
+        goto python_launcher_done
+    )
+    call :log "WARNING: Local .venv is broken (likely copied from another PC). Re-creating..."
+    set "TEMP_VENV=%VENV_DIR%_broken_%RANDOM%"
+    move "%VENV_DIR%" "%TEMP_VENV%" >nul 2>&1
+    if exist "%VENV_DIR%" rd /s /q "%VENV_DIR%" >nul 2>&1
+    if exist "%TEMP_VENV%" rd /s /q "%TEMP_VENV%" >nul 2>&1
+)
+
+rem 2. Try to create the local virtual environment using different Python handles.
+rem Try py -3.12 first
+py -%TARGET_PY% --version >nul 2>&1
+if not errorlevel 1 (
+    call :log "Creating local virtual environment using py -%TARGET_PY%: %VENV_DIR%"
+    py -%TARGET_PY% -m venv "%VENV_DIR%" >> "%LOGFILE%" 2>&1
+    goto check_created_venv
+)
+
+rem Try py launcher generally
+py --version >nul 2>&1
+if not errorlevel 1 (
+    call :log "Creating local virtual environment using py: %VENV_DIR%"
+    py -m venv "%VENV_DIR%" >> "%LOGFILE%" 2>&1
+    goto check_created_venv
+)
+
+rem Try python in PATH
+python --version >nul 2>&1
+if not errorlevel 1 (
+    call :log "Creating local virtual environment using python: %VENV_DIR%"
+    python -m venv "%VENV_DIR%" >> "%LOGFILE%" 2>&1
+    goto check_created_venv
+)
+
+:check_created_venv
 if exist "%VENV_DIR%\Scripts\python.exe" (
     set "PYTHON_CMD=%VENV_DIR%\Scripts\python.exe"
     set "PYTHON_IS_VENV=1"
     if exist "%VENV_DIR%\Scripts\pythonw.exe" set "PYTHONW_CMD=%VENV_DIR%\Scripts\pythonw.exe"
     goto python_launcher_done
 )
+call :log "WARNING: could not create local .venv; falling back to PATH Python."
 
-rem Create the local virtual environment when the requested Python launcher exists.
-py -%TARGET_PY% --version >nul 2>&1
-if not errorlevel 1 (
-    call :log "Creating local virtual environment: %VENV_DIR%"
-    py -%TARGET_PY% -m venv "%VENV_DIR%" >> "%LOGFILE%" 2>&1
-    if exist "%VENV_DIR%\Scripts\python.exe" (
-        set "PYTHON_CMD=%VENV_DIR%\Scripts\python.exe"
-        set "PYTHON_IS_VENV=1"
-        if exist "%VENV_DIR%\Scripts\pythonw.exe" set "PYTHONW_CMD=%VENV_DIR%\Scripts\pythonw.exe"
-        goto python_launcher_done
-    )
-    call :log "WARNING: could not create local .venv; falling back to PATH Python."
-)
-
-rem Find regular python
+rem 3. Fallback to regular python in PATH
 for /f "delims=" %%I in ('where python 2^>nul') do (
-    if not defined PYTHON_CMD set "PYTHON_CMD=%%~fI"
+    if "%PYTHON_CMD%"=="" set "PYTHON_CMD=%%~fI"
 )
-rem Find windowless pythonw
 for /f "delims=" %%I in ('where pythonw 2^>nul') do (
-    if not defined PYTHONW_CMD set "PYTHONW_CMD=%%~fI"
+    if "%PYTHONW_CMD%"=="" set "PYTHONW_CMD=%%~fI"
 )
-rem Fallback to the Python launcher
-if defined PYTHON_CMD goto python_launcher_done
+
+rem 4. Last fallback to py launcher directly
+if not "%PYTHON_CMD%"=="" goto python_launcher_done
 py --version >nul 2>&1
-if not errorlevel 1 set "PYTHON_CMD=py"
+if not errorlevel 1 (
+    set "PYTHON_CMD=py"
+    set "PYTHONW_CMD=pyw"
+)
 
 :python_launcher_done
 exit /b 0
