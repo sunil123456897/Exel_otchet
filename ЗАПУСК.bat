@@ -2,6 +2,9 @@
 setlocal EnableExtensions
 chcp 65001 >nul
 
+set "ARG1=%~1"
+set "ARG2=%~2"
+
 title Master Report Launcher v5.5
 
 set "APPDIR=%~dp0APP"
@@ -15,6 +18,12 @@ set "FAIL_MESSAGE="
 set "PYTHON_CMD="
 set "PYTHONW_CMD="
 set "PYTHON_IS_VENV="
+
+:: Clean up inherited environment variables if they contain empty quotes or invalid placeholders
+if "%PYTHON_CMD%"=="""" set "PYTHON_CMD="
+if "%PYTHON_CMD%"=="""""" set "PYTHON_CMD="
+if "%PYTHONW_CMD%"=="""" set "PYTHONW_CMD="
+if "%PYTHONW_CMD%"=="""""" set "PYTHONW_CMD="
 
 break > "%LOGFILE%"
 break > "%GUIERRLOG%"
@@ -41,8 +50,9 @@ call :step "Step 1/5. Finding Python"
 call :refresh_paths
 call :find_python
 
-if "%PYTHON_CMD%"=="" goto python_not_found
+if not defined PYTHON_CMD goto python_not_found
 if "%PYTHON_CMD%"=="""" goto python_not_found
+if "%PYTHON_CMD%"=="""""" goto python_not_found
 goto python_ok
 
 :python_not_found
@@ -124,7 +134,7 @@ exit /b 0
 echo.
 echo [ERROR] %FAIL_MESSAGE%
 call :log "[ERROR] %FAIL_MESSAGE%"
-pause
+if not "%ARG1%"=="/nopause" if not "%ARG2%"=="/nopause" pause
 exit /b 1
 
 :missing_main
@@ -200,23 +210,26 @@ if not errorlevel 1 (
 
 :check_created_venv
 if exist "%VENV_DIR%\Scripts\python.exe" (
-    set "PYTHON_CMD=%VENV_DIR%\Scripts\python.exe"
-    set "PYTHON_IS_VENV=1"
-    if exist "%VENV_DIR%\Scripts\pythonw.exe" set "PYTHONW_CMD=%VENV_DIR%\Scripts\pythonw.exe"
-    goto python_launcher_done
+    call :check_venv_valid
+    if not errorlevel 1 (
+        set "PYTHON_CMD=%VENV_DIR%\Scripts\python.exe"
+        set "PYTHON_IS_VENV=1"
+        if exist "%VENV_DIR%\Scripts\pythonw.exe" set "PYTHONW_CMD=%VENV_DIR%\Scripts\pythonw.exe"
+        goto python_launcher_done
+    )
 )
 call :log "WARNING: could not create local .venv; falling back to PATH Python."
 
 rem 3. Fallback to regular python in PATH
 for /f "delims=" %%I in ('where python 2^>nul') do (
-    if "%PYTHON_CMD%"=="" set "PYTHON_CMD=%%~fI"
+    if not defined PYTHON_CMD set "PYTHON_CMD=%%~fI"
 )
 for /f "delims=" %%I in ('where pythonw 2^>nul') do (
-    if "%PYTHONW_CMD%"=="" set "PYTHONW_CMD=%%~fI"
+    if not defined PYTHONW_CMD set "PYTHONW_CMD=%%~fI"
 )
 
 rem 4. Last fallback to py launcher directly
-if not "%PYTHON_CMD%"=="" goto python_launcher_done
+if defined PYTHON_CMD goto python_launcher_done
 py --version >nul 2>&1
 if not errorlevel 1 (
     set "PYTHON_CMD=py"

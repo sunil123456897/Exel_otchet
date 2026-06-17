@@ -492,7 +492,7 @@ if ($Launch) {
         throw "Не найден ЗАПУСК.bat"
     }
     Write-Log "Запускаю приложение..."
-    Start-Process -FilePath $launcher -WorkingDirectory $Root
+    Start-Process -FilePath $launcher -ArgumentList "/nopause" -WorkingDirectory $Root
 }
 
 Write-Log "Updater finished successfully."
