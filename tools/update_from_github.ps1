@@ -313,6 +313,9 @@ function Update-WithGit {
         Set-Content -LiteralPath (Join-Path $StateDir "last_sha.txt") -Value $remoteSha -Encoding UTF8
         Write-Log "Минимальное обновление через Git выполнено. Локальные настройки/БД возвращены."
         return $true
+    } catch {
+        Write-Log "WARNING: Git update failed: $($_.Exception.Message). Falling back to snapshot update..."
+        return $false
     } finally {
         Pop-Location
     }
@@ -331,40 +334,45 @@ function Update-WithGitSnapshot {
         Push-Location $tempRepo
         $pushed = $true
 
-        & $Git init --quiet
-        if ($LASTEXITCODE -ne 0) {
-            throw "git init завершился с кодом $LASTEXITCODE"
-        }
+        try {
+            & $Git init --quiet
+            if ($LASTEXITCODE -ne 0) {
+                throw "git init завершился с кодом $LASTEXITCODE"
+            }
 
-        & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git"
-        if ($LASTEXITCODE -ne 0) {
-            throw "git remote add завершился с кодом $LASTEXITCODE"
-        }
+            & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git"
+            if ($LASTEXITCODE -ne 0) {
+                throw "git remote add завершился с кодом $LASTEXITCODE"
+            }
 
-        Write-Log "Папка без .git. Скачиваю минимальный snapshot через Git..."
-        & $Git fetch --depth=1 origin $Branch --quiet
-        if ($LASTEXITCODE -ne 0) {
-            throw "git fetch snapshot завершился с кодом $LASTEXITCODE"
-        }
+            Write-Log "Папка без .git. Скачиваю минимальный snapshot через Git..."
+            & $Git fetch --depth=1 origin $Branch --quiet
+            if ($LASTEXITCODE -ne 0) {
+                throw "git fetch snapshot завершился с кодом $LASTEXITCODE"
+            }
 
-        $remoteSha = (& $Git rev-parse FETCH_HEAD).Trim()
-        Assert-PinnedCommit $remoteSha
-        $localSha = Get-InstalledSha ""
-        if ($localSha -eq $remoteSha) {
-            Write-Log "Новых версий нет. Текущая версия: $localSha"
+            $remoteSha = (& $Git rev-parse FETCH_HEAD).Trim()
+            Assert-PinnedCommit $remoteSha
+            $localSha = Get-InstalledSha ""
+            if ($localSha -eq $remoteSha) {
+                Write-Log "Новых версий нет. Текущая версия: $localSha"
+                return $true
+            }
+
+            $backupDir = Backup-LocalFiles ($LocalSettings + $LocalData)
+            Write-Log "Найдена новая версия: $remoteSha. Backup локальных настроек/БД: $backupDir"
+
+            Expand-GitArchive $Git "FETCH_HEAD" $tempArchive
+            Copy-UpdateItems $tempArchive
+            Restore-LocalFiles $backupDir ($LocalSettings + $LocalData)
+            Ensure-Directory $StateDir
+            Set-Content -LiteralPath (Join-Path $StateDir "last_sha.txt") -Value $remoteSha -Encoding UTF8
+            Write-Log "Минимальное обновление через Git snapshot выполнено. Локальные настройки/БД возвращены."
             return $true
+        } catch {
+            Write-Log "WARNING: Git snapshot update failed: $($_.Exception.Message). Falling back to zip update..."
+            return $false
         }
-
-        $backupDir = Backup-LocalFiles ($LocalSettings + $LocalData)
-        Write-Log "Найдена новая версия: $remoteSha. Backup локальных настроек/БД: $backupDir"
-
-        Expand-GitArchive $Git "FETCH_HEAD" $tempArchive
-        Copy-UpdateItems $tempArchive
-        Restore-LocalFiles $backupDir ($LocalSettings + $LocalData)
-        Ensure-Directory $StateDir
-        Set-Content -LiteralPath (Join-Path $StateDir "last_sha.txt") -Value $remoteSha -Encoding UTF8
-        Write-Log "Минимальное обновление через Git snapshot выполнено. Локальные настройки/БД возвращены."
-        return $true
     } finally {
         if ($pushed) {
             Pop-Location

@@ -32,12 +32,6 @@ class ConsolidationCommandsMixin:
                 self.ctx.operation_state.end()
                 return
 
-        if not messagebox.askyesno(
-            "Подтверждение сборки", "Собрать основной отчет?"
-        ):
-            self.ctx.operation_state.end()
-            return
-
         curator = self.ctx.sidebar.get_curator()
         self.ctx.consolidation_vm.run_consolidation(
             self.ctx.app_controller,
@@ -55,12 +49,6 @@ class ConsolidationCommandsMixin:
             if not messagebox.askyesno("Предупреждение", msg):
                 self.ctx.operation_state.end()
                 return
-
-        if not messagebox.askyesno(
-            "Подтверждение сборки", "Собрать основной отчет (все даты)?"
-        ):
-            self.ctx.operation_state.end()
-            return
 
         curator = self.ctx.sidebar.get_curator()
         self.ctx.consolidation_vm.run_consolidation_all_dates(
@@ -85,12 +73,6 @@ class ConsolidationCommandsMixin:
             if not messagebox.askyesno("Предупреждение", msg):
                 self.ctx.operation_state.end()
                 return
-
-        if not messagebox.askyesno(
-            "Подтверждение сборки", "Собрать основной отчет?"
-        ):
-            self.ctx.operation_state.end()
-            return
 
         curator = self.ctx.sidebar.get_curator()
         self.ctx.consolidation_vm.run_consolidation_month(
