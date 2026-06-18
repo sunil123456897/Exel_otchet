@@ -7,7 +7,6 @@ import shutil
 import tempfile
 import threading
 import time
-import multiprocessing
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -68,7 +67,7 @@ def is_file_writable(path: str) -> bool:
 _CACHE_DIR = Path(tempfile.gettempdir()) / "master_report_cache"
 _CACHE_CLEANUP_LOCK = threading.Lock()
 _CACHE_CLEANUP_DONE = False
-_CACHE_COPY_LOCK = multiprocessing.Lock()
+_CACHE_COPY_LOCK = threading.Lock()  # threading.Lock is sufficient for ThreadPoolExecutor; multiprocessing.Lock was overkill and could cause pickle errors on Windows
 _CACHE_MIN_DELETE_AGE_SECONDS = 30 * 60
 _DIGEST_CHUNK_SIZE = 1024 * 1024
 

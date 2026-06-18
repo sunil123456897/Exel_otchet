@@ -4,6 +4,7 @@ import time
 import json
 import subprocess
 import sys
+import threading
 import zipfile
 from pathlib import Path
 from typing import List, Dict, Any
@@ -69,6 +70,7 @@ def _run_calamine_worker(
     target_date_str: str | None = None,
     start_date_str: str | None = None,
     end_date_str: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Dict[str, Any]:
     script = r"""
 import json
@@ -149,30 +151,69 @@ else:
     raise SystemExit(2)
 """
 
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            script,
-            mode,
-            target_path,
-            json.dumps(markers, ensure_ascii=False),
-            json.dumps(aliases, ensure_ascii=False),
-            json.dumps(strict_io),
-            str(_APP_ROOT),
-            json.dumps(target_date_str),
-            json.dumps(start_date_str),
-            json.dumps(end_date_str),
-        ],
-        capture_output=True,
-        check=False,
+    cmd = [
+        sys.executable,
+        "-c",
+        script,
+        mode,
+        target_path,
+        json.dumps(markers, ensure_ascii=False),
+        json.dumps(aliases, ensure_ascii=False),
+        json.dumps(strict_io),
+        str(_APP_ROOT),
+        json.dumps(target_date_str),
+        json.dumps(start_date_str),
+        json.dumps(end_date_str),
+    ]
+    cwd = str(Path(__file__).resolve().parents[3])
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    timeout = 300
+
+    # Use Popen instead of subprocess.run so we can poll the cancel_event
+    # while the worker is running.  A synchronous subprocess.run with
+    # timeout=300 blocks for up to 5 minutes on a hung network drive (Q:\),
+    # ignoring the user's Cancel button the entire time.
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=300,
-        cwd=str(Path(__file__).resolve().parents[3]),
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        cwd=cwd,
+        env=env,
     )
+    try:
+        deadline = time.monotonic() + timeout
+        while proc.poll() is None:
+            if cancel_event is not None and cancel_event.is_set():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=3)
+                return {"ok": False, "error": "cancelled by user"}
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=3)
+                return {"ok": False, "error": "worker timed out"}
+            # Poll at 0.5 s intervals — fast enough for cancel, cheap on CPU
+            try:
+                proc.wait(timeout=min(0.5, remaining))
+            except subprocess.TimeoutExpired:
+                continue
+    except Exception as exc:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        return {"ok": False, "error": str(exc)}
 
     stdout = (proc.stdout or "").strip()
     stderr = (proc.stderr or "").strip()

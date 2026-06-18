@@ -27,6 +27,8 @@ class DBWriterThread(threading.Thread):
         self.logger = logging.getLogger(__name__)
         self.error_callback = error_callback
 
+    _WRITE_RETRIES = 1  # One retry on transient failure before giving up
+
     def run(self):
         while self.running or not self.q.empty():
             batch = []
@@ -43,14 +45,14 @@ class DBWriterThread(threading.Thread):
                             self.q.task_done()
                             # Process remaining batch before exiting
                             if batch:
-                                self._process_batch(batch)
+                                self._process_batch_with_retry(batch)
                                 for _ in batch:
                                     self.q.task_done()
                             return
                         batch.append(next_item)
                     except queue.Empty:
                         break
-                self._process_batch(batch)
+                self._process_batch_with_retry(batch)
                 for _ in batch:
                     self.q.task_done()
             except queue.Empty:
@@ -65,6 +67,38 @@ class DBWriterThread(threading.Thread):
                         self.q.task_done()
                     except ValueError:
                         pass
+
+    def _process_batch_with_retry(self, batch):
+        """Try to process a batch, retrying once on transient errors.
+
+        Previously a single _process_batch failure silently dropped the
+        entire batch — rows were lost even though task_done() was called,
+        making wait_for_writes() return as if everything succeeded.
+        The retry gives transient SQLite lock errors a second chance before
+        the data is declared lost.
+        """
+        try:
+            self._process_batch(batch)
+            return
+        except Exception as first_err:
+            self.logger.warning(
+                "Batch write failed (attempt 1/%d): %s. Retrying...",
+                self._WRITE_RETRIES + 1, first_err,
+            )
+        # Retry once
+        try:
+            self._process_batch(batch)
+            self.logger.info("Batch write succeeded on retry.")
+            return
+        except Exception as retry_err:
+            self.logger.critical(
+                "Batch write failed on retry too. %d rows LOST: %s",
+                sum(len(rows) for _, rows in batch), retry_err,
+                exc_info=True,
+            )
+            if self.error_callback is not None:
+                self.error_callback(retry_err)
+            raise
 
     def _process_batch(self, batch):
         sql = "INSERT INTO staging_data (file_id, row_index, raw_content_json, date_val, amount, employee_name, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)"

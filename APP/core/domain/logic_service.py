@@ -403,11 +403,17 @@ class LogicService(ILogicService):
             try:
                 has_transit_values = self._has_transit_values(row_model)
             except (NumericParsingError, ValueError) as e:
-                logger.error(
-                    f"DATA INTEGRITY ERROR (Logic): {e} | Source: {source_info}"
+                # Transit fields contain unparseable text (e.g. a header
+                # label that leaked into a data cell).  Previously this
+                # discarded the entire row as a critical error — but the
+                # amount/total/broker fields may be perfectly valid.
+                # Downgrade to a warning so the financial data is preserved.
+                logger.warning(
+                    "Transit parse error (non-fatal): %s | Source: %s",
+                    e, source_info,
                 )
-                res.append(self._build_error_row(r, is_critical=True))
-                continue
+                has_transit_values = True  # Assume transit might exist — don't drop
+                is_warn = True
 
             if (
                 amt == 0

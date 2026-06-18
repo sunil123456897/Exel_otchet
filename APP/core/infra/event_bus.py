@@ -6,6 +6,7 @@ This decouples FileProcessor/AppController from GuiMaster — no more
 """
 
 import queue
+import logging
 import threading
 from dataclasses import dataclass
 from enum import Enum
@@ -81,8 +82,10 @@ class EventBus:
                 for cb in listeners:
                     try:
                         cb(event)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logging.warning(
+                            "EventBus callback error for %s: %s", event.type, e
+                        )
                 self._queue.task_done()
         except queue.Empty:
             pass

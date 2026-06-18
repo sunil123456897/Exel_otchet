@@ -174,10 +174,14 @@ class MasterWriter(IExporter):
                 try:
                     os.replace(tmp, path_abs)
                 except PermissionError:
-                    if os.path.exists(tmp):
-                        os.remove(tmp)
+                    # Do NOT delete the tmp file — the user can rename it
+                    # manually after closing Excel.  Previously the tmp was
+                    # deleted here, destroying a successfully generated
+                    # report and forcing a full re-run.
                     logger.error(
-                        f"Файл занят: Закройте '{path or self.master_path}' в Excel!"
+                        "Файл занят: Закройте '%s' в Excel! "
+                        "Временный файл сохранён: %s",
+                        path or self.master_path, tmp,
                     )
                     return False
             else:
@@ -185,13 +189,9 @@ class MasterWriter(IExporter):
             return True
         except Exception as e:
             logger.error(f"Save failed: {e}")
+            # Preserve tmp on error too — do not remove it in the finally
+            # block unless the rename succeeded.
             return False
-        finally:
-            if os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
 
     def _auto_adjust(self, ws):
         numeric_keywords = [
@@ -283,9 +283,9 @@ class MasterWriter(IExporter):
                     _safe_decimal(r.get("сумма платежа РАСХОД", 0)),
                     _safe_decimal(r.get("комиссия", 0)),
                     _safe_decimal(r.get("ИТОГ", 0)),
-                    r.get("% посредника", 0),
+                    _safe_decimal(r.get("% посредника", 0)),
                     _safe_decimal(r.get("посредник 1(кэш)", 0)),
-                    r.get("% посредник 2", 0),
+                    _safe_decimal(r.get("% посредник 2", 0)),
                     _safe_decimal(r.get("посредник 2", 0)),
                     r.get("фильтры", ""),
                 ]]
@@ -299,7 +299,7 @@ class MasterWriter(IExporter):
                     _safe_decimal(r.get("комиссия", 0)),
                     _safe_decimal(r.get("ИТОГ", 0)),
                     _safe_decimal(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
-                    r.get("% посредника", 0),
+                    _safe_decimal(r.get("% посредника", 0)),
                     _safe_decimal(r.get("посредник 1(кэш)", 0)),
                     _safe_decimal(r.get("посредник 2", 0)),
                     _safe_decimal(r.get("курс", 0)),
@@ -317,7 +317,7 @@ class MasterWriter(IExporter):
                     _safe_decimal(r.get("комиссия", 0)),
                     _safe_decimal(r.get("ИТОГ", 0)),
                     _safe_decimal(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
-                    r.get("% посредника", 0),
+                    _safe_decimal(r.get("% посредника", 0)),
                     _safe_decimal(r.get("посредник 1(кэш)", 0)),
                     _safe_decimal(r.get("посредник 2", 0)),
                     r.get("фильтры", ""),
@@ -390,9 +390,9 @@ class MasterWriter(IExporter):
                         _safe_decimal(r.get("сумма платежа РАСХОД", 0)),
                         _safe_decimal(r.get("комиссия", 0)),
                         _safe_decimal(r.get("ИТОГ", 0)),
-                        r.get("% посредника", 0),
+                        _safe_decimal(r.get("% посредника", 0)),
                         _safe_decimal(r.get("посредник 1(кэш)", 0)),
-                        r.get("% посредник 2", 0),
+                        _safe_decimal(r.get("% посредник 2", 0)),
                         _safe_decimal(r.get("посредник 2", 0)),
                         r.get("фильтры", ""),
                     ]]
@@ -408,7 +408,7 @@ class MasterWriter(IExporter):
                         _safe_decimal(r.get("комиссия", 0)),
                         _safe_decimal(r.get("ИТОГ", 0)),
                         _safe_decimal(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
-                        r.get("% посредника", 0),
+                        _safe_decimal(r.get("% посредника", 0)),
                         _safe_decimal(r.get("посредник 1(кэш)", 0)),
                         _safe_decimal(r.get("посредник 2", 0)),
                         _safe_decimal(r.get("курс", 0)),
@@ -428,7 +428,7 @@ class MasterWriter(IExporter):
                         _safe_decimal(r.get("комиссия", 0)),
                         _safe_decimal(r.get("ИТОГ", 0)),
                         _safe_decimal(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
-                        r.get("% посредника", 0),
+                        _safe_decimal(r.get("% посредника", 0)),
                         _safe_decimal(r.get("посредник 1(кэш)", 0)),
                         _safe_decimal(r.get("посредник 2", 0)),
                         r.get("фильтры", ""),

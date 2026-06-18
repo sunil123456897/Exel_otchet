@@ -20,11 +20,17 @@ _initialised = False
 
 # Redact obvious monetary amounts (e.g. "1234.56", "99,50") before writing
 # to disk so the log file does not accumulate financial PII in plaintext.
-_AMOUNT_RE = re.compile(r"\d+[.,]\d{2}")
+# Require 3+ digits before the separator to avoid false positives on dates
+# (e.g. "12.05.2026"), versions ("v5.50"), or file names ("file_12.05.xlsx").
+_AMOUNT_RE = re.compile(r"\d{3,}[.,]\d{2}")
 
 
 def _project_root() -> Path:
-    return Path(os.getcwd())
+    # Use the package root (APP/) derived from this file's location
+    # instead of os.getcwd(), which depends on the working directory
+    # at launch time and may point to an inaccessible system folder
+    # (e.g. C:\Windows\System32) when launched via a shortcut.
+    return Path(__file__).resolve().parents[2]
 
 
 def _get_logger() -> logging.Logger:

@@ -182,6 +182,7 @@ def process_file_task(
     processed_file_ids: Optional[List[int]] = None,
     processed_file_ids_lock: Optional[Any] = None,
     cancel_event: Optional[threading.Event] = None,
+    today: Optional[datetime] = None,
 ) -> int:
     if cancel_event is not None and cancel_event.is_set():
         return 0
@@ -231,7 +232,7 @@ def process_file_task(
             datetime.strptime(start_date_str, "%d.%m.%Y") if start_date_str else None
         )
         end_date = datetime.strptime(end_date_str, "%d.%m.%Y") if end_date_str else None
-        today = datetime.now()
+        today = today or datetime.now()  # Use shared timestamp from caller for consistency
 
         for row in rows:
             row_date = row.get("date")
@@ -353,6 +354,11 @@ def run_engine(
     processed_file_ids = []
     processed_file_ids_lock = threading.Lock()
 
+    # Compute current date once before spawning threads so that all
+    # workers use the same reference — avoids inconsistent "future date"
+    # rejections when the job straddles midnight.
+    today = datetime.now()
+
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=resolve_max_workers(getattr(ingestion, "config", None))
     ) as executor:
@@ -375,6 +381,7 @@ def run_engine(
                     processed_file_ids,
                     processed_file_ids_lock,
                     cancel_event,
+                    today,
                 )
                 future_to_file[future] = meta
             if cancel_event is not None and cancel_event.is_set():
