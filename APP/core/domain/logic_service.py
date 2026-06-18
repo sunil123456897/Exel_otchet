@@ -10,6 +10,7 @@ from core.domain.utils_helpers import (
     to_decimal_percent,
     NumericParsingError,
 )
+from core.domain.data_schemas import FinancialRowSchema
 
 logger = logging.getLogger(__name__)
 
@@ -48,35 +49,76 @@ class Validator(IValidator):
             str(row.get("filters", "")).strip(),
         )
         amount_val = row.get("amount")
-        total_val = row.get("total")
-        if (
-            not customer
-            and not contractor
-            and not filters
-            and (amount_val is None or str(amount_val).strip() == "0")
-        ):
+
+        def _is_empty_zero(v: Any) -> bool:
+            if v is None:
+                return True
+            return str(v).strip() in {"", "0", "0.00", "0.0", "0,00", "0,0"}
+
+        if not customer and not contractor and not filters and _is_empty_zero(amount_val):
             return False
-        if (
-            not customer
-            and not contractor
-            and not filters
-            and amount_val is not None
-            and str(amount_val).strip() not in {"", "0"}
-            and total_val is not None
-            and str(total_val).strip() not in {"", "0"}
-        ):
-            return False
-        for val in row.values():
-            if val is not None and str(val).lower().strip(": ") in self._junk_totals:
+
+        # Service metadata fields (private keys starting with '_') carry
+        # diagnostics like _template_warning_reason = 'unsupported header
+        # name: % -> % посредника; ...'. Those descriptions legitimately
+        # contain header words ('комиссия', 'фильтры', 'посредник'). The
+        # header-word filter used to scan EVERY field, so it matched the
+        # diagnostic text and rejected the whole row — which silently
+        # zeroed out the Boris/Ivan curator batches in auto-reconciliation
+        # (both files use aliased headers that trigger soft warnings).
+        # Skip private fields in the junk/header heuristics below.
+        def _is_service_field(key: str) -> bool:
+            return isinstance(key, str) and key.startswith("_")
+
+        for key, val in row.items():
+            if _is_service_field(key) or val is None:
+                continue
+            s_norm = " ".join(str(val).lower().split())
+            if any(w in s_norm for w in self._header_words):
                 return False
-        row_str = " ".join(str(v).lower() for v in row.values() if v is not None)
-        if sum(1 for m in self._junk_markers if m in row_str) >= 2:
+
+        name_field_keys = ["customer", "contractor"]
+        name_fields_filled = sum(
+            1
+            for k in name_field_keys
+            if row.get(k) and str(row.get(k)).strip()
+        )
+
+        non_name_marker_hits = 0
+        for k, v in row.items():
+            if v is None or k in name_field_keys or _is_service_field(k):
+                continue
+            v_str = " ".join(str(v).lower().split())
+            if any(m in v_str for m in self._junk_totals):
+                non_name_marker_hits += 1
+
+        if non_name_marker_hits >= 2:
             return False
+
         for key in ["amount", "income", "expense", "commission", "total"]:
             v = row.get(key)
-            if v is not None and any(w in str(v).lower() for w in self._header_words):
+            if v is None:
+                continue
+            v_str = " ".join(str(v).lower().split())
+            if any(w in v_str for w in self._header_words):
                 return False
-        return True
+
+        if name_fields_filled >= 2:
+            row_str = " ".join(
+                " ".join(str(v).lower().split())
+                for k, v in row.items()
+                if v is not None and not _is_service_field(k)
+            )
+            if sum(1 for m in self._junk_markers if m in row_str) >= 3:
+                return False
+
+        try:
+            from pydantic import ValidationError
+            FinancialRowSchema(**row)
+            return True
+        except ValidationError as e:
+            logger.warning("Pydantic validation failed for data row: %s | Row: %s", e, row)
+            return False
 
     def get_errors(self) -> List[str]:
         """Вернуть список ошибок валидации (пусто — заглушка)."""
@@ -142,9 +184,12 @@ class LogicService(ILogicService):
         self.persistence = persistence
         self.config = config
         l_cfg = config.get("logic", {})
-        self.inc_over = l_cfg.get("income_overrides", ["доп", "доп сф", "% посред"])
+        self.inc_over = l_cfg.get("income_overrides", ["доп", "доп сф", "доп.сф", "% посред"])
         self.ret_kw = l_cfg.get("return_keywords", ["возврат"])
         self.commission_is_percent = l_cfg.get("commission_is_percent", True)
+        self.exclude_kw = l_cfg.get(
+            "exclude_keywords", ["недопустимо", "исключить", "исключение"]
+        )
 
     _SANITIZE_CHARS = frozenset(("=", "+", "-", "@", "\t", "\r", "\n"))
 
@@ -175,7 +220,7 @@ class LogicService(ILogicService):
         """
         return {
             "Дата": r.get("date", ""),
-            "Источник": r.get("_source_info", "Unknown"),
+            "Источник": self._sanitize(r.get("_source_info", "Unknown")),
             "Сотрудник": self._sanitize(r.get("employee_name", "")),
             "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": self._sanitize(
                 r.get("customer", "")
@@ -215,12 +260,12 @@ class LogicService(ILogicService):
             return Decimal("0.00"), True
 
     @staticmethod
-    def _has_transit_values(r: Dict[str, Any]) -> bool:
+    def _has_transit_values(r: FinancialRowSchema) -> bool:
         values = [
-            to_decimal(r.get(field, 0))
+            to_decimal(getattr(r, field, 0))
             for field in ("transit_obligation", "exchange_rate", "currency_amount")
         ]
-        return any(value != 0 for value in values) or bool(str(r.get("currency", "")).strip())
+        return any(value != 0 for value in values) or bool(str(r.currency or "").strip())
 
     @staticmethod
     def _resolve_flow(amount: Decimal, is_add: bool, is_ret: bool) -> tuple[Decimal, Decimal]:
@@ -263,9 +308,19 @@ class LogicService(ILogicService):
         is_critical: bool,
         is_warn: bool,
     ) -> Dict[str, Any]:
+        # transit/rate/currency_amount may carry garbage (e.g. a header
+        # label that leaked into a data cell like ' ОТПРАВКА ТРАНЗИТНЫХ
+        # ОБЯЗАТЕЛЬСТВ'). The strict to_decimal() raises NumericParsingError
+        # on such values, which is wrapped for amount/total/brokers above
+        # but was NOT wrapped here — so one dirty transit cell crashed the
+        # whole curator batch (and with it the Ivan sheet of auto-recon).
+        # Use the same fail-soft helper the brokers use.
+        transit_val, _ = self._parse_decimal_or_warn(r.get("transit_obligation", 0))
+        rate_val, _ = self._parse_decimal_or_warn(r.get("exchange_rate", 0))
+        cur_amt_val, _ = self._parse_decimal_or_warn(r.get("currency_amount", 0))
         return {
             "Дата": r.get("date", ""),
-            "Источник": r.get("_source_info", "Unknown"),
+            "Источник": self._sanitize(r.get("_source_info", "Unknown")),
             "Сотрудник": self._sanitize(r.get("employee_name", "")),
             "ЗАКАЗЧИК (название проекта, наименование ЮЛ)": self._sanitize(
                 r.get("customer", "")
@@ -282,11 +337,9 @@ class LogicService(ILogicService):
             "посредник 2": b2_val,
             "% посредник 2": pb2_val,
             "Посредник 2 (сумма)": broker2_calc,
-            "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ": to_decimal(
-                r.get("transit_obligation", 0)
-            ),
-            "курс": to_decimal(r.get("exchange_rate", 0)),
-            "сумма": to_decimal(r.get("currency_amount", 0)),
+            "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ": transit_val,
+            "курс": rate_val,
+            "сумма": cur_amt_val,
             "валюта": self._sanitize(r.get("currency", "")),
             "фильтры": self._sanitize(r.get("filters", "")),
             "is_critical": is_critical,
@@ -294,8 +347,8 @@ class LogicService(ILogicService):
             "_template_warning_kind": r.get("_template_warning_kind"),
             "_template_warning_reason": r.get("_template_warning_reason"),
             "_source_file_path": r.get("_file_path"),
-            "_source_sheet_name": r.get("_sheet_name"),
-            "_source_row_index": r.get("_row_index"),
+            "_source_sheet_name": r.get("_source_sheet_name"),
+            "_source_row_index": r.get("_source_row_index"),
         }
 
     def apply_financial_rules(
@@ -307,19 +360,23 @@ class LogicService(ILogicService):
         template_warning_count = 0
 
         for r in raw_rows:
-            f_val = str(r.get("filters", "")).lower()
+            row_model = FinancialRowSchema(**r)
+            f_val = str(row_model.filters or "").lower()
             is_add, is_ret = (
                 any(kw in f_val for kw in self.inc_over),
                 any(kw in f_val for kw in self.ret_kw),
             )
+            is_excluded = any(kw in f_val for kw in self.exclude_kw)
             is_critical = False
             is_warn = False
 
+            source_info = row_model.model_extra.get("_source_info", "Unknown") if row_model.model_extra else "Unknown"
+
             try:
-                amt = to_decimal(r.get("amount"))
+                amt = to_decimal(row_model.amount)
             except (NumericParsingError, ValueError) as e:
                 logger.error(
-                    f"DATA INTEGRITY ERROR (Logic): {e} | Source: {r.get('_source_info')}"
+                    f"DATA INTEGRITY ERROR (Logic): {e} | Source: {source_info}"
                 )
                 if isinstance(e, NumericParsingError):
                     # Critical parse error — record the row with is_critical flag
@@ -329,28 +386,34 @@ class LogicService(ILogicService):
                 amt = Decimal("0.00")
 
             try:
-                tot = to_decimal(r.get("total", 0))
+                tot = to_decimal(row_model.total)
             except (NumericParsingError, ValueError) as e:
                 logger.error(
-                    f"DATA INTEGRITY ERROR (Logic): {e} | Source: {r.get('_source_info')}"
+                    f"DATA INTEGRITY ERROR (Logic): {e} | Source: {source_info}"
                 )
                 # Critical parse error on total — record and skip
                 res.append(self._build_error_row(r, is_critical=True))
                 continue
 
-            raw_b1, broker1_warn = self._parse_decimal_or_warn(r.get("broker1"))
-            raw_b2, broker2_warn = self._parse_decimal_or_warn(r.get("broker2"))
+            raw_b1, broker1_warn = self._parse_decimal_or_warn(row_model.broker1)
+            raw_b2, broker2_warn = self._parse_decimal_or_warn(row_model.broker2)
             is_warn = is_warn or broker1_warn or broker2_warn
 
             has_broker_values = raw_b1 != 0 or raw_b2 != 0
             try:
-                has_transit_values = self._has_transit_values(r)
+                has_transit_values = self._has_transit_values(row_model)
             except (NumericParsingError, ValueError) as e:
-                logger.error(
-                    f"DATA INTEGRITY ERROR (Logic): {e} | Source: {r.get('_source_info')}"
+                # Transit fields contain unparseable text (e.g. a header
+                # label that leaked into a data cell).  Previously this
+                # discarded the entire row as a critical error — but the
+                # amount/total/broker fields may be perfectly valid.
+                # Downgrade to a warning so the financial data is preserved.
+                logger.warning(
+                    "Transit parse error (non-fatal): %s | Source: %s",
+                    e, source_info,
                 )
-                res.append(self._build_error_row(r, is_critical=True))
-                continue
+                has_transit_values = True  # Assume transit might exist — don't drop
+                is_warn = True
 
             if (
                 amt == 0
@@ -362,17 +425,20 @@ class LogicService(ILogicService):
             ):
                 continue
 
+            if is_excluded:
+                amt = Decimal("0.00")
+
             inc, exp = self._resolve_flow(amt, is_add, is_ret)
-            comm, commission_warn = self._resolve_commission(r.get("commission", 0))
+            comm, commission_warn = self._resolve_commission(row_model.commission)
             is_warn = is_warn or commission_warn
 
-            pb_raw = r.get("percent_broker")
+            pb_raw = row_model.percent_broker
             pb_val = to_decimal_percent(pb_raw)
             pb_val = self._abs_decimal(pb_val)
 
             # Apply curator-specific broker logic via strategy
             if curator_config:
-                pb2_raw = r.get("percent_broker2")
+                pb2_raw = row_model.percent_broker2
                 pb_val, pb2_val, broker2_calc = strategy.apply(
                     curator_config, pb_val, amt, tot, raw_b2, pb2_raw
                 )
@@ -383,7 +449,7 @@ class LogicService(ILogicService):
             pb2_val = self._abs_decimal(pb2_val)
             broker2_calc = self._abs_decimal(broker2_calc)
 
-            is_warn = r.get("is_template_warning", False) or is_warn
+            is_warn = bool(row_model.is_template_warning or is_warn)
             if is_warn:
                 template_warning_count += 1
             b1_val = abs(raw_b1)

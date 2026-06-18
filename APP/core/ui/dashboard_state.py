@@ -143,7 +143,7 @@ def load_runtime_results(state_path: Path | str) -> list[RuntimeResult]:
                 label=label,
                 ok=bool(item.get("ok")),
                 message=message,
-                path=Path(str(raw_path)) if raw_path else None,
+                path=Path(str(raw_path)) if raw_path and str(raw_path).strip() else None,
                 rows=rows,
                 created_at=created_at,
             )
@@ -335,9 +335,37 @@ def read_recent_log_errors(log_paths: Iterable[Path | str], limit: int = 5) -> l
         if not path.exists() or not path.is_file():
             continue
         try:
-            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            # Read only the tail of the file — these logs can grow to
+            # multiple MB and the previous implementation loaded each
+            # one fully into memory on every refresh. 64 KB is enough
+            # to capture the most recent errors we display.
+            size = path.stat().st_size
+            with open(path, "rb") as f:
+                f.seek(max(0, size - 65536))
+                tail = f.read().decode("utf-8", errors="replace")
+            for line in tail.splitlines():
                 upper = line.upper()
                 if "ERROR" in upper or "CRITICAL" in upper or "ОШИБ" in upper:
+                    lines.append(line.strip())
+        except OSError:
+            continue
+    return lines[-limit:]
+
+
+def read_recent_logs(log_paths: Iterable[Path | str], limit: int = 150) -> list[str]:
+    lines: list[str] = []
+    for raw_path in log_paths:
+        path = Path(raw_path)
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            # Read the last 128KB of the file
+            size = path.stat().st_size
+            with open(path, "rb") as f:
+                f.seek(max(0, size - 131072))
+                tail = f.read().decode("utf-8", errors="replace")
+            for line in tail.splitlines():
+                if line.strip():
                     lines.append(line.strip())
         except OSError:
             continue

@@ -73,10 +73,16 @@ def to_decimal_percent(val: Any) -> Any:
         if not all(c in "0123456789.,-" for c in s):
             s = RE_NUMERIC_PERCENT_CLEAN.sub("", s)
         if not s:
-            return val
+            return Decimal("0")
         res = Decimal(s.replace(",", "."))
         if "%" in raw and res > 1:
             res = res / Decimal("100")
         return res
     except (ValueError, TypeError, ArithmeticError):
-        return val
+        return Decimal("0")
+
+
+def normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).replace("\xa0", " ").lower().split())

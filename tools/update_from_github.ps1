@@ -1,11 +1,23 @@
-﻿param(
+param(
     [string]$RepoOwner = "sunil123456897",
     [string]$RepoName = "Exel_otchet",
     [string]$Branch = "main",
+    # Pin a specific commit SHA for integrity verification. When set,
+    # the updater ABORTS if the fetched commit does not match the pin —
+    # this stops a compromised repository (or MITM with a valid TLS
+    # cert) from pushing arbitrary code to user PCs. Empty = accept
+    # branch HEAD (LESS SECURE — only use during development).
+    # Bumping the pin requires manual review of the diff between the
+    # old and new SHA on github.com/<owner>/<repo>/compare/<old>...<new>.
+    [string]$PinnedCommitSha = "",
     [switch]$Launch
 )
 
 $ErrorActionPreference = "Stop"
+
+$env:PIP_NO_KEYRING = "1"
+$env:PIP_DISABLE_PIP_VERSION_CHECK = "1"
+$env:PIP_NO_INPUT = "1"
 
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -43,6 +55,26 @@ $UpdateItems = @(
     "ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat",
     "tools\update_from_github.ps1"
 )
+
+function Get-GitHubToken {
+    $tokenFile = Join-Path $Root ".github_token"
+    if (Test-Path -LiteralPath $tokenFile) {
+        $token = (Get-Content -LiteralPath $tokenFile -Raw).Trim()
+        if ($token) { return $token }
+    }
+    $envToken = $env:GITHUB_TOKEN
+    if ($envToken) { return $envToken }
+    return $null
+}
+
+function Get-GitHubHeaders {
+    param([string]$Token)
+    $headers = @{"User-Agent" = "Master-Report-Updater"}
+    if ($Token) {
+        $headers["Authorization"] = "token $Token"
+    }
+    return $headers
+}
 
 function Write-Log {
     param([string]$Message)
@@ -142,9 +174,11 @@ function Get-GitCommand {
 }
 
 function Get-RemoteSha {
+    param([string]$Token)
     $apiUrl = "https://api.github.com/repos/$RepoOwner/$RepoName/commits/$Branch"
     try {
-        $response = Invoke-RestMethod -Uri $apiUrl -Headers @{"User-Agent" = "Master-Report-Updater"} -TimeoutSec 30
+        $headers = Get-GitHubHeaders $Token
+        $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -TimeoutSec 30
         return [string]$response.sha
     } catch {
         Write-Log "Не удалось проверить последнюю версию через GitHub API: $($_.Exception.Message)"
@@ -164,6 +198,27 @@ function Get-InstalledSha {
     }
 
     return $FallbackSha
+}
+
+function Assert-PinnedCommit {
+    param([string]$ResolvedSha)
+
+    # Integrity gate: refuse to apply an update whose commit SHA does not
+    # match the operator-pinned value. Without this check, a compromised
+    # GitHub repo (or a TLS-MITM with a valid cert) could push arbitrary
+    # code to every user PC running ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat.
+    if (-not $PinnedCommitSha) {
+        Write-Warning "PinnedCommitSha не задан — обновление из ветки '$Branch' без проверки целостности. Задайте -PinnedCommitSha для защиты от компрометации репозитория."
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace($ResolvedSha)) {
+        throw "Не удалось определить SHA загруженного коммита. Обновление отменено (нет целостности)."
+    }
+    $resolvedNorm = $ResolvedSha.Trim().ToLowerInvariant()
+    $pinnedNorm = $PinnedCommitSha.Trim().ToLowerInvariant()
+    if ($resolvedNorm -ne $pinnedNorm) {
+        throw "Целостность обновления НЕ подтверждена: полученный commit '$resolvedNorm' не совпадает с закреплённым '$pinnedNorm'. Обновление ОТМЕНЕНО. Для обновления пина вручную проверьте diff на github.com/$RepoOwner/$RepoName/compare/$pinnedNorm...$resolvedNorm и обновите -PinnedCommitSha."
+    }
 }
 
 function Copy-UpdateItems {
@@ -210,7 +265,7 @@ function Expand-GitArchive {
 }
 
 function Update-WithGit {
-    param([string]$Git)
+    param([string]$Git, [string]$Token)
 
     if (-not (Test-Path -LiteralPath (Join-Path $Root ".git"))) {
         return $false
@@ -220,7 +275,13 @@ function Update-WithGit {
     try {
         $remoteUrl = & $Git remote get-url origin 2>$null
         if (-not $remoteUrl) {
-            & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git" | Out-Null
+            if ($Token) {
+                & $Git remote add origin "https://$Token@github.com/$RepoOwner/$RepoName.git" | Out-Null
+            } else {
+                & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git" | Out-Null
+            }
+        } elseif ($Token -and $remoteUrl -notmatch "@github\.com") {
+            & $Git remote set-url origin "https://$Token@github.com/$RepoOwner/$RepoName.git" | Out-Null
         }
 
         Write-Log "Проверяю обновления через Git..."
@@ -232,6 +293,7 @@ function Update-WithGit {
         $headSha = (& $Git rev-parse HEAD).Trim()
         $localSha = Get-InstalledSha $headSha
         $remoteSha = (& $Git rev-parse "origin/$Branch").Trim()
+        Assert-PinnedCommit $remoteSha
         if ($localSha -eq $remoteSha) {
             Write-Log "Новых версий нет. Текущая версия: $localSha"
             return $true
@@ -255,6 +317,9 @@ function Update-WithGit {
         Set-Content -LiteralPath (Join-Path $StateDir "last_sha.txt") -Value $remoteSha -Encoding UTF8
         Write-Log "Минимальное обновление через Git выполнено. Локальные настройки/БД возвращены."
         return $true
+    } catch {
+        Write-Log "WARNING: Git update failed: $($_.Exception.Message). Falling back to snapshot update..."
+        return $false
     } finally {
         Pop-Location
     }
@@ -273,39 +338,45 @@ function Update-WithGitSnapshot {
         Push-Location $tempRepo
         $pushed = $true
 
-        & $Git init --quiet
-        if ($LASTEXITCODE -ne 0) {
-            throw "git init завершился с кодом $LASTEXITCODE"
-        }
+        try {
+            & $Git init --quiet
+            if ($LASTEXITCODE -ne 0) {
+                throw "git init завершился с кодом $LASTEXITCODE"
+            }
 
-        & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git"
-        if ($LASTEXITCODE -ne 0) {
-            throw "git remote add завершился с кодом $LASTEXITCODE"
-        }
+            & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git"
+            if ($LASTEXITCODE -ne 0) {
+                throw "git remote add завершился с кодом $LASTEXITCODE"
+            }
 
-        Write-Log "Папка без .git. Скачиваю минимальный snapshot через Git..."
-        & $Git fetch --depth=1 origin $Branch --quiet
-        if ($LASTEXITCODE -ne 0) {
-            throw "git fetch snapshot завершился с кодом $LASTEXITCODE"
-        }
+            Write-Log "Папка без .git. Скачиваю минимальный snapshot через Git..."
+            & $Git fetch --depth=1 origin $Branch --quiet
+            if ($LASTEXITCODE -ne 0) {
+                throw "git fetch snapshot завершился с кодом $LASTEXITCODE"
+            }
 
-        $remoteSha = (& $Git rev-parse FETCH_HEAD).Trim()
-        $localSha = Get-InstalledSha ""
-        if ($localSha -eq $remoteSha) {
-            Write-Log "Новых версий нет. Текущая версия: $localSha"
+            $remoteSha = (& $Git rev-parse FETCH_HEAD).Trim()
+            Assert-PinnedCommit $remoteSha
+            $localSha = Get-InstalledSha ""
+            if ($localSha -eq $remoteSha) {
+                Write-Log "Новых версий нет. Текущая версия: $localSha"
+                return $true
+            }
+
+            $backupDir = Backup-LocalFiles ($LocalSettings + $LocalData)
+            Write-Log "Найдена новая версия: $remoteSha. Backup локальных настроек/БД: $backupDir"
+
+            Expand-GitArchive $Git "FETCH_HEAD" $tempArchive
+            Copy-UpdateItems $tempArchive
+            Restore-LocalFiles $backupDir ($LocalSettings + $LocalData)
+            Ensure-Directory $StateDir
+            Set-Content -LiteralPath (Join-Path $StateDir "last_sha.txt") -Value $remoteSha -Encoding UTF8
+            Write-Log "Минимальное обновление через Git snapshot выполнено. Локальные настройки/БД возвращены."
             return $true
+        } catch {
+            Write-Log "WARNING: Git snapshot update failed: $($_.Exception.Message). Falling back to zip update..."
+            return $false
         }
-
-        $backupDir = Backup-LocalFiles ($LocalSettings + $LocalData)
-        Write-Log "Найдена новая версия: $remoteSha. Backup локальных настроек/БД: $backupDir"
-
-        Expand-GitArchive $Git "FETCH_HEAD" $tempArchive
-        Copy-UpdateItems $tempArchive
-        Restore-LocalFiles $backupDir ($LocalSettings + $LocalData)
-        Ensure-Directory $StateDir
-        Set-Content -LiteralPath (Join-Path $StateDir "last_sha.txt") -Value $remoteSha -Encoding UTF8
-        Write-Log "Минимальное обновление через Git snapshot выполнено. Локальные настройки/БД возвращены."
-        return $true
     } finally {
         if ($pushed) {
             Pop-Location
@@ -320,7 +391,9 @@ function Update-WithGitSnapshot {
 }
 
 function Update-WithZip {
-    $remoteSha = Get-RemoteSha
+    param([string]$Token)
+    $remoteSha = Get-RemoteSha $Token
+    Assert-PinnedCommit $remoteSha
     $lastShaFile = Join-Path $StateDir "last_sha.txt"
     if ($remoteSha -and (Test-Path -LiteralPath $lastShaFile)) {
         $currentSha = (Get-Content -LiteralPath $lastShaFile -Raw).Trim()
@@ -336,11 +409,18 @@ function Update-WithZip {
     Ensure-Directory $tempDir
 
     try {
-        $zipUrl = "https://github.com/$RepoOwner/$RepoName/archive/refs/heads/$Branch.zip"
+        if ($Token) {
+            $zipUrl = "https://api.github.com/repos/$RepoOwner/$RepoName/zipball/$Branch"
+            $headers = Get-GitHubHeaders $Token
+            $headers["Accept"] = "application/vnd.github+json"
+        } else {
+            $zipUrl = "https://github.com/$RepoOwner/$RepoName/archive/refs/heads/$Branch.zip"
+            $headers = Get-GitHubHeaders $Token
+        }
         Write-Log "Git не найден или папка без .git. Скачиваю zip из GitHub..."
-        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 120
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 120 -Headers $headers
         Expand-Archive -LiteralPath $zipPath -DestinationPath $tempDir -Force
-        $sourceRoot = Get-ChildItem -LiteralPath $tempDir -Directory | Where-Object { $_.Name -like "$RepoName-*" } | Select-Object -First 1
+        $sourceRoot = Get-ChildItem -LiteralPath $tempDir -Directory | Where-Object { $_.Name -like "$RepoName-*" -or $_.Name -like "$RepoOwner-$RepoName-*" } | Select-Object -First 1
         if ($null -eq $sourceRoot) {
             throw "Не найдена распакованная папка проекта."
         }
@@ -364,10 +444,22 @@ function Update-Dependencies {
     $venvPython = Join-Path $Root ".venv\Scripts\python.exe"
     $requirements = Join-Path $Root "requirements.txt"
     if ((Test-Path -LiteralPath $venvPython) -and (Test-Path -LiteralPath $requirements)) {
-        Write-Log "Обновляю зависимости в локальном .venv..."
-        & $venvPython -m pip install -r $requirements | Tee-Object -FilePath $LogFile -Append
-        if ($LASTEXITCODE -ne 0) {
-            throw "pip install завершился с кодом $LASTEXITCODE"
+        $size = (Get-Item -LiteralPath $venvPython).Length
+        $valid = $false
+        if ($size -gt 10000) {
+            $null = & $venvPython --version 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $valid = $true
+            }
+        }
+        if ($valid) {
+            Write-Log "Обновляю зависимости в локальном .venv..."
+            & $venvPython -m pip install -r $requirements | Tee-Object -FilePath $LogFile -Append
+            if ($LASTEXITCODE -ne 0) {
+                throw "pip install завершился с кодом $LASTEXITCODE"
+            }
+        } else {
+            Write-Warning "Локальное виртуальное окружение .venv неисправно. Пропускаю обновление зависимостей в апдейтере. ЗАПУСК.bat автоматически пересоздаст окружение."
         }
     }
 }
@@ -376,6 +468,13 @@ Set-Content -Path $LogFile -Value "" -Encoding UTF8
 Write-Log "Master Report updater started."
 Write-Log "Project folder: $Root"
 Assert-UpdatePolicy
+
+$gitHubToken = Get-GitHubToken
+if ($gitHubToken) {
+    Write-Log "GitHub токен найден. Используется авторизованный доступ."
+} else {
+    Write-Log "GitHub токен не найден. Попытка анонимного доступа..."
+}
 
 $git = Get-GitCommand
 $updatedWithGit = $false
@@ -386,7 +485,7 @@ if ($git) {
     }
 }
 if (-not $updatedWithGit) {
-    Update-WithZip
+    Update-WithZip $gitHubToken
 }
 
 Update-Dependencies
@@ -397,7 +496,7 @@ if ($Launch) {
         throw "Не найден ЗАПУСК.bat"
     }
     Write-Log "Запускаю приложение..."
-    Start-Process -FilePath $launcher -WorkingDirectory $Root
+    Start-Process -FilePath $launcher -ArgumentList "/nopause" -WorkingDirectory $Root
 }
 
 Write-Log "Updater finished successfully."

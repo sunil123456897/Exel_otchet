@@ -1,7 +1,6 @@
 """Bootstrap — Composition Root для Dependency Injection."""
 
 import logging
-import logging.handlers
 import importlib.util
 import re
 import sqlite3
@@ -11,6 +10,7 @@ from typing import Tuple, Optional, Dict, Any, List
 from pydantic import BaseModel
 
 from core.infra import ConfigController, MasterWriter
+from core.infra.utils import path_exists_with_timeout
 from core.infra.ingestion_engine import IngestionEngine
 from core.infra.session_repo import SessionRepository as SQLiteManager
 from core.domain import LogicService, Validator
@@ -85,14 +85,14 @@ def _validate_path_safety(
         raise ValueError(
             f"Path traversal detected: '{resolved}' escapes app root '{app_root}'"
         )
-    except OSError:
+    except OSError as os_err:
         # On OSError (e.g. network path unavailable), fall back to strict string check
         resolved_str = str(resolved).lower().rstrip("\\/")
         app_root_str = str(app_root).lower().rstrip("\\/")
         if not resolved_str.startswith(app_root_str):
             raise ValueError(
                 f"Path traversal detected: '{resolved}' escapes app root '{app_root}'"
-            )
+            ) from os_err
         return resolved
 
 
@@ -148,8 +148,41 @@ def _is_current_app_local_default_path(
         return Path(path_str).name.lower() == default_filename.lower()
 
 
+def _check_db_integrity_on_startup(persistence) -> None:
+    """Run PRAGMA integrity_check and warn on corruption.
+
+    Only called during GUI startup.  If the database file was left in an
+    inconsistent state (e.g. after a hard shutdown during a write), the
+    check will surface a visible warning so the user can restore from
+    backup or regenerate the index.
+
+    The warning message is also stashed on ``Bootstrap._integrity_warning``
+    so that the GUI layer (main.py) can surface it via a messagebox after
+    the Tk root has been created. Headless callers already get the log
+    line.
+    """
+    try:
+        ok, msg = persistence.connection_manager.check_integrity()
+        if not ok:
+            warning = (
+                "PRAGMA integrity_check failed: "
+                f"{msg}. "
+                "Data may be corrupted — consider restoring from backup."
+            )
+            logging.error(warning)
+            Bootstrap._integrity_warning = warning
+    except Exception:
+        pass  # never block startup on integrity check failures
+
+
 class Bootstrap:
     """Статический класс для инициализации всех зависимостей приложения."""
+
+    # Surfaced by _check_db_integrity_on_startup when PRAGMA
+    # integrity_check fails. main.py reads this after creating the Tk
+    # root and shows a messagebox. Headless callers already get the
+    # log line.
+    _integrity_warning: Optional[str] = None
 
     @staticmethod
     def _has_required_dependency() -> bool:
@@ -238,7 +271,7 @@ class Bootstrap:
 
     @staticmethod
     def _resolve_rel_factory(app_root: Path):
-        def resolve_rel(p: Optional[str], default_filename: str = None) -> str:
+        def resolve_rel(p: Optional[str], default_filename: Optional[str] = None) -> str:
             if not p:
                 if default_filename:
                     return str(app_root / default_filename)
@@ -369,14 +402,18 @@ class Bootstrap:
             "./reports",
         }
 
-        if source_root_is_default and sr and not Path(sr).exists():
-            p_cfg["source_root"] = "Q:/Отчет кураторов 1"
-            if not p_cfg.get("source_roots"):
-                p_cfg["source_roots"] = [
-                    "Q:/Отчет кураторов 1",
-                    "Q:/Отчет кураторов 2",
-                    "Q:/Отчет кураторов 3",
-                ]
+        if source_root_is_default and sr and not path_exists_with_timeout(sr):
+            # Don't silently invent a Q:/ fallback — break on non-Windows /
+            # non-mapped-Q systems. Downstream DiscoveryService already
+            # auto-detects configured network drive_letters (Q/Z) when
+            # source_roots is empty, so leaving it empty is safe.
+            logging.warning(
+                "source_root по умолчанию (%s) недоступен и source_roots не "
+                "заданы в config.yaml. Приложение продолжит работу, но "
+                "реальные отчёты могут быть не найдены. Настройте "
+                "paths.source_roots в config.yaml.",
+                sr,
+            )
 
     @staticmethod
     def _build_runtime_components(
@@ -390,6 +427,7 @@ class Bootstrap:
         ingestion = IngestionEngine(cfg.get("sh1", {}).get("markers", {}), drive_letters)
         ingestion.config = cfg
         persistence = SQLiteManager(db_path, schema_path, cfg)
+        _check_db_integrity_on_startup(persistence)
         validator = Validator(cfg)
         logic = LogicService(persistence, cfg)
         writer = MasterWriter(cfg, config_path)
@@ -405,14 +443,17 @@ class Bootstrap:
         """Инициализировать все зависимости и вернуть контроллеры.
 
         Returns:
-            (config_controller, app_controller, persistence) или (None, None, None)
-            при отсутствии критической зависимости.
+            (config_controller, app_controller, persistence).
+        Raises:
+            RuntimeError: если критическая зависимость (python-calamine)
+                не найдена. Вызывающий код должен перехватить и показать
+                пользователю дружелюбное сообщение.
         """
         if not Bootstrap._has_required_dependency():
-            logging.critical(
-                "Критическая ошибка: библиотека 'python-calamine' не найдена!"
+            raise RuntimeError(
+                "Не найдена обязательная библиотека 'python-calamine'. "
+                "Установите её: pip install python-calamine==0.6.2"
             )
-            return None, None, None
 
         cfg_ctl = ConfigController(config_path)
         cfg, raw_cfg = Bootstrap._validate_and_normalize_config(cfg_ctl)

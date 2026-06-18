@@ -13,28 +13,35 @@ class LogPanel(ttk.Frame):
         header_frame.pack(fill=tk.X, pady=(10, 2))
         
         ttk.Label(
-            header_frame, 
-            text="📝 Логи:", 
-            font=('Segoe UI', 9), 
-            background=ThemeManager.COLORS['sidebar']
+            header_frame,
+            text="📝 Логи:",
+            font=('Segoe UI', 9),
+            background=ThemeManager.COLORS['bg_sidebar']
         ).pack(side=tk.LEFT)
         
         ttk.Button(
-            header_frame, 
-            text="🧹", 
-            width=3, 
+            header_frame,
+            text="🧹 Очистить",
             command=self.clear_logs
         ).pack(side=tk.RIGHT)
         
         self.log_area = scrolledtext.ScrolledText(
-            self, 
-            height=12, 
-            state='disabled', 
-            font=('Consolas', 8), 
-            borderwidth=1, 
-            relief='solid'
+            self,
+            height=12,
+            state='disabled',
+            font=('Consolas', 9),
+            borderwidth=1,
+            relief='solid',
+            bg=ThemeManager.COLORS["bg_panel"],
+            fg=ThemeManager.COLORS["text"],
+            insertbackground=ThemeManager.COLORS["text"],
+            selectbackground=ThemeManager.COLORS["primary"],
+            selectforeground=ThemeManager.COLORS["text_inverse"],
         )
-        self.log_area.pack(fill=tk.BOTH, expand=True)
+        # ScrolledText uses explicit colours that do not follow ttk
+        # styles — register so dark-mode switches re-colour the bg/fg.
+        ThemeManager.register(self.log_area, bg_key="bg_panel", fg_key="text")
+        self.log_area.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
     def clear_logs(self):
         self.log_area.configure(state='normal')

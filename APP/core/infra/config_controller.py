@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import List, Dict, Any
 from ruamel.yaml import YAML
 
+from core.infra.utils_logging import scrub_path
+
 
 class ConfigController:
     def __init__(self, config_path: str):
@@ -33,6 +35,17 @@ class ConfigController:
         try:
             with open(self.employees_path, "w", encoding="utf-8") as f:
                 self.yaml.dump(self.employees, f)
+            # Restrict to owner-only read/write — employees.yaml contains
+            # network paths and file fingerprints that shouldn't be
+            # world-readable on shared machines.
+            try:
+                os.chmod(self.employees_path, 0o600)
+            except OSError as chmod_err:
+                logging.warning(
+                    "Could not restrict %s permissions: %s",
+                    self.employees_path,
+                    chmod_err,
+                )
         except Exception as e:
             logging.error(f"Error saving employees: {e}")
 
@@ -56,6 +69,16 @@ class ConfigController:
                     example_path.read_text(encoding="utf-8"),
                     encoding="utf-8",
                 )
+                # Restrict to owner-only — config.yaml may contain
+                # network paths and operator-specific tuning.
+                try:
+                    os.chmod(config_path, 0o600)
+                except OSError as chmod_err:
+                    logging.warning(
+                        "Could not restrict %s permissions: %s",
+                        config_path,
+                        chmod_err,
+                    )
                 with open(config_path, "r", encoding="utf-8") as f:
                     return self.yaml.load(f) or {}
 
@@ -70,6 +93,15 @@ class ConfigController:
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 self.yaml.dump(self.config, f)
+            # Restrict to owner-only read/write — see load_config.
+            try:
+                os.chmod(self.config_path, 0o600)
+            except OSError as chmod_err:
+                logging.warning(
+                    "Could not restrict %s permissions: %s",
+                    self.config_path,
+                    chmod_err,
+                )
         except Exception as e:
             logging.error(f"Error saving config: {e}")
 
@@ -135,19 +167,81 @@ class ConfigController:
         return sorted(self.employees.keys())
 
     def resolve_path(self, path_str: str) -> Path:
+        config_dir = Path(self.config_path).parent.resolve()
+        project_root = config_dir.parent.resolve()
+        allow_roots = self._allowlist_roots(config_dir, project_root)
         if self._is_effectively_absolute(path_str):
+            # Absolute / UNC / drive-letter paths previously bypassed the
+            # traversal check entirely (returned as-is). Apply an allowlist
+            # so only paths under a configured source_root, the config dir,
+            # or the project root are accepted.
+            try:
+                resolved_abs = Path(path_str).resolve()
+            except (OSError, ValueError) as exc:
+                raise ValueError(
+                    f"Path traversal detected: invalid path '{scrub_path(path_str)}'"
+                ) from exc
+            if not any(
+                self._is_path_under(resolved_abs, root) for root in allow_roots
+            ):
+                raise ValueError(
+                    f"Path traversal detected: '{scrub_path(path_str)}' resolves outside allowed roots"
+                )
             return Path(path_str)
         p = Path(path_str)
         if p.is_absolute():
+            # Defensive: should be unreachable because _is_effectively_absolute
+            # already covers Posix absolute paths — kept for safety.
             return p
         resolved = (Path(self.config_path).parent / p).resolve()
-        # Guard against path traversal: ensure resolved path stays within config directory
-        config_dir = Path(self.config_path).parent.resolve()
-        if not str(resolved).lower().startswith(str(config_dir).lower().rstrip("\\/")):
+        # Use the explicit separator-boundary check instead of a naive
+        # str.startswith, which would match /app/config_evil against
+        # /app/config. Allowlist also includes source_roots so legitimate
+        # network paths under configured roots continue to work.
+        if not any(self._is_path_under(resolved, root) for root in allow_roots):
             raise ValueError(
-                f"Path traversal detected: '{path_str}' resolves outside config directory"
+                f"Path traversal detected: '{scrub_path(path_str)}' resolves outside project root"
             )
         return resolved
+
+    def _allowlist_roots(
+        self, config_dir: Path, project_root: Path
+    ) -> List[Path]:
+        """Trusted roots: configured paths.source_roots + config dir + project root."""
+        roots: List[Path] = [config_dir, project_root]
+        paths_cfg = (
+            self.config.get("paths", {}) if isinstance(self.config, dict) else {}
+        )
+        src_roots_raw = (
+            paths_cfg.get("source_roots") or paths_cfg.get("source_root") or []
+        )
+        if isinstance(src_roots_raw, (str, Path)):
+            src_roots_raw = [src_roots_raw]
+        if not isinstance(src_roots_raw, list):
+            return roots
+        for raw in src_roots_raw:
+            try:
+                roots.append(Path(str(raw)).resolve())
+            except (OSError, ValueError):
+                continue
+        return roots
+
+    @staticmethod
+    def _is_path_under(path: Path, root: Path) -> bool:
+        """Return True if ``path`` equals or is nested under ``root``.
+
+        Case-insensitive to match Windows file-system semantics and the
+        pre-existing traversal-check behaviour. Uses an explicit separator
+        boundary to avoid the ``/app/config`` vs ``/app/config_evil``
+        prefix collision that a naive ``startswith`` would accept.
+        """
+        p = str(path).lower().rstrip("\\/")
+        r = str(root).lower().rstrip("\\/")
+        if not r:
+            return False
+        if p == r:
+            return True
+        return p.startswith(r + "\\") or p.startswith(r + "/")
 
     @staticmethod
     def _is_effectively_absolute(path_str: str) -> bool:

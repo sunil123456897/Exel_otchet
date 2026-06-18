@@ -38,10 +38,39 @@ Version5.rar
 .gitnexus
 .codegraph/
 .sentrux/
+.claude/
+.codex/
+.github/*
+!.github/workflows/
+.jules/
 .opencode/skills/
 .opencode/node_modules/
 *.db
 *.sqlite
+.github_token
+
+# Development-only files stay in the local/experiments workspace, not in runtime main.
+.coveragerc
+AGENTS.md
+BUGREPORT.md
+CLAUDE.md
+CHANGELOG.md
+NETWORK_STABILITY_REPORT.md
+docs/
+tests/
+gui_error_log.txt
+opencode.json
+APP/GEMINI.md
+APP/config.yaml
+APP/config.april-2026-test.yaml
+APP/employees.yaml
+APP/templates/
+APP/toxic_run.py
+tools/*
+!tools/
+!tools/update_from_github.ps1
+!tools/precommit_check.py
+!tools/cleanup.ps1
 
 # Temporary test results and scripts
 docs/superpowers/
@@ -55,6 +84,27 @@ APP/output/*_suppressed.xlsx
 **/!*.xlsx
 
 # Local production Excel files and generated workbooks.
+# All spreadsheet outputs are local data, never shipped to the customer repo.
 Master_Report.xlsx
 *.xls
 *.xlsb
+*.xlsx
+
+# Local multi-agent QA workspace (briefings, handoffs, bug reports) — internal only.
+.agents/
+logs/
+console_err.txt
+console_out.txt
+last_bat_err.txt
+last_bat_out.txt
+APP/cache.db*
+
+# Local QA / evaluation tooling and verification outputs — internal only.
+oracle.py
+rlm_eval*.py
+rlm_report/
+RECONCILIATION_*/
+PROJECT.md
+bad.xlsx
+test.xlsx
+Ване/

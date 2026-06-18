@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 import concurrent.futures
 import threading
 from datetime import datetime
@@ -180,7 +181,12 @@ def process_file_task(
     end_date_str=None,
     processed_file_ids: Optional[List[int]] = None,
     processed_file_ids_lock: Optional[Any] = None,
+    cancel_event: Optional[threading.Event] = None,
+    today: Optional[datetime] = None,
 ) -> int:
+    if cancel_event is not None and cancel_event.is_set():
+        return 0
+
     path_str = meta["path"] if isinstance(meta, dict) else meta
     if not os.path.exists(path_str):
         raise FileNotFoundError(
@@ -191,13 +197,32 @@ def process_file_task(
     file_ids = persistence.save_file_metadata(session_id, [meta])
     file_id = file_ids[0]
     try:
-        rows = ingestion.read_file(
-            Path(path_str),
-            strict_io=True,
-            target_date_str=target_date_str,
-            start_date_str=start_date_str,
-            end_date_str=end_date_str,
-        )
+        # Build cache key
+        file_stat = os.stat(path_str)
+        file_mtime = file_stat.st_mtime
+        file_size = file_stat.st_size
+        date_key = target_date_str or "all"
+        
+        # Try row cache first
+        cached_rows = persistence.get_row_cache(path_str, file_mtime, file_size, date_key)
+        if cached_rows is not None:
+            _t0 = time.monotonic()
+            rows = cached_rows
+            _elapsed = time.monotonic() - _t0
+            logging.info(f"[PERF] Cache hit {safe_file_label(path_str)}: {_elapsed:.3f}s ({len(rows)} rows)")
+        else:
+            _t0 = time.monotonic()
+            rows = ingestion.read_file(
+                Path(path_str),
+                strict_io=True,
+                target_date_str=target_date_str,
+                start_date_str=start_date_str,
+                end_date_str=end_date_str,
+            )
+            _elapsed = time.monotonic() - _t0
+            logging.info(f"[PERF] Read {safe_file_label(path_str)}: {_elapsed:.1f}s ({len(rows)} rows)")
+            # Save to cache (async, non-blocking)
+            persistence.save_row_cache(path_str, file_mtime, file_size, date_key, rows)
         valid_rows = []
         template_errors = []
         target_date = (
@@ -207,7 +232,7 @@ def process_file_task(
             datetime.strptime(start_date_str, "%d.%m.%Y") if start_date_str else None
         )
         end_date = datetime.strptime(end_date_str, "%d.%m.%Y") if end_date_str else None
-        today = datetime.now()
+        today = today or datetime.now()  # Use shared timestamp from caller for consistency
 
         for row in rows:
             row_date = row.get("date")
@@ -286,9 +311,6 @@ def process_file_task(
 
         if template_errors:
             persistence.save_template_errors_batch(session_id, template_errors)
-            if hasattr(persistence.save_template_error, "assert_called"):
-                for error_info in template_errors:
-                    persistence.save_template_error(session_id, error_info)
 
         if valid_rows:
             persistence.save_staging_data(file_id, valid_rows)
@@ -319,6 +341,7 @@ def run_engine(
     start_date_str=None,
     end_date_str=None,
     on_file_error: Optional[Callable[[List[Dict[str, str]]], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> bool:
     total_files = sum(len(paths) for paths in employees_map.values())
     if total_files == 0:
@@ -331,12 +354,19 @@ def run_engine(
     processed_file_ids = []
     processed_file_ids_lock = threading.Lock()
 
+    # Compute current date once before spawning threads so that all
+    # workers use the same reference — avoids inconsistent "future date"
+    # rejections when the job straddles midnight.
+    today = datetime.now()
+
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=resolve_max_workers(getattr(ingestion, "config", None))
     ) as executor:
         future_to_file = {}
         for emp_name, metas in employees_map.items():
             for meta in metas:
+                if cancel_event is not None and cancel_event.is_set():
+                    break
                 future = executor.submit(
                     process_file_task,
                     persistence,
@@ -350,8 +380,12 @@ def run_engine(
                     end_date_str,
                     processed_file_ids,
                     processed_file_ids_lock,
+                    cancel_event,
+                    today,
                 )
                 future_to_file[future] = meta
+            if cancel_event is not None and cancel_event.is_set():
+                break
 
         for future in concurrent.futures.as_completed(future_to_file):
             try:
@@ -365,7 +399,8 @@ def run_engine(
             processed_files += 1
             on_progress((processed_files / total_files) * 50)
 
-    # Ожидаем завершения записи всех данных в БД перед выходом из движка
+    # Wait for pending DB writes to drain before returning so the
+    # caller can safely check cancel or read consolidated data.
     try:
         persistence.wait_for_writes()
     except Exception as e:

@@ -35,6 +35,13 @@ class EmployeeListViewModel:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        # Separate lock for config saves. save_config() is invoked from
+        # worker-thread completion callbacks (refresh_status → on_complete)
+        # and writes config.yaml to disk; without serialization this races
+        # with GUI-thread writes (add_employee, attach_files) and can
+        # corrupt the file. Kept distinct from _lock so a slow disk write
+        # does not block UI reads of viewmodel state.
+        self._save_lock = threading.Lock()
         self._all_employees: List[EmployeeStatus] = []
         self._employees_map: Dict[str, List[Dict[str, Any]]] = {}
         self._search_query: str = ""
@@ -55,10 +62,11 @@ class EmployeeListViewModel:
         on_progress: Callable[[float], None],
         curator=None,
         on_error: Optional[Callable[[str], None]] = None,
+        on_complete: Optional[Callable[[], None]] = None,
     ) -> None:
         """Запустить обновление статуса сотрудников."""
 
-        def on_complete(
+        def on_complete_inner(
             data: List[tuple], employees_map: Dict, rename_detected: bool
         ) -> None:
             with self._lock:
@@ -71,10 +79,13 @@ class EmployeeListViewModel:
                 self._last_error = None
 
             if rename_detected:
-                app_controller.config_controller.save_config()
+                with self._save_lock:
+                    app_controller.config_controller.save_config()
 
             if self._on_update:
                 self._on_update()
+            if callable(on_complete):
+                on_complete()
 
         def handle_error(message: str) -> None:
             with self._lock:
@@ -85,7 +96,7 @@ class EmployeeListViewModel:
         app_controller.refresh_status(
             selected_date,
             on_progress,
-            on_complete,
+            on_complete_inner,
             curator=curator,
             on_error=handle_error,
         )
@@ -124,6 +135,16 @@ class EmployeeListViewModel:
     @search_query.setter
     def search_query(self, value: str) -> None:
         self._search_query = value.lower()
+
+    def get_all_names(self) -> List[str]:
+        """Return the names of every known employee.
+
+        Used by the add-employee dialog to detect duplicate names
+        before the user clicks "Добавить" and by the attach dialog to
+        populate the employee combobox.
+        """
+        with self._lock:
+            return [e.name for e in self._all_employees]
 
     def get_filtered_employees(self) -> List[EmployeeStatus]:
         """Получить отфильтрованный список по поисковому запросу."""

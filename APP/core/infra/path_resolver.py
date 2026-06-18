@@ -92,7 +92,11 @@ def _resolve_with_config_controller(path_str: str, config_controller) -> Path:
 
     try:
         candidate = resolver(path_str)
-    except (TypeError, ValueError, OSError) as e:
+    except (TypeError, OSError) as e:
+        # NOTE: ValueError is deliberately NOT caught here. resolve_path
+        # raises ValueError to signal a path-traversal rejection; catching
+        # it and falling back to the raw ``p_abs`` would silently re-open
+        # the very bypass resolve_path is meant to close. Let it propagate.
         logger.debug("resolve_path failed, using original path value: %s", e)
         return p_abs
 

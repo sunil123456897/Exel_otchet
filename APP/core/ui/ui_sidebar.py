@@ -1,8 +1,10 @@
+import sys
 import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
 from datetime import datetime, timedelta
 from core.ui.theme import ThemeManager
+from core.ui.debounce import Debouncer
 
 
 def _last_day_of_month(month_start: datetime) -> datetime:
@@ -34,12 +36,20 @@ class Sidebar(ttk.Frame):
         super().__init__(parent, width=300, padding="10", style="Sidebar.TFrame")
         self.controller = controller
         self.pack_propagate(False)
+        # Debounce date changes so clicking through dates in the picker
+        # does not fire a full refresh per click.
+        self._date_debouncer = Debouncer(
+            self, self.controller.refresh_status, delay_ms=250
+        )
         self.canvas = tk.Canvas(
             self,
             borderwidth=0,
             highlightthickness=0,
-            background=ThemeManager.COLORS["sidebar"],
+            background=ThemeManager.COLORS["bg_sidebar"],
         )
+        # Canvas uses explicit colours (not a ttk style), so register
+        # it to be re-themed on ThemeManager.set_theme().
+        ThemeManager.register(self.canvas, bg_key="bg_sidebar")
         self.scrollbar = ttk.Scrollbar(
             self, orient=tk.VERTICAL, command=self.canvas.yview
         )
@@ -63,25 +73,49 @@ class Sidebar(ttk.Frame):
         self.canvas.itemconfigure(self._content_window, width=event.width)
 
     def _bind_mousewheel(self, _event):
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        # Bind on the canvas only — the previous implementation used
+        # ``bind_all``, which routed the wheel to every widget while the
+        # cursor was over the sidebar (a focus-eating overreach).
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        # X11 / Linux use discrete Button-4 (up) and Button-5 (down) for
+        # the wheel — ``<MouseWheel>`` does not fire on those platforms.
+        self.canvas.bind("<Button-4>", self._on_button4)
+        self.canvas.bind("<Button-5>", self._on_button5)
 
     def _unbind_mousewheel(self, _event):
-        self.canvas.unbind_all("<MouseWheel>")
+        self.canvas.unbind("<MouseWheel>")
+        self.canvas.unbind("<Button-4>")
+        self.canvas.unbind("<Button-5>")
 
     def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        # macOS reports delta as ±1 (small integers); Windows uses
+        # multiples of 120. ``int(delta / 120)`` truncates to zero on
+        # macOS, so use the platform-specific scaling.
+        if sys.platform == "darwin":
+            steps = -event.delta
+        else:
+            steps = -int(event.delta / 120)
+        self.canvas.yview_scroll(steps, "units")
+
+    def _on_button4(self, _event):
+        self.canvas.yview_scroll(-1, "units")
+        return "break"
+
+    def _on_button5(self, _event):
+        self.canvas.yview_scroll(1, "units")
+        return "break"
 
     def _setup_ui(self):
         ttk.Label(
             self.content,
             text="📊 ПАНЕЛЬ УПРАВЛЕНИЯ",
             style="Header.TLabel",
-            background=ThemeManager.COLORS["sidebar"],
+            background=ThemeManager.COLORS["bg_sidebar"],
         ).pack(pady=(0, 10), anchor=tk.W)
 
         # Date Selection
         date_frame = ttk.LabelFrame(self.content, text="📅 ВЫБОР ДАТЫ", padding=6)
-        date_frame.pack(fill=tk.X, pady=(0, 6))
+        date_frame.pack(fill=tk.X, pady=(4, 8))
 
         self.date_entry = DateEntry(
             date_frame,
@@ -96,33 +130,36 @@ class Sidebar(ttk.Frame):
             if "accent" in ThemeManager.COLORS
             else "#007bff",
         )
-        self.date_entry.pack(pady=(0, 5), fill=tk.X)
+        self.date_entry.pack(pady=(0, 4), fill=tk.X)
         self.date_entry.bind(
-            "<<DateEntrySelected>>", lambda e: self.controller.refresh_status()
+            "<<DateEntrySelected>>", lambda e: self._date_debouncer()
         )
+        self.bind("<Destroy>", self._on_destroy, add="+")
 
         self.refresh_btn = ttk.Button(
             date_frame,
             text="🔄 Обновить статус",
             command=self.controller.refresh_status,
         )
-        self.refresh_btn.pack(fill=tk.X)
+        self.refresh_btn.pack(fill=tk.X, pady=(0, 4))
 
         # Employee Management
         emp_frame = ttk.LabelFrame(self.content, text="👤 СОТРУДНИКИ", padding=6)
-        emp_frame.pack(fill=tk.X, pady=(0, 6))
+        emp_frame.pack(fill=tk.X, pady=(0, 8))
 
-        ttk.Button(
+        self.add_employee_btn = ttk.Button(
             emp_frame, text="➕ Добавить", command=self.controller.add_employee_dialog
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        )
+        self.add_employee_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
 
-        ttk.Button(
+        self.attach_btn = ttk.Button(
             emp_frame, text="📎 Привязать", command=self.controller.attach_file_dialog
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        )
+        self.attach_btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Consolidation Actions
         action_frame = ttk.LabelFrame(self.content, text="🚀 СБОРКА", padding=6)
-        action_frame.pack(fill=tk.X, pady=(0, 6))
+        action_frame.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(action_frame, text="Кураторский отчет:").pack(anchor=tk.W)
         self.curator_var = tk.StringVar(value="Общий отчет")
@@ -132,7 +169,7 @@ class Sidebar(ttk.Frame):
             state="readonly",
             values=["Общий отчет", "Куратор Борис", "Куратор Иван"],
         )
-        self.curator_combo.pack(fill=tk.X, pady=(0, 3))
+        self.curator_combo.pack(fill=tk.X, pady=(0, 4))
 
         self.consolidate_btn = ttk.Button(
             action_frame,
@@ -140,18 +177,18 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_consolidation,
         )
-        self.consolidate_btn.pack(fill=tk.X, pady=(0, 3))
+        self.consolidate_btn.pack(fill=tk.X, pady=(0, 4))
 
         self.consolidate_all_btn = ttk.Button(
             action_frame,
             text="🌍 СОБРАТЬ ВСЕ ДАТЫ",
             command=self.controller.run_consolidation_all_dates,
         )
-        self.consolidate_all_btn.pack(fill=tk.X, pady=(0, 3))
+        self.consolidate_all_btn.pack(fill=tk.X, pady=(0, 4))
 
         # Monthly Range Section
         month_frame = ttk.LabelFrame(self.content, text="📆 СБОРКА ЗА ПЕРИОД", padding=6)
-        month_frame.pack(fill=tk.X, pady=(0, 6))
+        month_frame.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(month_frame, text="С:").pack(anchor=tk.W)
         self.month_start_entry = DateEntry(
@@ -183,6 +220,17 @@ class Sidebar(ttk.Frame):
         )
         self.month_end_entry.pack(pady=(0, 4), fill=tk.X)
         self.month_end_entry.set_date(default_end)
+        # Realtime validation: when the user changes either date, refresh
+        # the visual state of the affected DateEntry (red border when
+        # the end is earlier than the start) and update the tooltip.
+        self.month_start_entry.bind(
+            "<<DateEntrySelected>>", lambda e: self._validate_period_range()
+        )
+        self.month_end_entry.bind(
+            "<<DateEntrySelected>>", lambda e: self._validate_period_range()
+        )
+        self._range_warning_tooltip = None
+        self._range_invalid = False
 
         # Quick month preset buttons
         preset_frame = ttk.Frame(month_frame)
@@ -200,7 +248,7 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_consolidation_month,
         )
-        self.consolidate_month_btn.pack(fill=tk.X, pady=(0, 3))
+        self.consolidate_month_btn.pack(fill=tk.X, pady=(0, 4))
 
         self.rsch_month_btn = ttk.Button(
             month_frame,
@@ -214,14 +262,14 @@ class Sidebar(ttk.Frame):
             text="🧾 СОБРАТЬ РСЧ",
             command=self.controller.run_rsch_report,
         )
-        self.rsch_btn.pack(fill=tk.X, pady=(0, 3))
+        self.rsch_btn.pack(fill=tk.X, pady=(0, 4))
 
         self.reconciliation_btn = ttk.Button(
             action_frame,
             text="✅ СВЕРИТЬ С РСЧ",
             command=self.controller.run_reconciliation_report,
         )
-        self.reconciliation_btn.pack(fill=tk.X, pady=(0, 3))
+        self.reconciliation_btn.pack(fill=tk.X, pady=(0, 4))
 
         self.auto_reconciliation_btn = ttk.Button(
             action_frame,
@@ -229,17 +277,52 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_auto_reconciliation_day,
         )
-        self.auto_reconciliation_btn.pack(fill=tk.X, pady=(0, 3))
+        self.auto_reconciliation_btn.pack(fill=tk.X, pady=(0, 4))
 
-        ttk.Label(action_frame, text="Режим РСЧ:").pack(anchor=tk.W, pady=(2, 0))
-        self.rsch_mode_var = tk.StringVar(value="Общий файл")
-        self.rsch_mode_combo = ttk.Combobox(
-            action_frame,
-            textvariable=self.rsch_mode_var,
-            state="readonly",
-            values=["Общий файл"],
+        # Theme switcher: 3 options (light/dark/system). The "system"
+        # option is auto-disabled on Windows 8 where the registry key
+        # we read is not present — there's nothing to follow.
+        theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=6)
+        theme_frame.pack(fill=tk.X, pady=(0, 8))
+        self.theme_var = tk.StringVar(value="light")
+        from core.ui.system_theme import is_windows_8_or_earlier
+        win8 = is_windows_8_or_earlier()
+        for value, label in (
+            ("light", "☀️ Светлая"),
+            ("dark", "🌙 Тёмная"),
+        ):
+            ttk.Radiobutton(
+                theme_frame,
+                text=label,
+                variable=self.theme_var,
+                value=value,
+                command=self._on_theme_changed,
+            ).pack(anchor=tk.W)
+        # "Системная" only useful on Win 10/11, macOS, modern Linux.
+        rb_system = ttk.Radiobutton(
+            theme_frame,
+            text="💻 Системная" + (" (нет данных)" if win8 else ""),
+            variable=self.theme_var,
+            value="system",
+            command=self._on_theme_changed,
         )
-        self.rsch_mode_combo.pack(fill=tk.X, pady=(0, 3))
+        rb_system.pack(anchor=tk.W)
+        if win8:
+            rb_system.state(["disabled"])
+        from core.ui.tooltip import Tooltip
+        Tooltip(rb_system, "Следовать теме ОС. На Windows 8/8.1 недоступно — ОС не публикует тему.")
+
+    def _on_theme_changed(self):
+        """Forward the chosen theme to the master controller."""
+        value = self.theme_var.get()
+        setter = getattr(self.controller, "set_theme", None)
+        if callable(setter):
+            setter(value)
+
+    def _on_destroy(self, _event):
+        # Cancel any pending debounced calls so a fast destroy during
+        # the user's date-picking does not fire a stale refresh.
+        self._date_debouncer.cancel()
 
     def _set_current_month(self):
         today = datetime.now()
@@ -251,6 +334,49 @@ class Sidebar(ttk.Frame):
         prev_month = _previous_month_start(today)
         self.month_start_entry.set_date(prev_month)
         self.month_end_entry.set_date(_last_day_of_month(prev_month))
+        self._validate_period_range()
+
+    def _validate_period_range(self) -> None:
+        """Highlight the period DateEntries when end < start.
+
+        The validation is purely visual — the actual guard still lives
+        in the build commands, but giving the user immediate feedback
+        when the picker shows an inverted range prevents them from
+        clicking "СОБРАТЬ ПЕРИОД" only to be told about the error.
+        """
+        try:
+            start = self.month_start_entry.get_date()
+            end = self.month_end_entry.get_date()
+        except (tk.TclError, ValueError):
+            return
+        invalid = start > end
+        # Tk's ``configure`` does not change border colour on ttk
+        # widgets, so we use the surrounding LabelFrame text colour as
+        # a soft signal: red when invalid, normal otherwise.
+        if invalid == self._range_invalid:
+            # No change, but the preset buttons may have just been
+            # clicked; nothing to do beyond the early-exit guard.
+            return
+        self._range_invalid = invalid
+        if invalid:
+            self.month_start_entry.configure(foreground="#dc3545")
+            self.month_end_entry.configure(foreground="#dc3545")
+            from core.ui.tooltip import Tooltip
+            if self._range_warning_tooltip is None:
+                self._range_warning_tooltip = Tooltip(
+                    self.month_end_entry,
+                    "Дата окончания раньше даты начала. Поменяйте одну из дат.",
+                )
+            else:
+                self._range_warning_tooltip.set_text(
+                    "Дата окончания раньше даты начала. Поменяйте одну из дат."
+                )
+        else:
+            self.month_start_entry.configure(foreground="white")
+            self.month_end_entry.configure(foreground="white")
+            from core.ui.tooltip import Tooltip
+            if self._range_warning_tooltip is not None:
+                self._range_warning_tooltip.set_text("")
 
     def get_date(self):
         return self.date_entry.get_date()
@@ -293,8 +419,37 @@ class Sidebar(ttk.Frame):
         self.reconciliation_btn.config(state=state)
         self.auto_reconciliation_btn.config(state=state)
 
-    def get_rsch_mode(self) -> str:
-        return "combined"
+    # --- global state ---------------------------------------------------
 
-    def set_rsch_mode(self, mode: str) -> None:
-        self.rsch_mode_var.set("Общий файл")
+    _OPERATION_BUTTONS_ATTRS = (
+        "refresh_btn",
+        "add_employee_btn",
+        "attach_btn",
+        "consolidate_btn",
+        "consolidate_all_btn",
+        "consolidate_month_btn",
+        "rsch_btn",
+        "rsch_month_btn",
+        "reconciliation_btn",
+        "auto_reconciliation_btn",
+    )
+
+    def apply(self, snap) -> None:
+        """Apply global operation state to all action widgets.
+
+        When any operation is running, every action button is disabled.
+        This fixes the original bug where only the clicked button was disabled
+        and the user could fire a second operation that conflicted with the first.
+        """
+        busy = snap.current.value != ""
+        for attr in self._OPERATION_BUTTONS_ATTRS:
+            btn = getattr(self, attr, None)
+            if btn is None:
+                continue
+            try:
+                if busy:
+                    btn.state(["disabled"])
+                else:
+                    btn.state(["!disabled"])
+            except tk.TclError:
+                pass

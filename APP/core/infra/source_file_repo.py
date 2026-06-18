@@ -10,11 +10,30 @@ class SourceFileRepository:
     def __init__(self, connection_manager: SQLiteConnectionManager):
         self.connection_manager = connection_manager
         self.write_queue = queue.Queue()
+        self._write_error: Optional[Exception] = None
+        self._write_error_lock = threading.Lock()
         self.writer_thread = threading.Thread(
             target=self._writer_loop, name="SourceFileWriter", daemon=True
         )
         self.writer_thread.start()
         self._logger = logging.getLogger(__name__)
+
+    def _record_write_error(self, error: Exception) -> None:
+        """Keep the first write error so callers can surface it.
+
+        Mirrors StagingDataRepository: the writer thread must not raise
+        (it would kill the loop and deadlock wait_for_writes), but it
+        also must not silently swallow failures — record the first one
+        so the controller can report that cache writes are degraded.
+        """
+        with self._write_error_lock:
+            if self._write_error is None:
+                self._write_error = error
+
+    @property
+    def write_error(self) -> Optional[Exception]:
+        with self._write_error_lock:
+            return self._write_error
 
     def _writer_loop(self):
         while True:
@@ -30,6 +49,7 @@ class SourceFileRepository:
                 continue
             except Exception as e:
                 self._logger.error(f"SourceFileWriter error: {e}", exc_info=True)
+                self._record_write_error(e)
                 self.write_queue.task_done()
 
     def save_file_metadata(
@@ -39,7 +59,7 @@ class SourceFileRepository:
             ids = []
             conn = self.connection_manager.get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 for f in files:
                     file_hash = f.get("hash")
                     if file_hash is None:
@@ -48,6 +68,14 @@ class SourceFileRepository:
                     inode = f.get("inode")
                     if inode is None:
                         inode = f.get("id")
+
+                    existing = conn.execute(
+                        "SELECT id FROM source_files WHERE session_id = ? AND file_path = ?",
+                        (session_id, f["path"]),
+                    ).fetchone()
+                    if existing is not None:
+                        ids.append(existing[0])
+                        continue
 
                     cur = conn.execute(
                         "INSERT INTO source_files (session_id, file_path, file_hash, inode, status) VALUES (?, ?, ?, ?, ?)",
@@ -111,7 +139,7 @@ class SourceFileRepository:
         def _save():
             conn = self.connection_manager.get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
                     "INSERT OR REPLACE INTO file_cache (file_path, mtime, size, dates_json, last_updated) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
                     (
@@ -126,6 +154,95 @@ class SourceFileRepository:
                             },
                             ensure_ascii=False,
                         ),
+                    ),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        self.write_queue.put((_save, ()))
+
+    def get_row_cache(
+        self, file_path: str, mtime: float, size: int, date_key: str
+    ) -> Optional[List[Dict[str, Any]]]:
+        conn = self.connection_manager.get_connection()
+        try:
+            row = conn.execute(
+                "SELECT rows_json FROM row_cache WHERE file_path = ? AND mtime = ? AND size = ? AND date_key = ?",
+                (file_path, mtime, size, date_key),
+            ).fetchone()
+            if row:
+                return json.loads(row["rows_json"])
+            return None
+        finally:
+            conn.close()
+
+    def save_row_cache(
+        self,
+        file_path: str,
+        mtime: float,
+        size: int,
+        date_key: str,
+        rows: List[Dict[str, Any]],
+    ) -> None:
+        def _save():
+            conn = self.connection_manager.get_connection()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    "INSERT OR REPLACE INTO row_cache (file_path, mtime, size, date_key, rows_json, row_count, created_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                    (
+                        file_path,
+                        mtime,
+                        size,
+                        date_key,
+                        json.dumps(rows, ensure_ascii=False, default=str),
+                        len(rows),
+                    ),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        self.write_queue.put((_save, ()))
+
+    def get_discovery_cache(self, roots_key: str) -> Optional[List[Dict[str, Any]]]:
+        conn = self.connection_manager.get_connection()
+        try:
+            row = conn.execute(
+                "SELECT files_json, scanned_at FROM discovery_cache WHERE roots_key = ?",
+                (roots_key,),
+            ).fetchone()
+            if row:
+                import time as _time
+                scanned_at = float(row["scanned_at"])
+                ttl = 12 * 3600  # 12 hours default
+                if _time.time() - scanned_at < ttl:
+                    return json.loads(row["files_json"])
+            return None
+        finally:
+            conn.close()
+
+    def save_discovery_cache(
+        self, roots_key: str, files: List[Dict[str, Any]]
+    ) -> None:
+        def _save():
+            import time as _time
+            conn = self.connection_manager.get_connection()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    "INSERT OR REPLACE INTO discovery_cache (roots_key, scanned_at, files_json) VALUES (?, ?, ?)",
+                    (
+                        roots_key,
+                        _time.time(),
+                        json.dumps(files, ensure_ascii=False, default=str),
                     ),
                 )
                 conn.commit()

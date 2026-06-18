@@ -70,10 +70,12 @@ class FinancialRowSchema(BaseModel):
             # Remove any non-numeric characters except . and -
             s_clean = "".join(c for c in s if c.isdigit() or c in ".-")
             if not s_clean or s_clean == "-":
-                # For percent_broker, if it's a non-empty string that resulted in empty s_clean,
-                # it's likely a text like 'high'. Preserve it.
-                if v and str(v).strip():
-                    return v
+                # Unparseable non-empty value (e.g. a text like "high").
+                # Previously this branch returned the raw value, leaking a
+                # str into Decimal-typed fields and breaking the type
+                # contract. Downstream parsers (to_decimal_percent) already
+                # coerce any input to Decimal, so returning 0 here is safe
+                # and keeps the field type honest.
                 return Decimal("0.00")
             # Sanitize: remove extra dots/minus signs to avoid invalid Decimal
             parts = s_clean.split(".")
@@ -83,4 +85,7 @@ class FinancialRowSchema(BaseModel):
                 s_clean = ("-" if s_clean.startswith("-") else "") + s_clean.replace("-", "")
             return Decimal(s_clean)
         except (ValueError, TypeError, ArithmeticError):
-            return v if v and str(v).strip() else Decimal("0.00")
+            # Never return the raw value: that violated the Decimal contract
+            # for typed fields. Log callers can still recover the original
+            # from the source row if needed.
+            return Decimal("0.00")

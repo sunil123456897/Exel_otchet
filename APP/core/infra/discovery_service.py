@@ -1,13 +1,15 @@
+import hashlib
 import logging
 import time
 import concurrent.futures
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from core.infra.config_controller import ConfigController
 from core.infra.ingestion_engine import IngestionEngine
 from core.infra.path_resolver import resolve_employee_path
 from core.infra.utils_logging import scrub_path
+from core.infra.utils import path_exists_with_timeout
 
 
 class DiscoveryService:
@@ -18,10 +20,14 @@ class DiscoveryService:
     )
 
     def __init__(
-        self, config_controller: ConfigController, ingestion: IngestionEngine
+        self,
+        config_controller: ConfigController,
+        ingestion: IngestionEngine,
+        persistence: Optional[Any] = None,
     ) -> None:
         self.config_controller = config_controller
         self.ingestion = ingestion
+        self.persistence = persistence
         self.rename_detected = False
         self.last_discovered_count = 0
 
@@ -49,7 +55,7 @@ class DiscoveryService:
                 continue
             for folder_name in self._DEFAULT_CURATOR_ROOTS:
                 candidate = Path(f"{drive}:/") / folder_name
-                if candidate.exists():
+                if path_exists_with_timeout(candidate):
                     roots.append(candidate)
 
         # dedupe while preserving order
@@ -94,7 +100,7 @@ class DiscoveryService:
             return roots_to_scan
 
         unresolved_root = roots_to_scan[0]
-        if unresolved_root.exists():
+        if path_exists_with_timeout(unresolved_root):
             return roots_to_scan
 
         auto_roots = self._detect_default_roots(config)
@@ -122,6 +128,20 @@ class DiscoveryService:
     def _load_discovery_cache(
         self, config: Dict[str, Any], roots_to_scan: List[Path]
     ) -> List[Dict[str, Any]] | None:
+        roots_key = hashlib.md5(
+            str(self._roots_key(roots_to_scan)).encode()
+        ).hexdigest()
+        
+        # Try SQLite cache first
+        if self.persistence is not None:
+            try:
+                cached = self.persistence.get_discovery_cache(roots_key)
+                if cached is not None:
+                    return cached
+            except Exception as e:
+                logging.debug(f"SQLite discovery cache miss: {e}")
+        
+        # Fall back to YAML cache
         cache = config.get("discovery_cache") if hasattr(config, "get") else None
         if not isinstance(cache, dict):
             return None
@@ -147,6 +167,19 @@ class DiscoveryService:
         roots_to_scan: List[Path],
         discovered_files: List[Dict[str, Any]],
     ) -> None:
+        roots_key = hashlib.md5(
+            str(self._roots_key(roots_to_scan)).encode()
+        ).hexdigest()
+        
+        # Save to SQLite if available
+        if self.persistence is not None:
+            try:
+                self.persistence.save_discovery_cache(roots_key, discovered_files)
+                logging.info("[CACHE] Discovery cache saved to SQLite")
+            except Exception as e:
+                logging.warning(f"Failed to save discovery cache to SQLite: {e}")
+        
+        # Also save to YAML for backward compatibility
         config["discovery_cache"] = {
             "roots_key": self._roots_key(roots_to_scan),
             "scanned_at": time.time(),
@@ -175,7 +208,7 @@ class DiscoveryService:
                     config_controller=self.config_controller,
                 )
                 p_abs = Path(resolved)
-                if not p_abs.is_absolute() or not p_abs.exists():
+                if not p_abs.is_absolute() or not path_exists_with_timeout(p_abs):
                     return False
         return True
 
@@ -237,7 +270,7 @@ class DiscoveryService:
                     config_controller=self.config_controller,
                 )
                 p_abs = Path(resolved)
-                if p_abs.is_absolute() and p_abs.exists():
+                if p_abs.is_absolute() and path_exists_with_timeout(p_abs):
                     continue
                 if file_id or file_hash:
                     return roots_to_scan
@@ -320,7 +353,7 @@ class DiscoveryService:
                 updated_paths.append(self._copy_config_entry(entry))
             else:
                 p_abs = Path(resolved)
-                if p_abs.exists():
+                if path_exists_with_timeout(p_abs):
                     entry_meta = {"path": str(p_abs)}
                     if file_id is not None:
                         entry_meta["id"] = file_id

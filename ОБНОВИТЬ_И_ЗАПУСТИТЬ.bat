@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 setlocal EnableExtensions
 chcp 65001 >nul
 
@@ -9,7 +9,7 @@ set "SCRIPT=%ROOT%tools\update_from_github.ps1"
 set "POWERSHELL_CMD=powershell"
 
 if not exist "%SCRIPT%" (
-    echo [ERROR] Не найден updater: %SCRIPT%
+    echo [ERROR] Updater not found: %SCRIPT%
     pause
     exit /b 1
 )
@@ -20,7 +20,7 @@ if not errorlevel 1 set "POWERSHELL_CMD=pwsh"
 "%POWERSHELL_CMD%" -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%" -Launch
 if errorlevel 1 (
     echo.
-    echo [ERROR] Обновление не выполнено. Подробности выше и в update_log.txt.
+    echo [ERROR] Update failed. See details above and in update_log.txt.
     pause
     exit /b 1
 )

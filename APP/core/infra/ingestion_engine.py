@@ -4,6 +4,7 @@ import time
 import json
 import subprocess
 import sys
+import threading
 import zipfile
 from pathlib import Path
 from typing import List, Dict, Any
@@ -69,6 +70,7 @@ def _run_calamine_worker(
     target_date_str: str | None = None,
     start_date_str: str | None = None,
     end_date_str: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Dict[str, Any]:
     script = r"""
 import json
@@ -149,30 +151,69 @@ else:
     raise SystemExit(2)
 """
 
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            script,
-            mode,
-            target_path,
-            json.dumps(markers, ensure_ascii=False),
-            json.dumps(aliases, ensure_ascii=False),
-            json.dumps(strict_io),
-            str(_APP_ROOT),
-            json.dumps(target_date_str),
-            json.dumps(start_date_str),
-            json.dumps(end_date_str),
-        ],
-        capture_output=True,
-        check=False,
+    cmd = [
+        sys.executable,
+        "-c",
+        script,
+        mode,
+        target_path,
+        json.dumps(markers, ensure_ascii=False),
+        json.dumps(aliases, ensure_ascii=False),
+        json.dumps(strict_io),
+        str(_APP_ROOT),
+        json.dumps(target_date_str),
+        json.dumps(start_date_str),
+        json.dumps(end_date_str),
+    ]
+    cwd = str(Path(__file__).resolve().parents[3])
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    timeout = 300
+
+    # Use Popen instead of subprocess.run so we can poll the cancel_event
+    # while the worker is running.  A synchronous subprocess.run with
+    # timeout=300 blocks for up to 5 minutes on a hung network drive (Q:\),
+    # ignoring the user's Cancel button the entire time.
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=300,
-        cwd=str(Path(__file__).resolve().parents[3]),
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        cwd=cwd,
+        env=env,
     )
+    try:
+        deadline = time.monotonic() + timeout
+        while proc.poll() is None:
+            if cancel_event is not None and cancel_event.is_set():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=3)
+                return {"ok": False, "error": "cancelled by user"}
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=3)
+                return {"ok": False, "error": "worker timed out"}
+            # Poll at 0.5 s intervals — fast enough for cancel, cheap on CPU
+            try:
+                proc.wait(timeout=min(0.5, remaining))
+            except subprocess.TimeoutExpired:
+                continue
+    except Exception as exc:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        return {"ok": False, "error": str(exc)}
 
     stdout = (proc.stdout or "").strip()
     stderr = (proc.stderr or "").strip()
@@ -259,15 +300,6 @@ class IngestionEngine(IDataSource):
         dates = set()
         f_path_abs = os.path.abspath(str(file_path))
         should_isolate = self._should_isolate_calamine(file_path)
-        if should_isolate:
-            metadata_dates = _try_get_xlsx_sheet_dates_from_metadata(f_path_abs)
-            if metadata_dates is not None:
-                return metadata_dates
-
-        if should_isolate and f_path_abs.lower().endswith(".xlsx"):
-            metadata_dates = _try_get_xlsx_sheet_dates_from_metadata(f_path_abs)
-            if metadata_dates is not None:
-                return metadata_dates
 
         target_path, temp_file = get_local_copy(
             f_path_abs,
@@ -364,31 +396,44 @@ class IngestionEngine(IDataSource):
         end_date_str: str | None = None,
     ) -> List[Dict[str, Any]]:
         """Read Excel file with retry logic for transient network errors."""
-        if not file_path.exists():
+        if not self._should_isolate_calamine(file_path) and not file_path.exists():
             if strict_io:
                 raise FileNotFoundError(f"Не найден файл отчета: {file_path}")
             return []
         last_err = None
         for attempt in range(_FILE_READ_RETRIES):
+            temp_file = None
             try:
                 if self._should_isolate_calamine(file_path):
-                    payload = _run_calamine_worker(
-                        "rows",
-                        str(file_path),
-                        self.markers,
-                        self.aliases,
-                        strict_io=strict_io,
-                        target_date_str=target_date_str,
-                        start_date_str=start_date_str,
-                        end_date_str=end_date_str,
+                    f_path_abs = os.path.abspath(str(file_path))
+                    target_path, temp_file = get_local_copy(
+                        f_path_abs,
+                        self.drive_letters,
                     )
-                    if not payload.get("ok"):
-                        raise RuntimeError(
-                            payload.get("error", "unknown calamine worker error")
+                    try:
+                        payload = _run_calamine_worker(
+                            "rows",
+                            target_path,
+                            self.markers,
+                            self.aliases,
+                            strict_io=strict_io,
+                            target_date_str=target_date_str,
+                            start_date_str=start_date_str,
+                            end_date_str=end_date_str,
                         )
-                    if payload.get("stderr"):
-                        logger.warning(payload["stderr"])
-                    return payload.get("result", [])
+                        if not payload.get("ok"):
+                            raise RuntimeError(
+                                payload.get("error", "unknown calamine worker error")
+                            )
+                        if payload.get("stderr"):
+                            logger.warning(payload["stderr"])
+                        return payload.get("result", [])
+                    finally:
+                        if temp_file is not None:
+                            try:
+                                Path(temp_file).unlink(missing_ok=True)
+                            except OSError:
+                                pass
                 if target_date_str or (start_date_str and end_date_str):
                     return self.reader.read(
                         file_path,
@@ -411,8 +456,6 @@ class IngestionEngine(IDataSource):
                 if strict_io:
                     raise
                 return []
-            except Exception:
-                raise
         if strict_io and last_err is not None:
             raise last_err
         logger.error(

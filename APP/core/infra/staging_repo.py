@@ -11,7 +11,7 @@ from core.infra.db_connection import SQLiteConnectionManager, sanitize_data
 class DBWriterThread(threading.Thread):
     """Background thread that batches staging data writes to SQLite."""
 
-    BATCH_SIZE = 10
+    BATCH_SIZE = 500
     BATCH_TIMEOUT = 0.5
 
     def __init__(
@@ -26,6 +26,8 @@ class DBWriterThread(threading.Thread):
         self.running = True
         self.logger = logging.getLogger(__name__)
         self.error_callback = error_callback
+
+    _WRITE_RETRIES = 1  # One retry on transient failure before giving up
 
     def run(self):
         while self.running or not self.q.empty():
@@ -43,14 +45,14 @@ class DBWriterThread(threading.Thread):
                             self.q.task_done()
                             # Process remaining batch before exiting
                             if batch:
-                                self._process_batch(batch)
+                                self._process_batch_with_retry(batch)
                                 for _ in batch:
                                     self.q.task_done()
                             return
                         batch.append(next_item)
                     except queue.Empty:
                         break
-                self._process_batch(batch)
+                self._process_batch_with_retry(batch)
                 for _ in batch:
                     self.q.task_done()
             except queue.Empty:
@@ -66,6 +68,38 @@ class DBWriterThread(threading.Thread):
                     except ValueError:
                         pass
 
+    def _process_batch_with_retry(self, batch):
+        """Try to process a batch, retrying once on transient errors.
+
+        Previously a single _process_batch failure silently dropped the
+        entire batch — rows were lost even though task_done() was called,
+        making wait_for_writes() return as if everything succeeded.
+        The retry gives transient SQLite lock errors a second chance before
+        the data is declared lost.
+        """
+        try:
+            self._process_batch(batch)
+            return
+        except Exception as first_err:
+            self.logger.warning(
+                "Batch write failed (attempt 1/%d): %s. Retrying...",
+                self._WRITE_RETRIES + 1, first_err,
+            )
+        # Retry once
+        try:
+            self._process_batch(batch)
+            self.logger.info("Batch write succeeded on retry.")
+            return
+        except Exception as retry_err:
+            self.logger.critical(
+                "Batch write failed on retry too. %d rows LOST: %s",
+                sum(len(rows) for _, rows in batch), retry_err,
+                exc_info=True,
+            )
+            if self.error_callback is not None:
+                self.error_callback(retry_err)
+            raise
+
     def _process_batch(self, batch):
         sql = "INSERT INTO staging_data (file_id, row_index, raw_content_json, date_val, amount, employee_name, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
         all_data = []
@@ -76,6 +110,18 @@ class DBWriterThread(threading.Thread):
                     amt_val = decimal.Decimal(str(amt_raw))
                 except (decimal.InvalidOperation, TypeError, ValueError):
                     amt_val = decimal.Decimal("0.00")
+                    try:
+                        from core.domain.data_loss_log import record_loss
+                        record_loss(
+                            source=f"staging_repo:file_id={file_id}",
+                            kind="numeric_coercion",
+                            reason=f"amount field could not be parsed: {amt_raw!r}",
+                            row_index=r.get("_row_index"),
+                            field="amount",
+                            original_value=amt_raw,
+                        )
+                    except Exception:
+                        pass
 
                 all_data.append(
                     (
@@ -95,7 +141,7 @@ class DBWriterThread(threading.Thread):
         def _save():
             conn = self.connection_manager.get_connection()
             try:
-                conn.execute("BEGIN TRANSACTION")
+                conn.execute("BEGIN IMMEDIATE")
                 conn.executemany(sql, all_data)
                 conn.commit()
             except Exception:

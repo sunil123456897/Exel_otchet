@@ -3,13 +3,12 @@ import logging
 import os
 import threading
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections.abc import Sequence
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 
 from core.infra import DiscoveryService, is_file_writable
-from core.infra.utils import file_content_fingerprint
 from core.infra.utils_logging import scrub_path
 from core.app.file_processor import (
     check_master_lock,
@@ -17,15 +16,19 @@ from core.app.file_processor import (
     date_matches_target,
 )
 from core.app.performance import default_max_workers, resolve_max_workers
-from core.app.controller_messages import (
+from core.app.message_formatting import (
     build_empty_data_message as build_controller_empty_data_message,
     build_issue_preview,
     build_success_message as build_controller_success_message,
     format_file_error_note as format_controller_file_error_note,
     normalize_consolidation_dates as normalize_controller_consolidation_dates,
 )
-from core.infra.reconciliation_report import build_combined_reconciliation_report
-from core.infra.rsch_report import build_rsch_report
+from core.infra.reconciliation import build_combined_reconciliation_report
+from core.infra.rsch import build_rsch_report
+from core.services.rsch_service import RschService
+from core.services.reconciliation_service import ReconciliationService
+from core.app.partial import format_partial_note, mark_partial
+from core.infra.utils import cleanup_local_copy_cache
 
 _ADAPTIVE_WORKERS = default_max_workers()
 
@@ -34,6 +37,52 @@ class ConsolidationRunError(RuntimeError):
     def __init__(self, message: str, code: str = "failed") -> None:
         super().__init__(message)
         self.code = code
+
+
+def _is_cancelled(cancel_event: Optional[threading.Event]) -> bool:
+    """Return True when the user requested cancellation.
+
+    Helper for the threaded run_* entry points. The cancel_event is set
+    by the GUI when the user clicks the Cancel button on the
+    OperationStatusBar; the helper exists so call sites stay short and
+    the check stays cheap (no allocation per iteration).
+    """
+    return cancel_event is not None and cancel_event.is_set()
+
+
+def _cancel_message(
+    on_complete: Callable[[bool, str, Optional[Path]], None],
+    *output_paths: Optional[Path],
+) -> None:
+    """Wrap the standard cancel completion in a partial-files note.
+
+    All six ``run_*`` methods funnel their cancel branch through this
+    helper so the user gets a consistent message and the on-disk
+    partial files are renamed (not deleted) before the GUI shows the
+    toast. Network cache files are scrubbed in the same call.
+
+    Pass each candidate output path (file or directory) that the
+    operation may have started writing; the helper marks every
+    existing ``*.xlsx`` under those paths as ``.partial`` and appends
+    a short note to the user-facing message.
+    """
+    cleanup_local_copy_cache(max_age_days=0, min_delete_age_seconds=0)
+    partials: List[Path] = []
+    for path in output_paths:
+        partials.extend(mark_partial(path))
+    note = format_partial_note(partials)
+    message = "Операция отменена пользователем." + note
+    try:
+        # Tag the message so the GUI completion handler can detect
+        # cancellation by type (isinstance) instead of Russian substring
+        # matching — see core.ui.gui_commands._base.CancelledByUser.
+        # Lazy import keeps the controller decoupled from tkinter at
+        # module load (headless paths do not import the UI layer).
+        from core.ui.gui_commands._base import CancelledByUser
+        tagged = CancelledByUser(message)
+    except Exception:
+        tagged = message
+    on_complete(False, tagged, None)
 
 
 class AppController:
@@ -55,7 +104,7 @@ class AppController:
         self.logic_service = logic_service
         self.writer = writer
 
-        self.discovery = DiscoveryService(config_controller, ingestion)
+        self.discovery = DiscoveryService(config_controller, ingestion, persistence=persistence)
         self._max_workers = resolve_max_workers(
             getattr(config_controller, "config", None)
         )
@@ -66,6 +115,14 @@ class AppController:
         self._lock = threading.Lock()
         self._cached_employees = {}
         self._active_threads: List[threading.Thread] = []
+        self._rsch = RschService(
+            start_thread_fn=self._start_thread,
+            get_drive_letters_fn=self._get_network_drive_letters,
+        )
+        self._reconciliation = ReconciliationService(
+            start_thread_fn=self._start_thread,
+            get_drive_letters_fn=self._get_network_drive_letters,
+        )
 
     @property
     def rename_detected(self):
@@ -244,29 +301,16 @@ class AppController:
                 stat_mtime = stat.st_mtime
                 stat_size = stat.st_size
                 cache = self.persistence.get_file_cache(str(p_path))
-                current_fingerprint: str | None = None
-
-                def get_current_fingerprint() -> str | None:
-                    nonlocal current_fingerprint
-                    if current_fingerprint is None:
-                        current_fingerprint = file_content_fingerprint(p_path)
-                    return current_fingerprint
 
                 cache_hit = (
                     cache
                     and cache["mtime"] == stat_mtime
                     and cache["size"] == stat_size
                 )
-                cache_version = int(cache.get("cache_version", 1)) if cache else 1
-                if cache_hit and cache_version >= 4:
-                    cache_hit = bool(cache.get("fingerprint")) and (
-                        cache.get("fingerprint") == get_current_fingerprint()
-                    )
-                needs_cache_migration = cache_hit and cache_version < 4
 
                 if cache_hit:
                     available = cache.get("dates", [])
-                    if self._has_target_date(available, target_date_obj, today) and not needs_cache_migration:
+                    if self._has_target_date(available, target_date_obj, today):
                         status, tag = "🟢 ГОТОВО", "ready"
                         break
 
@@ -289,7 +333,6 @@ class AppController:
                             stat_mtime,
                             stat_size,
                             available,
-                            fingerprint=get_current_fingerprint(),
                         )
                 else:
                     available = self.ingestion.get_available_dates(
@@ -303,14 +346,13 @@ class AppController:
                         stat_mtime,
                         stat_size,
                         available,
-                        fingerprint=get_current_fingerprint(),
                     )
 
                 if self._has_target_date(available, target_date_obj, today):
                     status, tag = "🟢 ГОТОВО", "ready"
                     break
         except Exception as e:
-            logging.error(f"Error {name}: {e}")
+            logging.exception("Error %s: %s", name, e)
             status, tag = "[ERR] ОШИБКА", "missing"
 
         return (name, status, path_str, tag)
@@ -323,6 +365,8 @@ class AppController:
         on_error: Optional[Callable[[str], None]] = None,
     ) -> None:
         try:
+            import time as _time
+            _t0 = _time.monotonic()
             logging.info("[NET] Загружаю статусы файлов...")
             employees_map = self._get_employees_map(allow_network_scan=False)
             unique_names = sorted(employees_map.keys())
@@ -346,16 +390,41 @@ class AppController:
                 ): name
                 for name in unique_names
             }
-            for i, future in enumerate(concurrent.futures.as_completed(futures)):
+            try:
+                for i, future in enumerate(
+                    concurrent.futures.as_completed(futures, timeout=30)
+                ):
                     local_data.append(future.result())
                     on_progress(((i + 1) / total_count) * 100)
+            except concurrent.futures.TimeoutError:
+                # A single hung stat lookup (network drive stall, etc.)
+                # used to block the whole refresh indefinitely because
+                # as_completed had no per-future deadline. Cancel the
+                # stragglers, surface which employees we skipped, and
+                # keep going with whatever we collected so the user
+                # sees a partial result instead of a frozen UI.
+                timed_out = [n for fut, n in futures.items() if not fut.done()]
+                logging.warning(
+                    "[NET] Refresh status timed out after 30s; "
+                    "%d/%d employees not finished: %s",
+                    len(timed_out),
+                    total_count,
+                    ", ".join(timed_out[:10])
+                    + ("..." if len(timed_out) > 10 else ""),
+                )
+                for fut in futures:
+                    if not fut.done():
+                        fut.cancel()
+                on_progress((len(local_data) / total_count) * 100)
 
             local_data.sort(key=lambda x: x[0])
             with self._lock:
                 self._cached_employees = employees_map
+            _elapsed = _time.monotonic() - _t0
+            logging.info(f"[PERF] Refresh status: {_elapsed:.1f}s for {total_count} employees")
             on_complete(local_data, employees_map, self.rename_detected)
         except Exception as e:
-            logging.error(f"Refresh error: {e}")
+            logging.exception("Refresh error: %s", e)
             on_complete([], {}, False)
             if callable(on_error):
                 on_error(f"Ошибка обновления статусов: {e}")
@@ -462,8 +531,15 @@ class AppController:
         use_fresh_employees: bool,
         curator: Optional[str] = None,
         on_failure_code: Optional[Callable[[str], None]] = None,
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
+        import time as _time
+        _t0 = _time.monotonic()
         session_id = str(uuid.uuid4())
+
+        def _is_cancelled() -> bool:
+            return cancel_event is not None and cancel_event.is_set()
+
         try:
             curator_config = self._get_curator_config(curator)
             effective_target_date, effective_start_date, effective_end_date, date_error, range_note = (
@@ -516,6 +592,7 @@ class AppController:
                 start_date_str=effective_start_date,
                 end_date_str=effective_end_date,
                 on_file_error=collect_file_errors,
+                cancel_event=cancel_event,
             ):
                 self.persistence.update_session_status(session_id, "failed")
                 if callable(on_failure_code):
@@ -523,11 +600,25 @@ class AppController:
                 on_complete(False, self._build_no_files_message(), None)
                 return
 
+            if _is_cancelled():
+                self.persistence.update_session_status(session_id, "cancelled")
+                _cancel_message(on_complete)
+                return
+
             consolidated_data = self.logic_service.consolidate(
                 session_id,
                 curator=curator,
                 curator_config=curator_config,
             )
+            # After the SQL aggregation step, push the bar to ~70% so the
+            # user can see we are in the final stretch (write_report
+            # is the last heavy step before completion).
+            on_progress(70)
+
+            if _is_cancelled():
+                self.persistence.update_session_status(session_id, "cancelled")
+                _cancel_message(on_complete)
+                return
             errors = self.persistence.get_template_errors(session_id)
             file_error_note = self._format_file_error_note(file_errors)
 
@@ -564,7 +655,14 @@ class AppController:
                 return
 
             logging.info("[MAIN] Основной отчёт собран: %s", scrub_path(str(master_path)))
-            on_progress(100)
+            _elapsed = _time.monotonic() - _t0
+            logging.info(f"[PERF] Consolidation ({session_type}): {_elapsed:.1f}s")
+            on_progress(95)
+            # `on_progress(100)` is intentionally left to the *completion
+            # handler* — that is when the OperationState's end() resets
+            # the bar to 0. Otherwise the bar reaches 100% for a single
+            # frame and then immediately resets, which makes it look
+            # like nothing happened.
             has_actionable_warnings = any(
                 error.get("error_type") not in {"soft_structure"} for error in errors
             )
@@ -588,7 +686,7 @@ class AppController:
                 master_path,
             )
         except Exception as e:
-            logging.error(f"Error: {e}")
+            logging.exception("Error: %s", e)
             self.persistence.update_session_status(session_id, "failed")
             if callable(on_failure_code):
                 on_failure_code("exception")
@@ -633,6 +731,7 @@ class AppController:
         session_type: str = "daily",
         use_fresh_employees: bool = False,
         curator: Optional[str] = None,
+        cancel_event: Optional[threading.Event] = None,
     ):
         """Core consolidation logic shared by all consolidation entry points.
 
@@ -646,6 +745,8 @@ class AppController:
             end_date_str: Range end (dd.mm.YYYY) or None.
             session_type: 'daily', 'all_dates', or 'monthly'.
             use_fresh_employees: If True, re-discover employees from disk.
+            cancel_event: optional threading.Event; if set, the task stops
+                at the next checkpoint and reports cancelled to the caller.
         """
         curator_config = self._get_curator_config(curator)
         if not self._is_report_writable(curator_config):
@@ -664,6 +765,7 @@ class AppController:
                 session_type,
                 use_fresh_employees,
                 curator,
+                cancel_event=cancel_event,
             )
 
         self._start_thread(task)
@@ -674,6 +776,7 @@ class AppController:
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
+        cancel_event: Optional[threading.Event] = None,
     ):
         """Run consolidation for a single selected date."""
         self._run_consolidation_core(
@@ -682,6 +785,7 @@ class AppController:
             target_date_str=selected_date.strftime("%d.%m.%Y"),
             session_type="daily",
             curator=curator,
+            cancel_event=cancel_event,
         )
 
     def run_consolidation_all_dates(
@@ -689,6 +793,7 @@ class AppController:
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
+        cancel_event: Optional[threading.Event] = None,
     ):
         """Run consolidation for all available dates."""
         self._run_consolidation_core(
@@ -697,6 +802,7 @@ class AppController:
             session_type="all_dates",
             use_fresh_employees=True,
             curator=curator,
+            cancel_event=cancel_event,
         )
 
     def run_consolidation_month(
@@ -706,6 +812,7 @@ class AppController:
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
+        cancel_event: Optional[threading.Event] = None,
     ):
         """Run consolidation for a date range (monthly)."""
         self._run_consolidation_core(
@@ -715,6 +822,7 @@ class AppController:
             end_date_str=end_date.strftime("%d.%m.%Y"),
             session_type="monthly",
             curator=curator,
+            cancel_event=cancel_event,
         )
 
     def _run_consolidation_blocking(
@@ -801,8 +909,10 @@ class AppController:
                 curator=curator,
             )
         except ConsolidationRunError as exc:
-            if curator and exc.code == "empty_data":
-                return self._write_empty_auto_reconciliation_report(curator, target_date)
+            if exc.code == "empty_data":
+                if curator:
+                    return self._write_empty_auto_reconciliation_report(curator, target_date)
+                raise RuntimeError(f"{label}: Нет данных за {date_suffix}") from exc
             raise RuntimeError(f"{label}: {exc}") from exc
         except RuntimeError as exc:
             raise RuntimeError(f"{label}: {exc}") from exc
@@ -813,6 +923,7 @@ class AppController:
         output_path: Path,
         selected_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Rebuild daily reports, rebuild RSC, then write one 3-sheet reconciliation."""
 
@@ -822,6 +933,10 @@ class AppController:
                 date_suffix = target_date.strftime("%d.%m.%Y")
                 output_path_resolved = Path(output_path)
                 rsch_output = output_path_resolved.parent / f"РСЧ_отчет_{date_suffix}.xlsx"
+
+                if _is_cancelled(cancel_event):
+                    _cancel_message(on_complete, output_path_resolved, rsch_output)
+                    return
 
                 master_paths = {
                     "Общий": self._run_auto_master_report(
@@ -844,6 +959,10 @@ class AppController:
                     ),
                 }
 
+                if _is_cancelled(cancel_event):
+                    _cancel_message(on_complete, output_path_resolved, rsch_output)
+                    return
+
                 if isinstance(source_paths, (str, Path)):
                     normalized_sources = [Path(source_paths)]
                 else:
@@ -858,15 +977,32 @@ class AppController:
                     drive_letters=self._get_network_drive_letters(),
                 )
                 if rsch_rows == 0:
-                    raise RuntimeError(f"РСЧ за дату {date_suffix} не содержит данных")
+                    on_complete(
+                        True,
+                        f"Нет данных РСЧ за {date_suffix}. Автосверка пропущена.",
+                        None,
+                    )
+                    return
 
-                counts = build_combined_reconciliation_report(
-                    master_paths,
-                    rsch_output,
-                    output_path_resolved,
-                    target_date=target_date,
-                    drive_letters=self._get_network_drive_letters(),
-                )
+                if _is_cancelled(cancel_event):
+                    _cancel_message(on_complete, output_path_resolved, rsch_output)
+                    return
+
+                try:
+                    counts = build_combined_reconciliation_report(
+                        master_paths,
+                        rsch_output,
+                        output_path_resolved,
+                        target_date=target_date,
+                        drive_letters=self._get_network_drive_letters(),
+                    )
+                except ValueError as e:
+                    on_complete(
+                        True,
+                        f"Сверка за {date_suffix}: {e}",
+                        None,
+                    )
+                    return
                 issue_note = (
                     f" Есть проблемы с листами РСЧ: {build_issue_preview(issues)}"
                     if issues
@@ -882,7 +1018,7 @@ class AppController:
                 )
                 on_complete(True, msg, output_path_resolved)
             except Exception as e:
-                logging.error("Auto reconciliation error: %s", e)
+                logging.exception("Auto reconciliation error: %s", e)
                 on_complete(False, f"Ошибка автоматической сверки: {e}", None)
 
         self._start_thread(task)
@@ -894,33 +1030,12 @@ class AppController:
         output_path: Path,
         selected_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build a reconciliation report from already selected report and RSC files."""
-
-        def task() -> None:
-            try:
-                target_date = (
-                    selected_date.date() if hasattr(selected_date, "date") else selected_date
-                )
-                counts = build_combined_reconciliation_report(
-                    {label: Path(path) for label, path in master_paths.items()},
-                    Path(rsch_path),
-                    Path(output_path),
-                    target_date=target_date,
-                    drive_letters=self._get_network_drive_letters(),
-                )
-                msg = (
-                    "Отчет расхождений собран: "
-                    f"Общий {counts.get('Общий', 0)}, "
-                    f"Борис {counts.get('Борис', 0)}, "
-                    f"Иван {counts.get('Иван', 0)} строк."
-                )
-                on_complete(True, msg, Path(output_path))
-            except Exception as e:
-                logging.error("Reconciliation report error: %s", e)
-                on_complete(False, f"Ошибка сверки отчетов: {e}", None)
-
-        self._start_thread(task)
+        self._reconciliation.run_reconciliation_report(
+            master_paths, rsch_path, output_path, selected_date, on_complete, cancel_event
+        )
 
     def run_rsch_report(
         self,
@@ -928,52 +1043,12 @@ class AppController:
         output_path: Path,
         selected_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build an RSC control report from selected workbooks."""
-
-        def task() -> None:
-            try:
-                target_date = selected_date
-                if hasattr(selected_date, "date"):
-                    target_date = selected_date.date()
-
-                if isinstance(source_paths, (str, Path)):
-                    normalized_sources = [Path(source_paths)]
-                else:
-                    normalized_sources = [Path(p) for p in source_paths]
-
-                issues: List[str] = []
-
-                written_rows = build_rsch_report(
-                    normalized_sources,
-                    output_path,
-                    target_date=target_date,
-                    issues_sink=issues,
-                    drive_letters=self._get_network_drive_letters(),
-                )
-                if written_rows == 0:
-                    raise ValueError("РСЧ: нет строк за выбранную дату")
-
-                if issues:
-                    msg = (
-                        f"РСЧ отчет собран: {written_rows} строк из {len(normalized_sources)} файлов. "
-                        f"Есть проблемы с листами: {build_issue_preview(issues)}"
-                    )
-                else:
-                    msg = (
-                        f"РСЧ отчет собран: {written_rows} строк из {len(normalized_sources)} файлов"
-                    )
-
-                on_complete(
-                    True,
-                    msg,
-                    output_path,
-                )
-            except Exception as e:
-                logging.error("RSC build error: %s", e)
-                on_complete(False, f"Ошибка сборки РСЧ: {e}", None)
-
-        self._start_thread(task)
+        self._rsch.run_rsch_report(
+            source_paths, output_path, selected_date, on_complete, cancel_event
+        )
 
     def run_rsch_report_period(
         self,
@@ -982,48 +1057,12 @@ class AppController:
         start_date,
         end_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build one RSC control workbook with one sheet per row date in range."""
-
-        def task() -> None:
-            try:
-                start = start_date.date() if hasattr(start_date, "date") else start_date
-                end = end_date.date() if hasattr(end_date, "date") else end_date
-
-                if isinstance(source_paths, (str, Path)):
-                    normalized_sources = [Path(source_paths)]
-                else:
-                    normalized_sources = [Path(p) for p in source_paths]
-
-                issues: List[str] = []
-                written_rows = build_rsch_report(
-                    normalized_sources,
-                    output_path,
-                    start_date=start,
-                    end_date=end,
-                    issues_sink=issues,
-                    drive_letters=self._get_network_drive_letters(),
-                )
-                if written_rows == 0:
-                    raise ValueError("РСЧ: нет строк за выбранный период")
-
-                if issues:
-                    msg = (
-                        f"РСЧ отчет за период собран: {written_rows} строк из {len(normalized_sources)} файлов. "
-                        f"Есть проблемы с листами: {build_issue_preview(issues)}"
-                    )
-                else:
-                    msg = (
-                        f"РСЧ отчет за период собран: {written_rows} строк из "
-                        f"{len(normalized_sources)} файлов"
-                    )
-
-                on_complete(True, msg, output_path)
-            except Exception as e:
-                logging.error("RSC period build error: %s", e)
-                on_complete(False, f"Ошибка сборки РСЧ за период: {e}", None)
-
-        self._start_thread(task)
+        self._rsch.run_rsch_report_period(
+            source_paths, output_path, start_date, end_date, on_complete, cancel_event
+        )
 
     def run_rsch_report_period_batch(
         self,
@@ -1032,60 +1071,12 @@ class AppController:
         start_date,
         end_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build separate RSC workbooks for each date in the selected range."""
-
-        def task() -> None:
-            try:
-                start = start_date.date() if hasattr(start_date, "date") else start_date
-                end = end_date.date() if hasattr(end_date, "date") else end_date
-
-                if isinstance(source_paths, (str, Path)):
-                    normalized_sources = [Path(source_paths)]
-                else:
-                    normalized_sources = [Path(p) for p in source_paths]
-
-                output_dir_path = Path(output_dir)
-                output_dir_path.mkdir(parents=True, exist_ok=True)
-
-                current = start
-                total_rows = 0
-                files_written = 0
-                issues: List[str] = []
-                while current <= end:
-                    output_path = output_dir_path / f"РСЧ_отчет_{current.strftime('%d.%m.%Y')}.xlsx"
-                    written_rows = build_rsch_report(
-                        normalized_sources,
-                        output_path,
-                        target_date=current,
-                        issues_sink=issues,
-                        drive_letters=self._get_network_drive_letters(),
-                    )
-                    if written_rows:
-                        total_rows += written_rows
-                        files_written += 1
-                    current += timedelta(days=1)
-
-                if files_written == 0:
-                    raise ValueError("РСЧ: нет строк за выбранный период")
-
-                if issues:
-                    msg = (
-                        f"РСЧ отчеты за период собраны: {files_written} файлов, {total_rows} строк. "
-                        f"Есть проблемы с листами: {build_issue_preview(issues)}"
-                    )
-                else:
-                    msg = (
-                        f"РСЧ отчеты за период собраны: {files_written} файлов, "
-                        f"{total_rows} строк"
-                    )
-
-                on_complete(True, msg, output_dir_path)
-            except Exception as e:
-                logging.error("RSC period batch build error: %s", e)
-                on_complete(False, f"Ошибка пакетной сборки РСЧ за период: {e}", None)
-
-        self._start_thread(task)
+        self._rsch.run_rsch_report_period_batch(
+            source_paths, output_dir, start_date, end_date, on_complete, cancel_event
+        )
 
     def run_rsch_report_batch(
         self,
@@ -1093,66 +1084,12 @@ class AppController:
         output_paths: Sequence[Path],
         selected_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
+        cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build separate RSC reports per source workbook."""
-
-        def task() -> None:
-            try:
-                target_date = selected_date
-                if hasattr(selected_date, "date"):
-                    target_date = selected_date.date()
-
-                normalized_sources = [Path(p) for p in source_paths]
-                normalized_outputs = [Path(p) for p in output_paths]
-                if len(normalized_sources) != len(normalized_outputs):
-                    raise ValueError("Sources and outputs count mismatch")
-                if len({str(path) for path in normalized_outputs}) != len(
-                    normalized_outputs
-                ):
-                    raise ValueError("Duplicate output paths")
-
-                total_rows = 0
-                issues: List[str] = []
-                for src, out in zip(normalized_sources, normalized_outputs, strict=True):
-                    written_rows = build_rsch_report(
-                        src,
-                        out,
-                        target_date=target_date,
-                        issues_sink=issues,
-                        drive_letters=self._get_network_drive_letters(),
-                    )
-                    if written_rows:
-                        total_rows += written_rows
-                    elif out.exists():
-                        out.unlink()
-
-                output_dir = (
-                    normalized_outputs[0].parent if normalized_outputs else None
-                )
-                if total_rows == 0:
-                    raise ValueError("РСЧ: нет строк за выбранную дату")
-
-                if issues:
-                    msg = (
-                        f"РСЧ отчеты собраны: {len(normalized_outputs)} файлов, {total_rows} строк. "
-                        f"Есть проблемы с листами: {build_issue_preview(issues)}"
-                    )
-                else:
-                    msg = (
-                        f"РСЧ отчеты собраны: {len(normalized_outputs)} файлов, "
-                        f"{total_rows} строк"
-                    )
-
-                on_complete(
-                    True,
-                    msg,
-                    output_dir,
-                )
-            except Exception as e:
-                logging.error("RSC batch build error: %s", e)
-                on_complete(False, f"Ошибка пакетной сборки РСЧ: {e}", None)
-
-        self._start_thread(task)
+        self._rsch.run_rsch_report_batch(
+            source_paths, output_paths, selected_date, on_complete, cancel_event
+        )
 
     def shutdown(self):
         """Gracefully shut down: wait for threads and close DB."""
@@ -1160,7 +1097,7 @@ class AppController:
         self.persistence.wait_for_writes()
 
         # Shutdown thread pool executor
-        self._executor.shutdown(wait=False)
+        self._executor.shutdown(wait=True)
         logging.info("[APP] Завершение: пул потоков остановлен.")
 
         # Wait for active task threads to finish (with timeout)

@@ -6,8 +6,9 @@ This decouples FileProcessor/AppController from GuiMaster — no more
 """
 
 import queue
+import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, List
 
@@ -28,6 +29,7 @@ class Event:
 
 class EventBus:
     _instance: "EventBus | None" = None
+    _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
         self._queue: queue.Queue[Event] = queue.Queue()
@@ -36,13 +38,26 @@ class EventBus:
 
     @classmethod
     def get(cls) -> "EventBus":
+        """Return the process-wide singleton, creating it on first call.
+
+        Uses double-checked locking so that two threads racing the
+        initialisation still end up with the same instance (without a
+        lock on every subsequent read). The previous unlocked version
+        could build two independent buses if two workers both hit the
+        ``_instance is None`` branch before either stored its result.
+        """
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     @classmethod
     def reset(cls) -> None:
-        cls._instance = None
+        """Drop the singleton. Intended for tests; acquires the init lock
+        so a concurrent get() can't observe a half-cleared state."""
+        with cls._instance_lock:
+            cls._instance = None
 
     def publish(self, event: Event) -> None:
         self._queue.put(event)
@@ -67,8 +82,10 @@ class EventBus:
                 for cb in listeners:
                     try:
                         cb(event)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logging.warning(
+                            "EventBus callback error for %s: %s", event.type, e
+                        )
                 self._queue.task_done()
         except queue.Empty:
             pass
