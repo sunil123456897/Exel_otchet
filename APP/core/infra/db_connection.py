@@ -140,6 +140,28 @@ class SQLiteConnectionManager:
             finally:
                 conn.close()
         self._run_migrations()
+        self._cleanup_old_cache_entries()
+
+    def _cleanup_old_cache_entries(self) -> None:
+        """Delete stale rows from cache tables to keep cache.db bounded.
+
+        row_cache / file_cache: entries older than 7 days.
+        discovery_cache: entries older than 12 hours (matches the read TTL
+        in source_file_repo.get_discovery_cache).
+        """
+        conn = self.get_connection()
+        try:
+            conn.execute("DELETE FROM row_cache WHERE created_at < datetime('now', '-7 days')")
+            conn.execute("DELETE FROM file_cache WHERE last_updated < datetime('now', '-7 days')")
+            conn.execute(
+                "DELETE FROM discovery_cache WHERE scanned_at < CAST(strftime('%s','now') AS REAL) - 43200"
+            )
+            conn.commit()
+            self.logger.info("Cache cleanup: removed stale row_cache, file_cache, discovery_cache entries")
+        except sqlite3.Error as e:
+            self.logger.warning("Cache cleanup failed (non-fatal): %s", e)
+        finally:
+            conn.close()
 
     def _backup_db(self) -> None:
         """Create a timestamped backup of the database file before migrations."""
