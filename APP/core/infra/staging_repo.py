@@ -110,6 +110,18 @@ class DBWriterThread(threading.Thread):
                     amt_val = decimal.Decimal(str(amt_raw))
                 except (decimal.InvalidOperation, TypeError, ValueError):
                     amt_val = decimal.Decimal("0.00")
+                    try:
+                        from core.domain.data_loss_log import record_loss
+                        record_loss(
+                            source=f"staging_repo:file_id={file_id}",
+                            kind="numeric_coercion",
+                            reason=f"amount field could not be parsed: {amt_raw!r}",
+                            row_index=r.get("_row_index"),
+                            field="amount",
+                            original_value=amt_raw,
+                        )
+                    except Exception:
+                        pass
 
                 all_data.append(
                     (
