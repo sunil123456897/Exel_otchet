@@ -1,6 +1,3 @@
-import os
-from pathlib import Path
-import pytest
 from core.ui.dashboard_state import read_recent_log_errors, read_recent_logs
 
 def test_read_recent_log_errors_filters_only_errors(tmp_path):

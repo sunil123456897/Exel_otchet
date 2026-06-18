@@ -11,7 +11,6 @@ from core.ui.dashboard_state import (
     RuntimeResult,
     build_diagnostic_summary,
     collect_report_paths,
-    collect_settings_lines,
     load_runtime_results,
     read_recent_log_errors,
     read_recent_logs,
