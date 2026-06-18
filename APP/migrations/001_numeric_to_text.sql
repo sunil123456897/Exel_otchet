@@ -4,6 +4,10 @@
 -- losing precision for large amounts. TEXT preserves the exact Decimal
 -- representation stored by the Python sqlite3 Decimal adapter.
 --
+-- The migration runner checks table existence before executing each
+-- statement group, so this file is safe on fresh DBs where the schema
+-- has already created the tables with TEXT columns.
+--
 -- SQLite does not support ALTER COLUMN, so we use the table-rebuild
 -- pattern: create new table, copy data, drop old, rename.
 
@@ -50,3 +54,4 @@ ALTER TABLE _consolidated_results_new RENAME TO consolidated_results;
 CREATE INDEX IF NOT EXISTS idx_staging_file ON staging_data(file_id);
 CREATE INDEX IF NOT EXISTS idx_staging_employee_date ON staging_data(employee_name, date_val);
 CREATE INDEX IF NOT EXISTS idx_consolidated_session ON consolidated_results(session_id);
+

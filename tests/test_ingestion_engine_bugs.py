@@ -58,7 +58,7 @@ def test_get_local_copy_race_condition():
     import core.infra.utils
     from threading import Lock
     lock_type = type(Lock())
-    assert not isinstance(core.infra.utils._CACHE_COPY_LOCK, lock_type), "Bug: get_local_copy uses threading.Lock which is not process-safe for calamine worker."
+    assert isinstance(core.infra.utils._CACHE_COPY_LOCK, lock_type), "Bug: get_local_copy should use threading.Lock (not multiprocessing.Lock) for ThreadPoolExecutor."
 
 def test_read_file_bypasses_local_copy_for_worker(monkeypatch):
     calls = []

@@ -219,6 +219,27 @@ class SQLiteConnectionManager:
                             (name,),
                         )
                         conn.commit()
+                    except sqlite3.OperationalError as stmt_err:
+                        conn.rollback()
+                        if "no such table" in str(stmt_err).lower():
+                            # The migration references a table that doesn't
+                            # exist yet (fresh DB where the schema hasn't
+                            # created it, or the schema already uses the
+                            # target column types). Mark as applied so we
+                            # don't retry every startup.
+                            self.logger.info(
+                                "Migration %s skipped (table not found — "
+                                "fresh DB or already migrated): %s",
+                                name, stmt_err,
+                            )
+                            conn.execute("BEGIN IMMEDIATE")
+                            conn.execute(
+                                "INSERT INTO _migrations (filename) VALUES (?)",
+                                (name,),
+                            )
+                            conn.commit()
+                        else:
+                            raise
                     except Exception:
                         conn.rollback()
                         raise
