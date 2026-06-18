@@ -682,6 +682,8 @@ class CalamineReader:
         )
 
     def _coerce_numeric_cell(self, key: str, val: Any) -> tuple[Any, bool, bool]:
+        if isinstance(val, bool):
+            return Decimal("0.00"), False, False
         if isinstance(val, (int, float)):
             d_val = Decimal(str(val))
             return d_val, d_val != 0, False

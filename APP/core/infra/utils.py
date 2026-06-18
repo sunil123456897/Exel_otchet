@@ -212,9 +212,9 @@ def get_local_copy(
 
 
     stat_mtime_ns = getattr(stat, "st_mtime_ns", int(float(stat.st_mtime) * 1_000_000_000))
-    key = hashlib.md5(
+    key = hashlib.sha256(
         f"{network_path}_{stat_mtime_ns}_{stat.st_size}".encode()
-    ).hexdigest()
+    ).hexdigest()[:32]
     suffix = Path(network_path).suffix
     local_path = _CACHE_DIR / f"{key}{suffix}"
 

@@ -221,7 +221,7 @@ class SourceFileRepository:
             ).fetchone()
             if row:
                 import time as _time
-                scanned_at = row["scanned_at"]
+                scanned_at = float(row["scanned_at"])
                 ttl = 12 * 3600  # 12 hours default
                 if _time.time() - scanned_at < ttl:
                     return json.loads(row["files_json"])

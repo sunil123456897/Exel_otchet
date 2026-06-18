@@ -335,6 +335,8 @@ class GuiMaster:
             self._persist_geometry()
             if original:
                 original()
+            else:
+                self.root.destroy()
 
         self.root.protocol("WM_DELETE_WINDOW", _save_then_close)
         # Fallback for the case where main.py overwrites WM_DELETE_WINDOW
