@@ -24,9 +24,11 @@ class ReconciliationService:
         self,
         start_thread_fn: Callable[[Callable], None],
         get_drive_letters_fn: Callable[[], tuple[str, ...]],
+        alias_repo=None,
     ) -> None:
         self._start_thread = start_thread_fn
         self._get_drive_letters = get_drive_letters_fn
+        self._alias_repo = alias_repo
 
     def run_reconciliation_report(
         self,
@@ -55,6 +57,7 @@ class ReconciliationService:
                     Path(output_path),
                     target_date=target_date,
                     drive_letters=self._get_drive_letters(),
+                    alias_repo=self._alias_repo,
                 )
                 msg = (
                     "Отчет расхождений собран: "

@@ -47,12 +47,14 @@ class DashboardTabs:
         self.diagnostics_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
         self.logs_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
         self.settings_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
+        self.aliases_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
 
         notebook.add(self.employees_tab, text="Сотрудники")
         notebook.add(self.home_tab, text="Панель")
         notebook.add(self.reports_tab, text="Отчеты")
         notebook.add(self.diagnostics_tab, text="Диагностика")
         notebook.add(self.logs_tab, text="Логи")
+        notebook.add(self.aliases_tab, text="🔗 Алиасы сверки")
         notebook.add(self.settings_tab, text="Настройки")
         notebook.select(self.employees_tab)
 
@@ -61,6 +63,7 @@ class DashboardTabs:
         self._setup_diagnostics()
         self._setup_logs()
         self._setup_settings()
+        self._setup_aliases()
 
     def _setup_home(self) -> None:
         summary_frame = ttk.LabelFrame(self.home_tab, text="Состояние", padding=8)
@@ -353,6 +356,11 @@ class DashboardTabs:
         ThemeManager.register(self.settings_text, bg_key="bg_panel", fg_key="text")
         
         self.settings_visual_frame.pack(fill=tk.BOTH, expand=True)
+
+    def _setup_aliases(self) -> None:
+        from core.ui.ui_aliases import AliasesTab
+        app_ctl = getattr(self.controller, "app_controller", self.controller)
+        self._aliases_tab = AliasesTab(self.aliases_tab, app_ctl)
 
     def refresh(self) -> None:
         self._refresh_reports()

@@ -17,6 +17,39 @@ from ._resolve import (_executor_matches, _row_amount_matches,
     _rsch_customer_matches, _rsch_customer_matches_weak)
 
 
+def _customer_exact_or_alias_match(
+    master_customer: str,
+    rsch_row: RschReconciliationRow,
+    alias_repo: Optional[Any] = None,
+) -> bool:
+    """Strict customer match for VERIFIED status.
+
+    Returns True only if:
+    1. Exact text match (case-insensitive, whitespace-normalised) between
+       master customer and any of rsch customer/contractor/comment, OR
+    2. An explicit alias exists in the alias repository.
+
+    Loose/substring matches do NOT qualify — those get REVIEW status
+    so accountants can review and add aliases if appropriate.
+    """
+    if not master_customer:
+        return False
+    master_norm = _normalize_text(master_customer)
+    if not master_norm:
+        return False
+    for candidate in (rsch_row.customer, rsch_row.contractor, rsch_row.comment):
+        if not candidate:
+            continue
+        cand_norm = _normalize_text(candidate)
+        if cand_norm and cand_norm == master_norm:
+            return True
+    if alias_repo is not None:
+        for candidate in (rsch_row.customer, rsch_row.contractor):
+            if candidate and alias_repo.is_alias(master_customer, candidate):
+                return True
+    return False
+
+
 def _to_decimal_soft(
     value: Any,
     *,
@@ -373,6 +406,7 @@ def _find_surname_rsch_match(
 def _build_reconciliation_rows(
     master_rows: list[MasterReconciliationRow],
     rsch_rows: list[RschReconciliationRow],
+    alias_repo: Optional[Any] = None,
 ) -> list[ReconciliationRow]:
     result: list[ReconciliationRow] = []
     used_rsch_indexes: set[int] = set()
@@ -471,13 +505,26 @@ def _build_reconciliation_rows(
     for master_idx, master_row in enumerate(master_rows):
         if master_idx in exact_matches:
             rsch_row = rsch_rows[exact_matches[master_idx]]
-            ok = _executor_matches(master_row.executor, rsch_row.executor)
+            executor_ok = _executor_matches(master_row.executor, rsch_row.executor)
+            # VERIFIED requires strict customer match (exact or alias)
+            # + amount (already guaranteed by exact_matches) + executor.
+            # Loose customer match downgrades to REVIEW so accountants
+            # can add an alias if appropriate.
+            customer_strict = _customer_exact_or_alias_match(
+                master_row.customer, rsch_row, alias_repo
+            )
+            if customer_strict and executor_ok:
+                status, reason = STATUS_VERIFIED, ""
+            elif not customer_strict:
+                status, reason = STATUS_REVIEW, REASON_CUSTOMER_MISMATCH
+            else:
+                status, reason = STATUS_REVIEW, REASON_EXECUTOR_MISMATCH
             result.append(
                 ReconciliationRow(
                     master=master_row,
                     rsch=rsch_row,
-                    status=STATUS_VERIFIED if ok else STATUS_REVIEW,
-                    reason="" if ok else REASON_EXECUTOR_MISMATCH,
+                    status=status,
+                    reason=reason,
                 )
             )
             continue

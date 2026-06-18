@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import date
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Optional
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, PatternFill
 from openpyxl.comments import Comment
@@ -184,6 +184,7 @@ def _build_reconciliation_sheet_data(
     master_wb,
     rsch_wb,
     target_date: date | None,
+    alias_repo: Optional[Any] = None,
 ) -> tuple[date, list[str], list[ReconciliationRow]]:
     effective_date = _resolve_target_date(master_wb, rsch_wb, target_date)
     master_ws = _find_sheet(master_wb, effective_date)
@@ -193,7 +194,7 @@ def _build_reconciliation_sheet_data(
         _collect_rsch_rows(rsch_ws),
         excluded_master_rows,
     )
-    rows = _build_reconciliation_rows(master_rows, rsch_rows)
+    rows = _build_reconciliation_rows(master_rows, rsch_rows, alias_repo=alias_repo)
     return effective_date, master_headers, rows
 
 
@@ -281,6 +282,7 @@ def build_reconciliation_report(
     *,
     target_date: date | None = None,
     drive_letters: tuple[str, ...] = ("Q", "Z"),
+    alias_repo: Optional[Any] = None,
 ) -> int:
     master_path = Path(master_path)
     rsch_path = Path(rsch_path)
@@ -305,6 +307,7 @@ def build_reconciliation_report(
                 master_wb,
                 rsch_wb,
                 target_date,
+                alias_repo=alias_repo,
             )
             wb_out = _build_workbook(effective_date, rows, master_headers)
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -327,6 +330,7 @@ def build_combined_reconciliation_report(
     *,
     target_date: date | None = None,
     drive_letters: tuple[str, ...] = ("Q", "Z"),
+    alias_repo: Optional[Any] = None,
 ) -> dict[str, int]:
     rsch_path = Path(rsch_path)
     output_path = Path(output_path)
@@ -367,6 +371,7 @@ def build_combined_reconciliation_report(
                             master_wb,
                             rsch_wb,
                             effective_target_date,
+                            alias_repo=alias_repo,
                         )
                     finally:
                         if master_wb is not None:

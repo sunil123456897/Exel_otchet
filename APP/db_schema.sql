@@ -99,9 +99,22 @@ CREATE TABLE IF NOT EXISTS discovery_cache (
     files_json TEXT NOT NULL -- JSON array of file metadata
 );
 
+-- Customer aliases for reconciliation matching (managed by accountants)
+CREATE TABLE IF NOT EXISTS customer_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    master_customer TEXT NOT NULL,
+    rsch_customer TEXT NOT NULL,
+    notes TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(master_customer, rsch_customer)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_files_session ON source_files(session_id);
 CREATE INDEX IF NOT EXISTS idx_staging_file ON staging_data(file_id);
 CREATE INDEX IF NOT EXISTS idx_staging_employee_date ON staging_data(employee_name, date_val);
 CREATE INDEX IF NOT EXISTS idx_consolidated_session ON consolidated_results(session_id);
 CREATE INDEX IF NOT EXISTS idx_row_cache_lookup ON row_cache(file_path, mtime, size);
+CREATE INDEX IF NOT EXISTS idx_aliases_master ON customer_aliases(master_customer);
+CREATE INDEX IF NOT EXISTS idx_aliases_rsch ON customer_aliases(rsch_customer);

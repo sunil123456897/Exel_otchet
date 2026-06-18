@@ -96,6 +96,7 @@ class AppController:
         validator,
         logic_service,
         writer,
+        alias_repo=None,
     ):
         self.config_controller = config_controller
         self.ingestion = ingestion
@@ -103,6 +104,7 @@ class AppController:
         self.validator = validator
         self.logic_service = logic_service
         self.writer = writer
+        self.alias_repo = alias_repo
 
         self.discovery = DiscoveryService(config_controller, ingestion, persistence=persistence)
         self._max_workers = resolve_max_workers(
@@ -122,6 +124,7 @@ class AppController:
         self._reconciliation = ReconciliationService(
             start_thread_fn=self._start_thread,
             get_drive_letters_fn=self._get_network_drive_letters,
+            alias_repo=self.alias_repo,
         )
 
     @property
@@ -995,6 +998,7 @@ class AppController:
                         output_path_resolved,
                         target_date=target_date,
                         drive_letters=self._get_network_drive_letters(),
+                        alias_repo=self.alias_repo,
                     )
                 except ValueError as e:
                     on_complete(
@@ -1108,3 +1112,31 @@ class AppController:
 
         self.persistence.close()
         logging.info("[APP] Завершение: БД закрыта.")
+
+    # ── Customer aliases (reconciliation mapping) ───────────
+
+    def get_customer_aliases(self):
+        """Return all customer alias entries for UI display."""
+        if self.alias_repo is None:
+            return []
+        return self.alias_repo.get_all_aliases()
+
+    def add_customer_alias(self, master_customer: str, rsch_customer: str, notes: str = "") -> int:
+        """Add a new customer alias mapping. Returns new alias id."""
+        if self.alias_repo is None:
+            raise RuntimeError("Алиасы не настроены")
+        return self.alias_repo.add_alias(master_customer, rsch_customer, notes)
+
+    def update_customer_alias(
+        self, alias_id: int, master_customer: str, rsch_customer: str, notes: str = ""
+    ) -> None:
+        """Update an existing customer alias."""
+        if self.alias_repo is None:
+            raise RuntimeError("Алиасы не настроены")
+        self.alias_repo.update_alias(alias_id, master_customer, rsch_customer, notes)
+
+    def delete_customer_alias(self, alias_id: int) -> None:
+        """Delete a customer alias by id."""
+        if self.alias_repo is None:
+            raise RuntimeError("Алиасы не настроены")
+        self.alias_repo.delete_alias(alias_id)

@@ -428,10 +428,12 @@ class Bootstrap:
         ingestion.config = cfg
         persistence = SQLiteManager(db_path, schema_path, cfg)
         _check_db_integrity_on_startup(persistence)
+        from core.infra.customer_alias_repo import CustomerAliasRepository
+        alias_repo = CustomerAliasRepository(persistence.connection_manager)
         validator = Validator(cfg)
         logic = LogicService(persistence, cfg)
         writer = MasterWriter(cfg, config_path)
-        app_ctl = AppController(cfg_ctl, ingestion, persistence, validator, logic, writer)
+        app_ctl = AppController(cfg_ctl, ingestion, persistence, validator, logic, writer, alias_repo=alias_repo)
         return cfg_ctl, app_ctl, persistence
 
     @staticmethod
