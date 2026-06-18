@@ -154,19 +154,23 @@ set "FAIL_MESSAGE=Could not switch into the APP directory."
 goto fail
 
 :pip_repair_failed
-set "FAIL_MESSAGE=Could not repair pip. See startup_log.txt for details."
+if exist "%LOGFILE%" type "%LOGFILE%"
+set "FAIL_MESSAGE=Could not repair pip."
 goto fail
 
 :tool_upgrade_failed
-set "FAIL_MESSAGE=Could not update pip/setuptools/wheel. See startup_log.txt for details."
+if exist "%LOGFILE%" type "%LOGFILE%"
+set "FAIL_MESSAGE=Could not update pip/setuptools/wheel."
 goto fail
 
 :requirements_install_failed
-set "FAIL_MESSAGE=Could not install dependencies from requirements.txt. See startup_log.txt for details."
+if exist "%LOGFILE%" type "%LOGFILE%"
+set "FAIL_MESSAGE=Could not install dependencies from requirements.txt."
 goto fail
 
 :gui_preflight_failed
-set "FAIL_MESSAGE=GUI startup failed. See gui_error_log.txt for details."
+if exist "%GUIERRLOG%" type "%GUIERRLOG%"
+set "FAIL_MESSAGE=GUI startup failed."
 goto fail
 
 :refresh_paths
