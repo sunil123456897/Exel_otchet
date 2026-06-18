@@ -3,7 +3,7 @@ import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Callable, TypeVar
 
 from core.infra import open_path
@@ -469,6 +469,7 @@ class DashboardTabs:
         self.log_errors.configure(state="disabled")
 
     def _refresh_settings(self) -> None:
+        # 1. Загрузка в YAML-редактор
         self.settings_text.configure(state="normal")
         self.settings_text.delete("1.0", tk.END)
         config_path = Path(self.config_controller.config_path)
@@ -480,27 +481,134 @@ class DashboardTabs:
                 self.settings_text.insert(tk.END, f"# Ошибка чтения файла настроек: {e}")
         else:
             self.settings_text.insert(tk.END, "# Файл config.yaml не найден.")
+        
+        # 2. Загрузка в визуальную форму
+        cfg = self.config_controller.config
+        paths_cfg = cfg.get("paths", {})
+        
+        self.master_file_var.set(paths_cfg.get("master_file", ""))
+        self.archive_dir_var.set(paths_cfg.get("archive_dir", ""))
+        
+        # Загрузка списка источников
+        self.sources_listbox.delete(0, tk.END)
+        source_roots = paths_cfg.get("source_roots", [])
+        if isinstance(source_roots, list):
+            for root in source_roots:
+                self.sources_listbox.insert(tk.END, str(root))
+                
+        # Сетевые диски
+        network_cfg = cfg.get("network", {})
+        drive_letters = network_cfg.get("drive_letters", [])
+        if isinstance(drive_letters, list):
+            self.drive_letters_var.set(", ".join(str(d) for d in drive_letters))
+        else:
+            self.drive_letters_var.set(str(drive_letters))
+            
+        # Число бэкапов
+        backup_cfg = cfg.get("backup", {})
+        self.excel_keep_var.set(backup_cfg.get("excel_keep", 10))
 
     def _save_settings(self) -> None:
-        text = self.settings_text.get("1.0", tk.END)
         config_path = Path(self.config_controller.config_path)
-        
         from ruamel.yaml import YAML
         yaml = YAML()
-        try:
-            parsed = yaml.load(text)
-            if not isinstance(parsed, dict):
-                raise ValueError("Корневой элемент конфигурации должен быть объектом (словарем)")
-        except Exception as e:
-            messagebox.showerror("Ошибка сохранения", f"Некорректный синтаксис YAML:\n{e}")
-            return
+        
+        if self.settings_mode == "yaml":
+            # Сохранение в режиме YAML-кода
+            text = self.settings_text.get("1.0", tk.END)
+            try:
+                parsed = yaml.load(text)
+                if not isinstance(parsed, dict):
+                    raise ValueError("Корневой элемент конфигурации должен быть объектом (словарем)")
+            except Exception as e:
+                messagebox.showerror("Ошибка сохранения", f"Некорректный синтаксис YAML:\n{e}")
+                return
+                
+            try:
+                config_path.write_text(text, encoding="utf-8")
+                self.config_controller.config = parsed
+                messagebox.showinfo("Успех", "Настройки успешно сохранены!")
+            except Exception as e:
+                messagebox.showerror("Ошибка сохранения", f"Не удалось записать файл config.yaml:\n{e}")
+        else:
+            # Сохранение из визуальной формы
+            cfg = self.config_controller.config
             
-        try:
-            config_path.write_text(text, encoding="utf-8")
-            self.config_controller.config = parsed
-            messagebox.showinfo("Успех", "Настройки успешно сохранены и применены!")
-        except Exception as e:
-            messagebox.showerror("Ошибка сохранения", f"Не удалось записать файл config.yaml:\n{e}")
+            if "paths" not in cfg:
+                cfg["paths"] = {}
+            if "network" not in cfg:
+                cfg["network"] = {}
+            if "backup" not in cfg:
+                cfg["backup"] = {}
+                
+            cfg["paths"]["master_file"] = self.master_file_var.get()
+            cfg["paths"]["archive_dir"] = self.archive_dir_var.get()
+            
+            roots = list(self.sources_listbox.get(0, tk.END))
+            cfg["paths"]["source_roots"] = roots
+            
+            drives_str = self.drive_letters_var.get()
+            drives = [d.strip().upper() for d in drives_str.split(",") if d.strip()]
+            cfg["network"]["drive_letters"] = drives
+            
+            try:
+                keep = int(self.excel_keep_var.get())
+                cfg["backup"]["excel_keep"] = keep
+            except (ValueError, tk.TclError):
+                messagebox.showerror("Ошибка сохранения", "Количество бэкапов должно быть целым числом!")
+                return
+                
+            try:
+                self.config_controller.save_config()
+                self._refresh_settings()
+                messagebox.showinfo("Успех", "Настройки успешно сохранены!")
+            except Exception as e:
+                messagebox.showerror("Ошибка сохранения", f"Не удалось сохранить настройки:\n{e}")
+
+    def _toggle_settings_mode(self) -> None:
+        if self.settings_mode == "visual":
+            self.settings_mode = "yaml"
+            self.mode_btn.configure(text="Визуальный режим")
+            self.settings_visual_frame.pack_forget()
+            self._refresh_settings()
+            self.settings_yaml_frame.pack(fill=tk.BOTH, expand=True)
+        else:
+            self.settings_mode = "visual"
+            self.mode_btn.configure(text="Режим YAML-кода")
+            self.settings_yaml_frame.pack_forget()
+            self._refresh_settings()
+            self.settings_visual_frame.pack(fill=tk.BOTH, expand=True)
+
+    def _browse_master_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Выберите основной сводный отчет",
+            filetypes=[("Excel Files", "*.xlsx;*.xlsb"), ("All Files", "*.*")]
+        )
+        if path:
+            try:
+                rel_path = Path(path).relative_to(self.repo_root)
+                self.master_file_var.set(str(Path("..") / rel_path))
+            except ValueError:
+                self.master_file_var.set(path)
+
+    def _browse_archive_dir(self) -> None:
+        path = filedialog.askdirectory(title="Выберите папку для резервных копий")
+        if path:
+            try:
+                rel_path = Path(path).relative_to(self.repo_root)
+                self.archive_dir_var.set(str(Path("..") / rel_path))
+            except ValueError:
+                self.archive_dir_var.set(path)
+
+    def _add_source_root(self) -> None:
+        path = filedialog.askdirectory(title="Выберите папку с отчетами кураторов")
+        if path:
+            self.sources_listbox.insert(tk.END, path)
+
+    def _remove_source_root(self) -> None:
+        selected = self.sources_listbox.curselection()
+        if selected:
+            self.sources_listbox.delete(selected[0])
 
     def _selected_report_path(self) -> Path | None:
         selected = self.reports_tree.selection()
