@@ -26,6 +26,7 @@ from core.app.message_formatting import (
 from core.infra.reconciliation import build_combined_reconciliation_report
 from core.infra.rsch import build_rsch_report
 from core.services.rsch_service import RschService
+from core.services.reconciliation_service import ReconciliationService
 from core.app.partial import format_partial_note, mark_partial
 from core.infra.utils import cleanup_local_copy_cache
 
@@ -115,6 +116,10 @@ class AppController:
         self._cached_employees = {}
         self._active_threads: List[threading.Thread] = []
         self._rsch = RschService(
+            start_thread_fn=self._start_thread,
+            get_drive_letters_fn=self._get_network_drive_letters,
+        )
+        self._reconciliation = ReconciliationService(
             start_thread_fn=self._start_thread,
             get_drive_letters_fn=self._get_network_drive_letters,
         )
@@ -1028,34 +1033,9 @@ class AppController:
         cancel_event: Optional[threading.Event] = None,
     ) -> None:
         """Build a reconciliation report from already selected report and RSC files."""
-
-        def task() -> None:
-            try:
-                if _is_cancelled(cancel_event):
-                    _cancel_message(on_complete, output_path)
-                    return
-                target_date = (
-                    selected_date.date() if hasattr(selected_date, "date") else selected_date
-                )
-                counts = build_combined_reconciliation_report(
-                    {label: Path(path) for label, path in master_paths.items()},
-                    Path(rsch_path),
-                    Path(output_path),
-                    target_date=target_date,
-                    drive_letters=self._get_network_drive_letters(),
-                )
-                msg = (
-                    "Отчет расхождений собран: "
-                    f"Общий {counts.get('Общий', 0)}, "
-                    f"Борис {counts.get('Борис', 0)}, "
-                    f"Иван {counts.get('Иван', 0)} строк."
-                )
-                on_complete(True, msg, Path(output_path))
-            except Exception as e:
-                logging.exception("Reconciliation report error: %s", e)
-                on_complete(False, f"Ошибка сверки отчетов: {e}", None)
-
-        self._start_thread(task)
+        self._reconciliation.run_reconciliation_report(
+            master_paths, rsch_path, output_path, selected_date, on_complete, cancel_event
+        )
 
     def run_rsch_report(
         self,
