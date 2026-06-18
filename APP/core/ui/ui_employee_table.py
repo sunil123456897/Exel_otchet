@@ -75,9 +75,9 @@ class EmployeeTable(ttk.Frame):
         self.tree.heading("Status", text="Статус")
         self.tree.heading("Path", text="Файл отчета")
         
-        self.tree.column("Employee", width=220)
-        self.tree.column("Status", width=150)
-        self.tree.column("Path", width=400)
+        self.tree.column("Employee", width=220, stretch=False)
+        self.tree.column("Status", width=150, stretch=False)
+        self.tree.column("Path", width=400, stretch=True)
         
         # Alternating row stripes + hover highlight (POLISH-3).
         # Status tags ("ready"/"missing"/"partial") get a coloured

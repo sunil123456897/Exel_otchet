@@ -15,6 +15,7 @@ Design tokens
 """
 from __future__ import annotations
 
+import tkinter as tk
 from tkinter import ttk
 from typing import ClassVar
 
@@ -116,10 +117,12 @@ class ThemeManager:
 
     COLORS: ClassVar[dict[str, str]] = dict(_LIGHT)
     _current: ClassVar[str] = "light"
+    _scale: ClassVar[float] = 1.0
+    _scaled_fonts: ClassVar[dict[str, tuple]] = {}
 
     # Typography hierarchy. "Segoe UI Semibold" is not universally available
     # on Windows; ("Segoe UI", N, "bold") is, and visually close enough.
-    FONTS: ClassVar[dict[str, tuple]] = {
+    _BASE_FONTS: ClassVar[dict[str, tuple]] = {
         "display": ("Segoe UI", 14, "bold"),
         "heading": ("Segoe UI", 12, "bold"),
         "body": ("Segoe UI", 10),
@@ -128,10 +131,11 @@ class ThemeManager:
         "mono": ("Consolas", 10),
         "button": ("Segoe UI", 10),
     }
+    FONTS: ClassVar[dict[str, tuple]] = dict(_BASE_FONTS)
 
     # 4-step spacing scale (pixels). Other modules may reference
     # ThemeManager.SPACING["md"] instead of hardcoded numbers.
-    SPACING: ClassVar[dict[str, int]] = {
+    _BASE_SPACING: ClassVar[dict[str, int]] = {
         "xs": 4,
         "sm": 8,
         "md": 12,
@@ -139,6 +143,7 @@ class ThemeManager:
         "xl": 24,
         "xxl": 32,
     }
+    SPACING: ClassVar[dict[str, int]] = dict(_BASE_SPACING)
 
     # Widgets that use explicit ``background=ThemeManager.COLORS[...]``
     # (tk.Canvas, tk.Text, DateEntry, ...) do not pick up ttk style
@@ -152,6 +157,38 @@ class ThemeManager:
     def register(cls, widget, *, bg_key: str = "bg_panel", fg_key: str = "text") -> None:
         """Track a non-ttk widget so its colours follow theme switches."""
         cls._themed_widgets.append((widget, bg_key, fg_key))
+
+    @classmethod
+    def init_scaling(cls, root: tk.Tk) -> None:
+        """Calculate DPI scale factor and rebuild FONTS/SPACING accordingly.
+
+        Must be called once after ``root = tk.Tk()`` so that Tk's
+        ``winfo_fpixels`` reports the actual monitor DPI. On 100% DPI
+        the scale is 1.0; on 150% it's ~1.5, etc.
+        """
+        try:
+            dpi = root.winfo_fpixels("1i")
+            cls._scale = max(1.0, round(dpi / 96.0 * 2) / 2)
+        except Exception:
+            cls._scale = 1.0
+        cls._rebuild_fonts()
+        cls._rebuild_spacing()
+
+    @classmethod
+    def _rebuild_fonts(cls) -> None:
+        s = cls._scale
+        cls._scaled_fonts = {}
+        for key, val in cls._BASE_FONTS.items():
+            font_name = val[0]
+            font_size = max(8, int(val[1] * s))
+            font_opts = val[2:]
+            cls._scaled_fonts[key] = (font_name, font_size, *font_opts)
+        cls.FONTS = cls._scaled_fonts
+
+    @classmethod
+    def _rebuild_spacing(cls) -> None:
+        s = cls._scale
+        cls.SPACING = {k: max(2, int(v * s)) for k, v in cls._BASE_SPACING.items()}
 
     @classmethod
     def current_theme(cls) -> str:
@@ -271,6 +308,8 @@ class ThemeManager:
     def apply_styles(cls) -> None:
         c = cls.COLORS
         f = cls.FONTS
+        s = cls._scale
+        sp = cls.SPACING
         style = ttk.Style()
         try:
             style.theme_use("clam")
@@ -311,7 +350,7 @@ class ThemeManager:
         style.configure(
             "TButton",
             font=f["button"],
-            padding=(12, 8),
+            padding=(sp["md"], sp["sm"]),
             relief="flat",
             borderwidth=0,
             background=c["bg_panel"],
@@ -332,7 +371,7 @@ class ThemeManager:
         style.configure(
             "Action.TButton",
             font=f["button"],
-            padding=(12, 8),
+            padding=(sp["md"], sp["sm"]),
             relief="flat",
             borderwidth=0,
             background=c["primary"],
@@ -347,7 +386,7 @@ class ThemeManager:
         style.configure(
             "Success.TButton",
             font=f["button"],
-            padding=(12, 8),
+            padding=(sp["md"], sp["sm"]),
             relief="flat",
             borderwidth=0,
             background=c["success"],
@@ -362,7 +401,7 @@ class ThemeManager:
         style.configure(
             "Audit.TButton",
             font=f["button"],
-            padding=(12, 8),
+            padding=(sp["md"], sp["sm"]),
             relief="flat",
             borderwidth=0,
             background=c["info"],
@@ -377,7 +416,7 @@ class ThemeManager:
         style.configure(
             "Danger.TButton",
             font=f["button"],
-            padding=(12, 8),
+            padding=(sp["md"], sp["sm"]),
             relief="flat",
             borderwidth=0,
             background=c["danger"],
@@ -392,7 +431,7 @@ class ThemeManager:
         style.configure(
             "Ghost.TButton",
             font=f["button"],
-            padding=(12, 8),
+            padding=(sp["md"], sp["sm"]),
             relief="flat",
             borderwidth=0,
             background=c["bg_main"],
@@ -445,7 +484,7 @@ class ThemeManager:
         style.configure(
             "Treeview",
             font=f["body"],
-            rowheight=32,
+            rowheight=int(32 * s),
             background=c["bg_sidebar"],
             fieldbackground=c["bg_sidebar"],
             foreground=c["text"],
@@ -459,7 +498,7 @@ class ThemeManager:
             foreground=c["text_muted"],
             relief="flat",
             borderwidth=0,
-            padding=(8, 6),
+            padding=(sp["sm"], int(6 * s)),
         )
         style.map(
             "Treeview",
@@ -483,7 +522,7 @@ class ThemeManager:
             darkcolor=c["border_default"],
             selectbackground=c["primary"],
             selectforeground=c["text_inverse"],
-            padding=(6, 4),
+            padding=(sp["xs"], int(4 * s)),
         )
         style.map(
             "TEntry",
@@ -502,7 +541,7 @@ class ThemeManager:
             darkcolor=c["border_default"],
             selectbackground=c["primary"],
             selectforeground=c["text_inverse"],
-            padding=(6, 4),
+            padding=(sp["xs"], int(4 * s)),
         )
         style.map(
             "TCombobox",
@@ -523,7 +562,7 @@ class ThemeManager:
                 arrowcolor=c["text_muted"],
                 bordercolor=c["bg_main"],
                 relief="flat",
-                width=10 if orient == "Vertical" else 10,
+                width=int(10 * s) if orient == "Vertical" else int(10 * s),
             )
             style.map(
                 f"{orient}.TScrollbar",
@@ -543,7 +582,7 @@ class ThemeManager:
             font=f["body"],
             background=c["bg_main"],
             foreground=c["text_muted"],
-            padding=(16, 10),
+            padding=(sp["lg"], int(10 * s)),
             borderwidth=0,
         )
         style.map(
@@ -585,7 +624,7 @@ class ThemeManager:
         # --- Progressbar (slimmer) ---------------------------------------
         style.configure(
             "TProgressbar",
-            thickness=12,
+            thickness=int(12 * s),
             troughcolor=c["bg_panel"],
             background=c["primary"],
             bordercolor=c["border_subtle"],

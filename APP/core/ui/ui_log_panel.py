@@ -15,7 +15,7 @@ class LogPanel(ttk.Frame):
         ttk.Label(
             header_frame,
             text="📝 Логи:",
-            font=('Segoe UI', 9),
+            font=ThemeManager.FONTS['caption'],
             background=ThemeManager.COLORS['bg_sidebar']
         ).pack(side=tk.LEFT)
         
@@ -27,9 +27,8 @@ class LogPanel(ttk.Frame):
         
         self.log_area = scrolledtext.ScrolledText(
             self,
-            height=12,
             state='disabled',
-            font=('Consolas', 9),
+            font=ThemeManager.FONTS['mono'],
             borderwidth=1,
             relief='solid',
             bg=ThemeManager.COLORS["bg_panel"],

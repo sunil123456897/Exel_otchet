@@ -68,7 +68,7 @@ class DashboardTabs:
     def _setup_home(self) -> None:
         summary_frame = ttk.LabelFrame(self.home_tab, text="Состояние", padding=8)
         summary_frame.pack(fill=tk.X, pady=(0, 8))
-        self.state_label = ttk.Label(summary_frame, text="", justify=tk.LEFT)
+        self.state_label = ttk.Label(summary_frame, text="", justify=tk.LEFT, wraplength=600)
         self.state_label.pack(fill=tk.X)
 
         quick_frame = ttk.LabelFrame(self.home_tab, text="Быстрые действия", padding=8)
@@ -100,7 +100,6 @@ class DashboardTabs:
             last_frame,
             columns=("type", "status", "time", "path", "message"),
             show="headings",
-            height=8,
         )
         for column, text, width in (
             ("type", "Тип", 120),
@@ -110,7 +109,7 @@ class DashboardTabs:
             ("message", "Сообщение", 360),
         ):
             self.results_tree.heading(column, text=text)
-            self.results_tree.column(column, width=width, anchor=tk.W)
+            self.results_tree.column(column, width=width, anchor=tk.W, stretch=(column == "message"))
         # Empty-state placeholder: when no results have been recorded
         # yet, show a muted hint instead of a blank tree.
         self.results_tree.tag_configure(
@@ -157,7 +156,7 @@ class DashboardTabs:
             ("path", "Путь", 520),
         ):
             self.reports_tree.heading(column, text=text)
-            self.reports_tree.column(column, width=width, anchor=tk.W)
+            self.reports_tree.column(column, width=width, anchor=tk.W, stretch=(column == "path"))
         self.reports_tree.pack(fill=tk.BOTH, expand=True)
         self.reports_tree.bind("<Double-1>", lambda _event: self._open_selected_report())
 
@@ -188,7 +187,7 @@ class DashboardTabs:
             ("path", "Путь", 520),
         ):
             self.diagnostics_tree.heading(column, text=text)
-            self.diagnostics_tree.column(column, width=width, anchor=tk.W)
+            self.diagnostics_tree.column(column, width=width, anchor=tk.W, stretch=(column in ("detail", "path")))
         self.diagnostics_tree.pack(fill=tk.BOTH, expand=True)
 
     def _setup_logs(self) -> None:
@@ -229,9 +228,8 @@ class DashboardTabs:
         
         self.log_errors = tk.Text(
             self.logs_tab,
-            height=12,
             state="disabled",
-            wrap=tk.NONE,
+            wrap=tk.WORD,
         )
         
         scroll_y = ttk.Scrollbar(self.logs_tab, orient=tk.VERTICAL, command=self.log_errors.yview)
@@ -311,7 +309,7 @@ class DashboardTabs:
         list_container = ttk.Frame(sources_frame)
         list_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
         
-        self.sources_listbox = tk.Listbox(list_container, height=6)
+        self.sources_listbox = tk.Listbox(list_container)
         ThemeManager.register(self.sources_listbox, bg_key="bg_panel", fg_key="text")
         
         scroll_y_lb = ttk.Scrollbar(list_container, orient=tk.VERTICAL, command=self.sources_listbox.yview)
@@ -328,21 +326,21 @@ class DashboardTabs:
         # Дополнительные настройки (сетевые диски и число бэкапов)
         misc_frame = ttk.LabelFrame(self.settings_visual_frame, text="Дополнительно", padding=8)
         misc_frame.pack(fill=tk.X)
+        misc_frame.grid_columnconfigure(1, weight=1)
         
         # Сетевые диски
         ttk.Label(misc_frame, text="Сетевые диски (буквы через запятую):").grid(row=0, column=0, sticky=tk.W, pady=4, padx=(0, 8))
-        ttk.Entry(misc_frame, textvariable=self.drive_letters_var, width=15).grid(row=0, column=1, sticky=tk.W, pady=4)
+        ttk.Entry(misc_frame, textvariable=self.drive_letters_var).grid(row=0, column=1, sticky="ew", pady=4)
         
         # Хранение бэкапов
         ttk.Label(misc_frame, text="Количество хранимых бэкапов Excel:").grid(row=1, column=0, sticky=tk.W, pady=4, padx=(0, 8))
-        ttk.Entry(misc_frame, textvariable=self.excel_keep_var, width=15).grid(row=1, column=1, sticky=tk.W, pady=4)
+        ttk.Entry(misc_frame, textvariable=self.excel_keep_var).grid(row=1, column=1, sticky="ew", pady=4)
 
         # 2. Фрейм YAML-режима
         self.settings_yaml_frame = ttk.Frame(self.settings_container, style="Main.TFrame")
         
         self.settings_text = tk.Text(
             self.settings_yaml_frame,
-            height=12,
             undo=True,
             wrap=tk.NONE,
         )

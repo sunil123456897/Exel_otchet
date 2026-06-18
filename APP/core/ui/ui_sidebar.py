@@ -33,7 +33,9 @@ def get_default_period_range(today: datetime | None = None) -> tuple[datetime, d
 
 class Sidebar(ttk.Frame):
     def __init__(self, parent, controller):
-        super().__init__(parent, width=300, padding="10", style="Sidebar.TFrame")
+        screen_w = parent.winfo_screenwidth()
+        sidebar_w = max(260, min(360, int(screen_w * 0.22)))
+        super().__init__(parent, width=sidebar_w, padding="10", style="Sidebar.TFrame")
         self.controller = controller
         self.pack_propagate(False)
         # Debounce date changes so clicking through dates in the picker

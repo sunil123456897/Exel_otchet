@@ -27,6 +27,7 @@ class StatsPanel(ttk.LabelFrame):
             text="Сотрудников: 0\nОтчетов готово: 0\nОшибок: 0",
             justify=tk.LEFT,
             style="Sidebar.TLabel",
+            wraplength=280,
         )
         self.stats_label.pack(fill=tk.X)
 
@@ -43,7 +44,6 @@ class StatsPanel(ttk.LabelFrame):
             self,
             variable=self.readiness_var,
             maximum=100,
-            length=120,
         )
         self.readiness_bar.pack(fill=tk.X)
 

@@ -73,18 +73,11 @@ class GuiMaster:
             app_controller,
         )
         self.root.title("🚀 Master-Report v5.5 | Financial Consolidator")
-        self.root.geometry(
-            _resolve_initial_geometry(
-                (1100, 840),
-                self.root.winfo_screenwidth(),
-                self.root.winfo_screenheight(),
-            )
-        )
-        # Prevent the user from shrinking the window below a size at
-        # which the sidebar/notebook/status bar start to overlap and
-        # become unusable. No maxsize: large monitors benefit from a
-        # freely growable window.
-        self.root.minsize(900, 600)
+        ThemeManager.init_scaling(self.root)
+        ThemeManager.apply_styles()
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        self.root.geometry(_resolve_initial_geometry((1100, 840), sw, sh))
+        self.root.minsize(max(640, int(sw * 0.5)), max(420, int(sh * 0.5)))
         self.root.configure(bg=ThemeManager.COLORS["bg_main"])
 
         # Persist the geometry on close. The protocol is set by main.py

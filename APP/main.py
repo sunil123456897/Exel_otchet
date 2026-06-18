@@ -2,6 +2,7 @@ import sys
 import tkinter as tk
 import logging
 import logging.handlers
+import ctypes
 from pathlib import Path
 from tkinter import messagebox
 
@@ -16,6 +17,17 @@ def preflight_gui_imports():
     from core.ui.gui_master import GuiMaster
 
     return GuiMaster
+
+
+def _enable_dpi_awareness() -> None:
+    """Enable per-monitor DPI awareness so the UI is crisp on HiDPI displays."""
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 
 def main():
@@ -35,6 +47,7 @@ def main():
     )
     logger = logging.getLogger("Main")
     logger.info(f"--- STARTING: {app_root} ---")
+    _enable_dpi_awareness()
     app_ctl = None
     root = None
     try:
