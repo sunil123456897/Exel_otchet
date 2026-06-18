@@ -1,6 +1,7 @@
 """Бизнес-логика: финансовые правила и валидация."""
 
 import logging
+import re
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Any, Optional
 
@@ -24,6 +25,8 @@ _DEFAULT_HEADER_WORDS = (
     "сумма платежа",
     "комиссия",
     "итог",
+    "итого",
+    "всего",
     "фильтры",
     "посредник",
     "приход",
@@ -40,6 +43,21 @@ class Validator(IValidator):
         self._junk_totals = frozenset(v_cfg.get("junk_totals", _DEFAULT_JUNK_TOTALS))
         self._junk_markers = tuple(v_cfg.get("junk_markers", _DEFAULT_JUNK_MARKERS))
         self._header_words = v_cfg.get("header_words", _DEFAULT_HEADER_WORDS)
+
+    @staticmethod
+    def _is_header_like(s_norm: str, header_words) -> bool:
+        """Check if a normalised string is a leaked column header.
+
+        Uses word-boundary matching so company names like 'Приходько'
+        don't match the header word 'приход'. Values containing digits
+        (e.g. '100.00 (комиссия)') are treated as data, not headers.
+        """
+        if any(c.isdigit() for c in s_norm):
+            return False
+        for w in header_words:
+            if re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", s_norm):
+                return True
+        return False
 
     def validate_row(self, row: Dict[str, Any]) -> bool:
         """Return True if row contains valid financial data, False if junk/header."""
@@ -74,7 +92,7 @@ class Validator(IValidator):
             if _is_service_field(key) or val is None:
                 continue
             s_norm = " ".join(str(val).lower().split())
-            if any(w in s_norm for w in self._header_words):
+            if self._is_header_like(s_norm, self._header_words):
                 return False
 
         name_field_keys = ["customer", "contractor"]
@@ -100,7 +118,7 @@ class Validator(IValidator):
             if v is None:
                 continue
             v_str = " ".join(str(v).lower().split())
-            if any(w in v_str for w in self._header_words):
+            if self._is_header_like(v_str, self._header_words):
                 return False
 
         if name_fields_filled >= 2:
@@ -190,6 +208,13 @@ class LogicService(ILogicService):
         self.exclude_kw = l_cfg.get(
             "exclude_keywords", ["недопустимо", "исключить", "исключение"]
         )
+        # Pre-compile word-boundary patterns for income overrides so that
+        # 'доп' matches 'доп оплата' but NOT 'недопустимый' (where 'доп'
+        # is a substring of a completely different word).
+        self._inc_over_patterns = [
+            re.compile(r"(?<!\w)" + re.escape(kw))
+            for kw in self.inc_over
+        ]
 
     _SANITIZE_CHARS = frozenset(("=", "+", "-", "@", "\t", "\r", "\n"))
 
@@ -363,7 +388,7 @@ class LogicService(ILogicService):
             row_model = FinancialRowSchema(**r)
             f_val = str(row_model.filters or "").lower()
             is_add, is_ret = (
-                any(kw in f_val for kw in self.inc_over),
+                any(p.search(f_val) for p in self._inc_over_patterns),
                 any(kw in f_val for kw in self.ret_kw),
             )
             is_excluded = any(kw in f_val for kw in self.exclude_kw)
