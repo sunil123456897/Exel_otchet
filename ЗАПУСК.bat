@@ -2,6 +2,10 @@
 setlocal EnableExtensions
 chcp 65001 >nul
 
+set "PIP_NO_KEYRING=1"
+set "PIP_DISABLE_PIP_VERSION_CHECK=1"
+set "PIP_NO_INPUT=1"
+
 set "ARG1=%~1"
 set "ARG2=%~2"
 

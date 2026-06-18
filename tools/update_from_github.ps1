@@ -15,6 +15,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$env:PIP_NO_KEYRING = "1"
+$env:PIP_DISABLE_PIP_VERSION_CHECK = "1"
+$env:PIP_NO_INPUT = "1"
+
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 } catch {
