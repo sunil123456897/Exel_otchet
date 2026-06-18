@@ -99,3 +99,12 @@
 4. **data_only=True** для мастер-файлов — `cell.hyperlink` работает и без `data_only=False`, числовые значения не превращаются в 0.
 
 5. **mypy baseline** — строгая типизация внедряется постепенно: `.mypy_baseline.txt` фиксирует существующие ошибки, pre-commit хук блокирует только новые.
+
+6. **Services layer** — `core/services/` выделяет бизнес-оркестрацию из `AppController`:
+   - `RschService` — 4 варианта сборки РСЧ-отчётов
+   - `ReconciliationService` — сверка мастер-отчётов с РСЧ
+   - `AppController` делегирует сервисам, сохраняя публичный API для GUI
+
+7. **Auto-backup перед миграциями** — `_backup_db()` создаёт `cache.db.backup_{timestamp}` перед применением неприменённых миграций. Миграции, ссылающиеся на несуществующие таблицы (fresh DB), graceful skip.
+
+8. **TTL-очистка cache.db** — при запуске удаляются `row_cache`/`file_cache` старше 7 дней и `discovery_cache` старше 12 часов.
