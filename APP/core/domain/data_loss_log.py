@@ -26,10 +26,12 @@ _AMOUNT_RE = re.compile(r"\d{3,}[.,]\d{2}")
 
 
 def _project_root() -> Path:
-    # Use the package root (APP/) derived from this file's location
-    # instead of os.getcwd(), which depends on the working directory
-    # at launch time and may point to an inaccessible system folder
-    # (e.g. C:\Windows\System32) when launched via a shortcut.
+    # Use CWD during pytest runs so that monkeypatch.chdir in tests works correctly.
+    # Otherwise, use the package root (APP/) derived from this file's location to prevent
+    # log files from being created in system directories (e.g. C:\Windows\System32) when
+    # launched via Windows shortcuts.
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return Path(os.getcwd())
     return Path(__file__).resolve().parents[2]
 
 
