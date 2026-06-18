@@ -1,5 +1,6 @@
 venv/
 .venv/
+.venv_backup/
 **/__pycache__/
 *.py[cod]
 *$py.class
