@@ -243,43 +243,117 @@ class DashboardTabs:
         ThemeManager.register(self.log_errors, bg_key="bg_panel", fg_key="text")
 
     def _setup_settings(self) -> None:
+        self.settings_mode = "visual"  # "visual" или "yaml"
+        
+        # Переменные для формы настроек
+        self.master_file_var = tk.StringVar()
+        self.archive_dir_var = tk.StringVar()
+        self.drive_letters_var = tk.StringVar()
+        self.excel_keep_var = tk.IntVar(value=10)
+        
+        # Общий action_frame
         action_frame = ttk.Frame(self.settings_tab, style="Main.TFrame")
         action_frame.pack(fill=tk.X, pady=(0, 8))
         
-        ttk.Button(
+        self.save_btn = ttk.Button(
             action_frame,
             text="Сохранить",
             command=self._save_settings,
-        ).pack(side=tk.LEFT)
+        )
+        self.save_btn.pack(side=tk.LEFT)
         
-        ttk.Button(
+        self.reset_btn = ttk.Button(
             action_frame,
             text="Сбросить",
             command=self._refresh_settings,
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        )
+        self.reset_btn.pack(side=tk.LEFT, padx=(6, 0))
         
-        ttk.Button(
+        self.mode_btn = ttk.Button(
+            action_frame,
+            text="Режим YAML-кода",
+            command=self._toggle_settings_mode,
+        )
+        self.mode_btn.pack(side=tk.LEFT, padx=(6, 0))
+        
+        self.external_btn = ttk.Button(
             action_frame,
             text="Открыть в Блокноте",
             command=lambda: self._open_path(Path(self.config_controller.config_path)),
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        )
+        self.external_btn.pack(side=tk.LEFT, padx=(6, 0))
 
+        # Контейнер для двух режимов
+        self.settings_container = ttk.Frame(self.settings_tab, style="Main.TFrame")
+        self.settings_container.pack(fill=tk.BOTH, expand=True)
+
+        # 1. Фрейм визуального режима
+        self.settings_visual_frame = ttk.Frame(self.settings_container, style="Main.TFrame")
+        
+        # Поле Master-отчета
+        master_frame = ttk.LabelFrame(self.settings_visual_frame, text="Основной сводный отчет (Master_Report.xlsx)", padding=8)
+        master_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Entry(master_frame, textvariable=self.master_file_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        ttk.Button(master_frame, text="Обзор...", command=self._browse_master_file).pack(side=tk.RIGHT)
+        
+        # Поле папки бэкапов
+        backup_frame = ttk.LabelFrame(self.settings_visual_frame, text="Папка для резервных копий (archive_dir)", padding=8)
+        backup_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Entry(backup_frame, textvariable=self.archive_dir_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        ttk.Button(backup_frame, text="Обзор...", command=self._browse_archive_dir).pack(side=tk.RIGHT)
+        
+        # Список папок-источников (кураторов)
+        sources_frame = ttk.LabelFrame(self.settings_visual_frame, text="Папки с отчетами кураторов (source_roots)", padding=8)
+        sources_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        
+        list_container = ttk.Frame(sources_frame)
+        list_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        
+        self.sources_listbox = tk.Listbox(list_container, height=6)
+        ThemeManager.register(self.sources_listbox, bg_key="bg_panel", fg_key="text")
+        
+        scroll_y_lb = ttk.Scrollbar(list_container, orient=tk.VERTICAL, command=self.sources_listbox.yview)
+        self.sources_listbox.configure(yscrollcommand=scroll_y_lb.set)
+        
+        self.sources_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll_y_lb.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        btn_container = ttk.Frame(sources_frame)
+        btn_container.pack(side=tk.RIGHT, fill=tk.Y)
+        ttk.Button(btn_container, text="Добавить...", command=self._add_source_root).pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(btn_container, text="Удалить", command=self._remove_source_root).pack(fill=tk.X)
+        
+        # Дополнительные настройки (сетевые диски и число бэкапов)
+        misc_frame = ttk.LabelFrame(self.settings_visual_frame, text="Дополнительно", padding=8)
+        misc_frame.pack(fill=tk.X)
+        
+        # Сетевые диски
+        ttk.Label(misc_frame, text="Сетевые диски (буквы через запятую):").grid(row=0, column=0, sticky=tk.W, pady=4, padx=(0, 8))
+        ttk.Entry(misc_frame, textvariable=self.drive_letters_var, width=15).grid(row=0, column=1, sticky=tk.W, pady=4)
+        
+        # Хранение бэкапов
+        ttk.Label(misc_frame, text="Количество хранимых бэкапов Excel:").grid(row=1, column=0, sticky=tk.W, pady=4, padx=(0, 8))
+        ttk.Entry(misc_frame, textvariable=self.excel_keep_var, width=15).grid(row=1, column=1, sticky=tk.W, pady=4)
+
+        # 2. Фрейм YAML-режима
+        self.settings_yaml_frame = ttk.Frame(self.settings_container, style="Main.TFrame")
+        
         self.settings_text = tk.Text(
-            self.settings_tab,
+            self.settings_yaml_frame,
             height=12,
             undo=True,
             wrap=tk.NONE,
         )
-        
-        scroll_y = ttk.Scrollbar(self.settings_tab, orient=tk.VERTICAL, command=self.settings_text.yview)
-        scroll_x = ttk.Scrollbar(self.settings_tab, orient=tk.HORIZONTAL, command=self.settings_text.xview)
-        
+        scroll_y = ttk.Scrollbar(self.settings_yaml_frame, orient=tk.VERTICAL, command=self.settings_text.yview)
+        scroll_x = ttk.Scrollbar(self.settings_yaml_frame, orient=tk.HORIZONTAL, command=self.settings_text.xview)
         self.settings_text.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
         
         scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
         scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.settings_text.pack(fill=tk.BOTH, expand=True)
         ThemeManager.register(self.settings_text, bg_key="bg_panel", fg_key="text")
+        
+        self.settings_visual_frame.pack(fill=tk.BOTH, expand=True)
 
     def refresh(self) -> None:
         self._refresh_reports()
