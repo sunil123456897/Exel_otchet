@@ -50,6 +50,7 @@ $UpdateItems = @(
     "APP\headless_run.py",
     "APP\db_schema.sql",
     "APP\config.example.yaml",
+    "APP\migrations",
     "requirements.txt",
     "ЗАПУСК.bat",
     "ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat",

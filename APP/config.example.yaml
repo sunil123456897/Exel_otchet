@@ -77,7 +77,7 @@ sh1:
 sh2: {}
 validation: {}
 performance:
-  isolate_calamine: true
+  isolate_calamine: false
   # Empty keeps the current default: min(32, CPU_COUNT * 2).
   # Set an integer only after measuring tools/timing_report.py on the target PC.
   max_workers:
