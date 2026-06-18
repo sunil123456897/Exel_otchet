@@ -82,21 +82,7 @@ class EmployeeTable(ttk.Frame):
         # Alternating row stripes + hover highlight (POLISH-3).
         # Status tags ("ready"/"missing"/"partial") get a coloured
         # foreground so the user can scan readiness at a glance.
-        self.tree.tag_configure(
-            "odd", background=_c("bg_panel", "#f3f4f6")
-        )
-        self.tree.tag_configure(
-            "even", background=_c("bg_sidebar", "#ffffff")
-        )
-        self.tree.tag_configure(
-            "hover", background=_c("border_subtle", _c("trough", "#e5e7eb"))
-        )
-        self.tree.tag_configure(
-            "ready", foreground=_c("success", "#28a745")
-        )
-        self.tree.tag_configure(
-            "missing", foreground=_c("danger", "#dc3545")
-        )
+        self._configure_tags()
         self.tree.bind("<Motion>", self._on_tree_motion, add="+")
         self.tree.bind("<Leave>", self._on_tree_leave, add="+")
         
@@ -117,6 +103,24 @@ class EmployeeTable(ttk.Frame):
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<Double-1>", lambda e: self.controller.open_employee_file())
         self.bind("<Destroy>", self._on_destroy, add="+")
+
+    def _configure_tags(self) -> None:
+        """Apply current theme colours to Treeview row tags.
+
+        Called at init and again on every ``refresh_theme()`` so the
+        stripes/status colours follow light↔dark switches.
+        """
+        self.tree.tag_configure("odd", background=_c("bg_panel", "#f3f4f6"))
+        self.tree.tag_configure("even", background=_c("bg_sidebar", "#ffffff"))
+        self.tree.tag_configure(
+            "hover", background=_c("border_subtle", _c("trough", "#e5e7eb"))
+        )
+        self.tree.tag_configure("ready", foreground=_c("success", "#28a745"))
+        self.tree.tag_configure("missing", foreground=_c("danger", "#dc3545"))
+
+    def refresh_theme(self) -> None:
+        """Re-apply theme-dependent tag colours after a palette switch."""
+        self._configure_tags()
 
     def _on_destroy(self, _event):
         self._search_debouncer.cancel()

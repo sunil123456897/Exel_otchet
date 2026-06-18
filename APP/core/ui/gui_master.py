@@ -405,6 +405,10 @@ class GuiMaster:
             resolved = "light"
         ThemeManager.set_theme(resolved)
         self.root.configure(bg=ThemeManager.COLORS["bg_main"])
+        if hasattr(self, "employee_table"):
+            self.employee_table.refresh_theme()
+        if hasattr(self, "dashboard_tabs"):
+            self.dashboard_tabs.refresh_theme()
         self.toasts.info(
             "Тема",
             f"Применена тема: {resolved}",

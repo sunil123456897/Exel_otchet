@@ -366,6 +366,12 @@ class DashboardTabs:
         self._refresh_logs()
         self._refresh_settings()
 
+    def refresh_theme(self) -> None:
+        """Re-apply theme-dependent tag colours after a palette switch."""
+        self.results_tree.tag_configure(
+            "empty", foreground=_c("text_muted", _c("text", "#6c757d"))
+        )
+
     def run_diagnostics(self) -> None:
         for item in self.diagnostics_tree.get_children():
             self.diagnostics_tree.delete(item)
