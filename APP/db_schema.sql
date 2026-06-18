@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS staging_data (
     raw_content_json TEXT, -- All columns from original Excel
     -- Mandatory extraction fields for filtering/sorting
     date_val TEXT,
-    amount NUMERIC, -- Stored as string-compatible numeric
+    amount TEXT, -- Stored as TEXT to preserve Decimal precision
     employee_name TEXT,
     source_type TEXT, -- e.g. "Staff", "OPT"
     status TEXT DEFAULT 'raw', -- raw, validated, rejected
@@ -51,9 +51,9 @@ CREATE TABLE IF NOT EXISTS consolidated_results (
     session_id TEXT NOT NULL,
     date_val TEXT,
     employee_name TEXT,
-    total_amount NUMERIC,
-    commission NUMERIC,
-    net_amount NUMERIC,
+    total_amount TEXT,
+    commission TEXT,
+    net_amount TEXT,
     logic_applied TEXT, -- Rationale for the transformation
     FOREIGN KEY(session_id) REFERENCES sessions(session_id)
 );

@@ -141,6 +141,17 @@ class SQLiteConnectionManager:
                 conn.close()
         self._run_migrations()
 
+    def _backup_db(self) -> None:
+        """Create a timestamped backup of the database file before migrations."""
+        import shutil
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = self.db_path.parent / f"{self.db_path.name}.backup_{timestamp}"
+        try:
+            shutil.copy2(self.db_path, backup_path)
+            self.logger.info("Database backed up to %s before migration", backup_path)
+        except OSError as e:
+            self.logger.warning("Could not create database backup: %s", e)
+
     def _run_migrations(self) -> None:
         migrations_dir = Path(__file__).resolve().parents[
             2
@@ -161,10 +172,11 @@ class SQLiteConnectionManager:
                     "SELECT filename FROM _migrations"
                 ).fetchall()
             }
-            for migration_path in pending:
+            unapplied = [p for p in pending if p.name not in applied]
+            if unapplied:
+                self._backup_db()
+            for migration_path in unapplied:
                 name = migration_path.name
-                if name in applied:
-                    continue
                 # Apply each migration as one atomic unit: the DDL and the
                 # _migrations row commit together. executescript() implicitly
                 # commits any open transaction, so we drive the migration
