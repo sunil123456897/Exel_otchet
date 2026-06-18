@@ -352,6 +352,26 @@ def read_recent_log_errors(log_paths: Iterable[Path | str], limit: int = 5) -> l
     return lines[-limit:]
 
 
+def read_recent_logs(log_paths: Iterable[Path | str], limit: int = 150) -> list[str]:
+    lines: list[str] = []
+    for raw_path in log_paths:
+        path = Path(raw_path)
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            # Read the last 128KB of the file
+            size = path.stat().st_size
+            with open(path, "rb") as f:
+                f.seek(max(0, size - 131072))
+                tail = f.read().decode("utf-8", errors="replace")
+            for line in tail.splitlines():
+                if line.strip():
+                    lines.append(line.strip())
+        except OSError:
+            continue
+    return lines[-limit:]
+
+
 def run_light_diagnostics(
     config_controller,
     app_root: Path | None = None,

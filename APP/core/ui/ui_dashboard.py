@@ -14,6 +14,7 @@ from core.ui.dashboard_state import (
     collect_settings_lines,
     load_runtime_results,
     read_recent_log_errors,
+    read_recent_logs,
     run_light_diagnostics,
     safe_open_existing_path,
     save_runtime_results,
@@ -191,44 +192,92 @@ class DashboardTabs:
     def _setup_logs(self) -> None:
         action_frame = ttk.Frame(self.logs_tab, style="Main.TFrame")
         action_frame.pack(fill=tk.X, pady=(0, 8))
+        
         ttk.Button(
             action_frame,
-            text="Открыть startup_log.txt",
-            command=lambda: self._open_path(self.repo_root / "startup_log.txt"),
+            text="Обновить",
+            command=self._refresh_logs,
         ).pack(side=tk.LEFT)
+        
+        ttk.Button(
+            action_frame,
+            text="Открыть лог работы (Python)",
+            command=lambda: self._open_path(self.app_root / "startup_log.txt"),
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        
+        ttk.Button(
+            action_frame,
+            text="Открыть лог запуска (Батник)",
+            command=lambda: self._open_path(self.repo_root / "startup_log.txt"),
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        
         ttk.Button(
             action_frame,
             text="Открыть gui_error_log.txt",
             command=lambda: self._open_path(self.repo_root / "gui_error_log.txt"),
         ).pack(side=tk.LEFT, padx=(6, 0))
+        
         ttk.Button(
             action_frame,
             text="Открыть папку логов",
-            command=lambda: self._open_path(self.repo_root),
+            command=lambda: self._open_path(self.repo_root / "logs"),
         ).pack(side=tk.LEFT, padx=(6, 0))
 
-        ttk.Label(self.logs_tab, text="Последние ошибки:").pack(anchor=tk.W)
-        self.log_errors = tk.Text(self.logs_tab, height=12, state="disabled", wrap=tk.WORD)
+        ttk.Label(self.logs_tab, text="Последние события лога:").pack(anchor=tk.W)
+        
+        self.log_errors = tk.Text(
+            self.logs_tab,
+            height=12,
+            state="disabled",
+            wrap=tk.NONE,
+        )
+        
+        scroll_y = ttk.Scrollbar(self.logs_tab, orient=tk.VERTICAL, command=self.log_errors.yview)
+        scroll_x = ttk.Scrollbar(self.logs_tab, orient=tk.HORIZONTAL, command=self.log_errors.xview)
+        
+        self.log_errors.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
+        
+        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+        scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.log_errors.pack(fill=tk.BOTH, expand=True)
-        # tk.Text uses an explicit colour scheme that does not follow
-        # ttk styles — register so dark-mode switches re-colour it.
         ThemeManager.register(self.log_errors, bg_key="bg_panel", fg_key="text")
 
     def _setup_settings(self) -> None:
         action_frame = ttk.Frame(self.settings_tab, style="Main.TFrame")
         action_frame.pack(fill=tk.X, pady=(0, 8))
+        
         ttk.Button(
             action_frame,
-            text="Открыть config.yaml",
-            command=lambda: self._open_path(Path(self.config_controller.config_path)),
+            text="Сохранить",
+            command=self._save_settings,
         ).pack(side=tk.LEFT)
+        
+        ttk.Button(
+            action_frame,
+            text="Сбросить",
+            command=self._refresh_settings,
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        
+        ttk.Button(
+            action_frame,
+            text="Открыть в Блокноте",
+            command=lambda: self._open_path(Path(self.config_controller.config_path)),
+        ).pack(side=tk.LEFT, padx=(6, 0))
 
         self.settings_text = tk.Text(
             self.settings_tab,
             height=12,
-            state="disabled",
-            wrap=tk.WORD,
+            undo=True,
+            wrap=tk.NONE,
         )
+        
+        scroll_y = ttk.Scrollbar(self.settings_tab, orient=tk.VERTICAL, command=self.settings_text.yview)
+        scroll_x = ttk.Scrollbar(self.settings_tab, orient=tk.HORIZONTAL, command=self.settings_text.xview)
+        
+        self.settings_text.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
+        
+        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
+        scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.settings_text.pack(fill=tk.BOTH, expand=True)
         ThemeManager.register(self.settings_text, bg_key="bg_panel", fg_key="text")
 
@@ -406,23 +455,52 @@ class DashboardTabs:
         self._run_in_background(work, done)
 
     def _refresh_logs(self) -> None:
-        errors = self._recent_log_errors()
+        logs = read_recent_logs(
+            [self.app_root / "startup_log.txt", self.repo_root / "gui_error_log.txt"],
+            limit=150
+        )
         self.log_errors.configure(state="normal")
         self.log_errors.delete("1.0", tk.END)
-        if errors:
-            self.log_errors.insert(tk.END, "\n".join(errors))
+        if logs:
+            self.log_errors.insert(tk.END, "\n".join(logs))
+            self.log_errors.see(tk.END)
         else:
-            self.log_errors.insert(tk.END, "Ошибок в последних логах не найдено.")
+            self.log_errors.insert(tk.END, "Событий в логах не найдено.")
         self.log_errors.configure(state="disabled")
 
     def _refresh_settings(self) -> None:
         self.settings_text.configure(state="normal")
         self.settings_text.delete("1.0", tk.END)
-        self.settings_text.insert(
-            tk.END,
-            "\n".join(collect_settings_lines(self.config_controller)),
-        )
-        self.settings_text.configure(state="disabled")
+        config_path = Path(self.config_controller.config_path)
+        if config_path.exists():
+            try:
+                text = config_path.read_text(encoding="utf-8")
+                self.settings_text.insert(tk.END, text)
+            except Exception as e:
+                self.settings_text.insert(tk.END, f"# Ошибка чтения файла настроек: {e}")
+        else:
+            self.settings_text.insert(tk.END, "# Файл config.yaml не найден.")
+
+    def _save_settings(self) -> None:
+        text = self.settings_text.get("1.0", tk.END)
+        config_path = Path(self.config_controller.config_path)
+        
+        from ruamel.yaml import YAML
+        yaml = YAML()
+        try:
+            parsed = yaml.load(text)
+            if not isinstance(parsed, dict):
+                raise ValueError("Корневой элемент конфигурации должен быть объектом (словарем)")
+        except Exception as e:
+            messagebox.showerror("Ошибка сохранения", f"Некорректный синтаксис YAML:\n{e}")
+            return
+            
+        try:
+            config_path.write_text(text, encoding="utf-8")
+            self.config_controller.config = parsed
+            messagebox.showinfo("Успех", "Настройки успешно сохранены и применены!")
+        except Exception as e:
+            messagebox.showerror("Ошибка сохранения", f"Не удалось записать файл config.yaml:\n{e}")
 
     def _selected_report_path(self) -> Path | None:
         selected = self.reports_tree.selection()
