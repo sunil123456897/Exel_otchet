@@ -7,90 +7,31 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-
+from core.infra.excel_styles import (
+    HEADER_FILL as _HEADER_FILL,
+    TOTAL_FILL as _TOTAL_FILL,
+    HEADER_FONT as _HEADER_FONT,
+    THIN_BORDER as _THIN_BORDER,
+    TOTAL_BORDER as _TOTAL_BORDER,
+    HEADER_ALIGNMENT as _HEADER_ALIGNMENT,
+    TEXT_ALIGNMENT as _TEXT_ALIGNMENT,
+    ACCOUNT_ALIGNMENT as _ACCOUNT_ALIGNMENT,
+    AMOUNT_ALIGNMENT as _AMOUNT_ALIGNMENT,
+    DEFAULT_AMOUNT_NUMBER_FORMAT as _DEFAULT_AMOUNT_NUMBER_FORMAT,
+)
+from ._constants import (
+    RSCH_HEADERS,
+    RSCH_TABLE_HEADERS,
+    RSCH_TEMPLATE_HEADERS,
+)
 from ._format import _normalize_text
 from ._collect import _copy_style
 
 logger = logging.getLogger(__name__)
-
-RSCH_HEADERS = [
-    "ИСПОЛНИТЕЛЬ",
-    "ЗАКАЗЧИК",
-    "Контрагент",
-    "Комментарий",
-    "Приход",
-    "Расход",
-    "р/с",
-    "Источник",
-]
-RSCH_TEMPLATE_HEADERS = RSCH_HEADERS
-
-RSCH_TABLE_HEADERS = [
-    "Дата",
-    "ИСПОЛНИТЕЛЬ",
-    "ЗАКАЗЧИК",
-    "Контрагент",
-    "Комментарий",
-    "Приход",
-    "Расход",
-    "р/с",
-    "Источник",
-]
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_RSCH_TEMPLATE_PATH = _REPO_ROOT / "РСЧ" / "шаблон отчета.xlsx"
-
-_INCOME_FILL = PatternFill(
-    start_color="FFC6EFCE", end_color="FFC6EFCE", fill_type="solid"
-)
-_EXPENSE_FILL = PatternFill(
-    start_color="FFFFC7CE", end_color="FFFFC7CE", fill_type="solid"
-)
-_WARNING_FILL = PatternFill(
-    start_color="FFFFFF00", end_color="FFFFFF00", fill_type="solid"
-)
-_INCOME_FONT = Font(color="FF006100", bold=True)
-_EXPENSE_FONT = Font(color="FF9C0006", bold=True)
-_HEADER_FILL = PatternFill(start_color="FF1F4E79", end_color="FF1F4E79", fill_type="solid")
-_TOTAL_FILL = PatternFill(start_color="FFD9E1F2", end_color="FFD9E1F2", fill_type="solid")
-_HEADER_FONT = Font(color="FFFFFFFF", bold=True)
-_THIN_SIDE = Side(style="thin", color="FF000000")
-_MEDIUM_SIDE = Side(style="medium", color="FF000000")
-_THIN_BORDER = Border(
-    left=_THIN_SIDE,
-    right=_THIN_SIDE,
-    top=_THIN_SIDE,
-    bottom=_THIN_SIDE,
-)
-_TOTAL_BORDER = Border(
-    left=_MEDIUM_SIDE,
-    right=_MEDIUM_SIDE,
-    top=_MEDIUM_SIDE,
-    bottom=_MEDIUM_SIDE,
-)
-_HEADER_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=True)
-_TEXT_ALIGNMENT = Alignment(horizontal="left", vertical="top", wrap_text=True)
-_ACCOUNT_ALIGNMENT = Alignment(horizontal="left", vertical="center")
-_AMOUNT_ALIGNMENT = Alignment(horizontal="right", vertical="center")
-_DATE_ALIGNMENT = Alignment(horizontal="left", vertical="center")
-_DEFAULT_AMOUNT_NUMBER_FORMAT = "#,##0.00"
-_SPECIAL_CUSTOMER_MARKERS = (
-    "% по депозиту",
-    "% по выплате",
-    "комиссия",
-    "налог",
-)
-_NO_ACCOUNT_MARKERS = (
-    "факторинг",
-    "факторнинг",
-    "вф",
-    "вафт фокс",
-    "гетворк",
-)
 
 
 

@@ -7,6 +7,13 @@ from typing import Any
 
 from openpyxl.styles import Border, Font, PatternFill, Side
 
+from core.infra.excel_styles import (
+    HEADER_FILL,
+    HEADER_FONT,
+    THIN_SIDE,
+    THIN_BORDER,
+)
+from core.infra.excel_utils import excel_safe_text
 from ._types import ReconciliationRow
 
 
@@ -74,20 +81,15 @@ _SUMMARY_REASON_LABELS = {
     REASON_AMOUNT_ONLY_MATCH: "Совпала сумма",
 }
 
-_HEADER_FILL = PatternFill("solid", fgColor="FF1F4E79")
+_HEADER_FILL = HEADER_FILL
 _STATUS_OK_FILL = PatternFill("solid", fgColor="FF00B050")
 _STATUS_REVIEW_FILL = PatternFill("solid", fgColor="FFFFEB9C")
 _STATUS_ERROR_FILL = PatternFill("solid", fgColor="FFFFC7CE")
 _MASTER_EXPENSE_FILL = PatternFill("solid", fgColor="FFFFC7CE")
-_HEADER_FONT = Font(color="FFFFFFFF", bold=True)
+_HEADER_FONT = HEADER_FONT
 _STATUS_FONT = Font(color="FF000000", bold=True)
-_THIN_SIDE = Side(style="thin", color="FF000000")
-_THIN_BORDER = Border(
-    left=_THIN_SIDE,
-    right=_THIN_SIDE,
-    top=_THIN_SIDE,
-    bottom=_THIN_SIDE,
-)
+_THIN_SIDE = THIN_SIDE
+_THIN_BORDER = THIN_BORDER
 
 
 
@@ -337,11 +339,7 @@ def _is_total_row(value: Any) -> bool:
 
 
 def _excel_safe_text(value: Any) -> Any:
-    if isinstance(value, str):
-        stripped = value.lstrip()
-        if stripped and stripped[0] in ("=", "+", "-", "@"):
-            return "'" + value
-    return value
+    return excel_safe_text(value)
 
 
 def _row_id(row: ReconciliationRow) -> str:

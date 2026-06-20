@@ -7,85 +7,18 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from core.infra.excel_utils import excel_safe_text as _excel_safe_text
+from ._constants import (
+    RSCH_HEADERS,
+    RSCH_TABLE_HEADERS,
+    RSCH_TEMPLATE_HEADERS,
+    DEFAULT_RSCH_TEMPLATE_PATH,
+    SPECIAL_CUSTOMER_MARKERS as _SPECIAL_CUSTOMER_MARKERS,
+    NO_ACCOUNT_MARKERS as _NO_ACCOUNT_MARKERS,
+)
 
 
 logger = logging.getLogger(__name__)
-
-RSCH_HEADERS = [
-    "ИСПОЛНИТЕЛЬ",
-    "ЗАКАЗЧИК",
-    "Контрагент",
-    "Комментарий",
-    "Приход",
-    "Расход",
-    "р/с",
-    "Источник",
-]
-RSCH_TEMPLATE_HEADERS = RSCH_HEADERS
-
-RSCH_TABLE_HEADERS = [
-    "Дата",
-    "ИСПОЛНИТЕЛЬ",
-    "ЗАКАЗЧИК",
-    "Контрагент",
-    "Комментарий",
-    "Приход",
-    "Расход",
-    "р/с",
-    "Источник",
-]
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_RSCH_TEMPLATE_PATH = _REPO_ROOT / "РСЧ" / "шаблон отчета.xlsx"
-
-_INCOME_FILL = PatternFill(
-    start_color="FFC6EFCE", end_color="FFC6EFCE", fill_type="solid"
-)
-_EXPENSE_FILL = PatternFill(
-    start_color="FFFFC7CE", end_color="FFFFC7CE", fill_type="solid"
-)
-_WARNING_FILL = PatternFill(
-    start_color="FFFFFF00", end_color="FFFFFF00", fill_type="solid"
-)
-_INCOME_FONT = Font(color="FF006100", bold=True)
-_EXPENSE_FONT = Font(color="FF9C0006", bold=True)
-_HEADER_FILL = PatternFill(start_color="FF1F4E79", end_color="FF1F4E79", fill_type="solid")
-_TOTAL_FILL = PatternFill(start_color="FFD9E1F2", end_color="FFD9E1F2", fill_type="solid")
-_HEADER_FONT = Font(color="FFFFFFFF", bold=True)
-_THIN_SIDE = Side(style="thin", color="FF000000")
-_MEDIUM_SIDE = Side(style="medium", color="FF000000")
-_THIN_BORDER = Border(
-    left=_THIN_SIDE,
-    right=_THIN_SIDE,
-    top=_THIN_SIDE,
-    bottom=_THIN_SIDE,
-)
-_TOTAL_BORDER = Border(
-    left=_MEDIUM_SIDE,
-    right=_MEDIUM_SIDE,
-    top=_MEDIUM_SIDE,
-    bottom=_MEDIUM_SIDE,
-)
-_HEADER_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=True)
-_TEXT_ALIGNMENT = Alignment(horizontal="left", vertical="top", wrap_text=True)
-_ACCOUNT_ALIGNMENT = Alignment(horizontal="left", vertical="center")
-_AMOUNT_ALIGNMENT = Alignment(horizontal="right", vertical="center")
-_DATE_ALIGNMENT = Alignment(horizontal="left", vertical="center")
-_DEFAULT_AMOUNT_NUMBER_FORMAT = "#,##0.00"
-_SPECIAL_CUSTOMER_MARKERS = (
-    "% по депозиту",
-    "% по выплате",
-    "комиссия",
-    "налог",
-)
-_NO_ACCOUNT_MARKERS = (
-    "факторинг",
-    "факторнинг",
-    "вф",
-    "вафт фокс",
-    "гетворк",
-)
 
 
 def _normalize_text(value: Any) -> str:
@@ -214,11 +147,7 @@ def _display_len(value: Any) -> int:
     return len(str(value))
 
 
-def _excel_safe_text(value: Any) -> Any:
-    if isinstance(value, str):
-        stripped = value.lstrip()
-        if stripped and stripped[0] in ("=", "+", "-", "@"):
-            return "'" + value
-    return value
+# Re-exported for backward compatibility.
+# Canonical implementation: core.infra.excel_utils.excel_safe_text
 
 

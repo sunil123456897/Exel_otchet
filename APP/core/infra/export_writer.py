@@ -18,6 +18,7 @@ from core.infra.export_formatting import (
     build_total_row,
 )
 from core.infra.excel_hyperlinks import apply_cell_hyperlink
+from core.infra.excel_utils import excel_safe_text
 
 logger = logging.getLogger(__name__)
 
@@ -27,19 +28,7 @@ class ExportPreflightError(RuntimeError):
 
 
 def _safe_text(value: Any) -> Any:
-    """Mitigate Excel formula injection (CWE-1236).
-
-    Prepends a single quote to any string that starts with ``=``, ``+``,
-    ``-`` or ``@`` so Excel treats it as text instead of evaluating it as
-    a formula. Non-string values (Decimal, int, float, None) pass through
-    unchanged. Mirrors the existing ``_excel_safe_text`` helpers in
-    ``reconciliation/_utils.py`` and ``rsch/_format.py``.
-    """
-    if isinstance(value, str):
-        stripped = value.lstrip()
-        if stripped and stripped[0] in ("=", "+", "-", "@"):
-            return "'" + value
-    return value
+    return excel_safe_text(value)
 
 
 def preflight_output_path(path: Path) -> None:
