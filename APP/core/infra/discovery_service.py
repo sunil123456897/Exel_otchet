@@ -128,7 +128,7 @@ class DiscoveryService:
     def _load_discovery_cache(
         self, config: Dict[str, Any], roots_to_scan: List[Path]
     ) -> List[Dict[str, Any]] | None:
-        roots_key = hashlib.md5(
+        roots_key = hashlib.sha256(
             str(self._roots_key(roots_to_scan)).encode()
         ).hexdigest()
         
@@ -167,7 +167,7 @@ class DiscoveryService:
         roots_to_scan: List[Path],
         discovered_files: List[Dict[str, Any]],
     ) -> None:
-        roots_key = hashlib.md5(
+        roots_key = hashlib.sha256(
             str(self._roots_key(roots_to_scan)).encode()
         ).hexdigest()
         

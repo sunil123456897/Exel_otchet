@@ -276,17 +276,20 @@ function Update-WithGit {
     try {
         $remoteUrl = & $Git remote get-url origin 2>$null
         if (-not $remoteUrl) {
-            if ($Token) {
-                & $Git remote add origin "https://$Token@github.com/$RepoOwner/$RepoName.git" | Out-Null
-            } else {
-                & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git" | Out-Null
-            }
-        } elseif ($Token -and $remoteUrl -notmatch "@github\.com") {
-            & $Git remote set-url origin "https://$Token@github.com/$RepoOwner/$RepoName.git" | Out-Null
+            & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git" | Out-Null
         }
 
         Write-Log "Проверяю обновления через Git..."
-        & $Git fetch origin $Branch --quiet
+        # Pass token via http.extraHeader instead of embedding in the
+        # remote URL to avoid leaking it in git logs, error messages,
+        # and process listings.
+        if ($Token) {
+            $env:GIT_ASKPASS = ""
+            $env:GIT_TERMINAL_PROMPT = "0"
+            & $Git -c "http.extraHeader=Authorization: token $Token" fetch origin $Branch --quiet
+        } else {
+            & $Git fetch origin $Branch --quiet
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "git fetch завершился с кодом $LASTEXITCODE"
         }

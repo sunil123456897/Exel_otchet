@@ -135,7 +135,7 @@ class ConfigController:
             try:
                 stat = os.stat(p)
                 with open(p, "rb") as f:
-                    digest = hashlib.md5()
+                    digest = hashlib.sha256()
                     for chunk in iter(lambda: f.read(8192), b""):
                         digest.update(chunk)
                     h = digest.hexdigest()
