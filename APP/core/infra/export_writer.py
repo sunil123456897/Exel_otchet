@@ -608,7 +608,7 @@ class MasterWriter(IExporter):
                             original_value=d,
                         )
                     except Exception:
-                        pass
+                        logger.debug("Failed to record data loss for future date %s", d, exc_info=True)
                     continue
 
                 dbd.setdefault(d_str, []).append(r)

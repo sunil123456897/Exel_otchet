@@ -31,7 +31,7 @@ class ConfigController:
             logging.error(f"Error loading employees: {e}")
         return {}
 
-    def _save_employees(self):
+    def _save_employees(self) -> bool:
         try:
             with open(self.employees_path, "w", encoding="utf-8") as f:
                 self.yaml.dump(self.employees, f)
@@ -46,8 +46,10 @@ class ConfigController:
                     self.employees_path,
                     chmod_err,
                 )
+            return True
         except Exception as e:
-            logging.error(f"Error saving employees: {e}")
+            logging.error("Error saving employees: %s", e, exc_info=True)
+            return False
 
     def load_config(self) -> Dict[str, Any]:
         """Loads the configuration from the YAML file."""
@@ -88,8 +90,11 @@ class ConfigController:
             logging.error(f"Error loading config: {e}")
             return {}
 
-    def save_config(self):
-        """Saves the current configuration to the YAML file."""
+    def save_config(self) -> bool:
+        """Saves the current configuration to the YAML file.
+
+        Returns True on success, False on failure (error is logged).
+        """
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 self.yaml.dump(self.config, f)
@@ -102,8 +107,10 @@ class ConfigController:
                     self.config_path,
                     chmod_err,
                 )
+            return True
         except Exception as e:
-            logging.error(f"Error saving config: {e}")
+            logging.error("Error saving config: %s", e, exc_info=True)
+            return False
 
     def _invalidate_discovery_cache(self):
         if isinstance(self.config, dict):

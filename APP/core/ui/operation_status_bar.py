@@ -12,6 +12,7 @@ Sits at the bottom of the sidebar, replacing the single-purpose StatsPanel progr
 """
 from __future__ import annotations
 
+import logging
 import time
 import tkinter as tk
 from tkinter import ttk
@@ -23,6 +24,8 @@ from core.ui.operation_state import (
     OperationSnapshot,
     OperationType,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _format_duration(seconds: float) -> str:
@@ -118,7 +121,7 @@ class OperationStatusBar(ttk.Frame):
         try:
             self._on_cancel()
         except Exception:
-            pass
+            logger.exception("Cancel callback raised an exception")
 
     def _on_snapshot(self, snap: OperationSnapshot) -> None:
         # ``self.after`` raises ``TclError`` once the widget is torn down.

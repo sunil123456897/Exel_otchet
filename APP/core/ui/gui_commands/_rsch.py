@@ -8,6 +8,7 @@ names) live here too because nothing else needs them.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import List, Optional
@@ -175,6 +176,7 @@ class RschCommandsMixin:
             try:
                 self.ctx.config_controller.config = cfg
             except Exception:
+                logging.debug("Could not set config on config_controller", exc_info=True)
                 return {}
 
         rsch_cfg = cfg.get("rsch")

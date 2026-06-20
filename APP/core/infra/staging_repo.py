@@ -121,7 +121,10 @@ class DBWriterThread(threading.Thread):
                             original_value=amt_raw,
                         )
                     except Exception:
-                        pass
+                        logging.debug(
+                            "Failed to record data loss for amount coercion in file_id=%s",
+                            file_id, exc_info=True,
+                        )
 
                 all_data.append(
                     (

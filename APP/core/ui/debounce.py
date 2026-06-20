@@ -10,7 +10,10 @@ runs on the same Tk thread — no locking, no extra dependency.
 """
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class Debouncer:
@@ -51,6 +54,7 @@ class Debouncer:
         try:
             self._after_id = self._widget.after(self._delay_ms, self._fire)
         except Exception:
+            logger.debug("Debouncer: could not schedule after callback", exc_info=True)
             self._after_id = None
 
     def cancel(self) -> None:
@@ -60,7 +64,7 @@ class Debouncer:
         try:
             self._widget.after_cancel(self._after_id)
         except Exception:
-            pass
+            logger.debug("Debouncer: could not cancel pending after callback", exc_info=True)
         self._after_id = None
 
     def _fire(self) -> None:
@@ -68,7 +72,7 @@ class Debouncer:
         try:
             self._fn()
         except Exception:
-            pass
+            logger.exception("Debouncer: callback raised an exception")
 
     @property
     def pending(self) -> bool:

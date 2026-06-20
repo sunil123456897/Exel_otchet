@@ -1,5 +1,6 @@
-import os
 import json
+import logging
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -176,7 +177,8 @@ def save_runtime_results(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-    except OSError:
+    except OSError as e:
+        logging.warning("Could not save session results to %s: %s", path, e)
         return
 
 

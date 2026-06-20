@@ -119,7 +119,7 @@ class GuiMaster:
                 else:
                     self.root.title(self._base_title)
             except Exception:
-                pass
+                logging.debug("Title refresh failed", exc_info=True)
 
         self.root.bind("<<TitleUpdate>>", _refresh_title)
 
@@ -371,6 +371,7 @@ class GuiMaster:
         try:
             self._last_system_theme = ThemeManager.resolve_effective("system")
         except Exception:
+            logging.debug("System theme resolution failed, defaulting to light", exc_info=True)
             self._last_system_theme = "light"
         self._poll_system_theme()
 

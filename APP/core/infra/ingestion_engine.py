@@ -245,8 +245,8 @@ def _should_isolate_calamine(file_path: Path | str) -> bool:
     try:
         if os.path.exists(file_path):
             return os.path.getsize(file_path) > 15 * 1024 * 1024
-    except Exception:
-        pass
+    except OSError as e:
+        logger.debug("Could not stat file %s for isolation check: %s", file_path, e)
     return True
 
 
@@ -329,9 +329,7 @@ class IngestionEngine(IDataSource):
             else:
                 for d in self._get_available_dates_direct(target_path):
                     dates.add(d)
-        except BaseException as e:
-            if isinstance(e, (KeyboardInterrupt, SystemExit, GeneratorExit)):
-                raise
+        except Exception as e:
             logger.error(f"Error getting dates from {file_path}: {e}")
             if strict_io:
                 raise

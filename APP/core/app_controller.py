@@ -81,6 +81,7 @@ def _cancel_message(
         from core.ui.gui_commands._base import CancelledByUser
         tagged = CancelledByUser(message)
     except Exception:
+        logging.debug("Could not import CancelledByUser; using plain message", exc_info=True)
         tagged = message
     on_complete(False, tagged, None)
 
@@ -188,7 +189,8 @@ class AppController:
         path = self._resolve_report_path(curator_config)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError:
+        except OSError as e:
+            logging.warning("Cannot create report directory %s: %s", path.parent, e)
             return False
         return is_file_writable(str(path))
 

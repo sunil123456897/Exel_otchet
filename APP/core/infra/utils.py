@@ -254,12 +254,16 @@ def path_exists_with_timeout(path: str | Path, timeout: float = 1.0) -> bool:
                 if drive.upper().rstrip(":\\") not in available_drives:
                     return False
     except Exception:
-        pass
+        logging.debug("Drive availability check failed for %s", p, exc_info=True)
 
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(p.exists)
         try:
             return future.result(timeout=timeout)
-        except (concurrent.futures.TimeoutError, Exception):
+        except concurrent.futures.TimeoutError:
+            logging.debug("Path existence check timed out for %s", p)
+            return False
+        except OSError as e:
+            logging.debug("Path existence check failed for %s: %s", p, e)
             return False

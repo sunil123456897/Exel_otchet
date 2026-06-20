@@ -25,6 +25,7 @@ def _resolve_reports_alias(path_str: str, config_controller) -> Optional[Path]:
     try:
         paths_cfg = get_paths() or {}
     except Exception:
+        logger.debug("get_paths() failed during reports alias resolution", exc_info=True)
         return None
 
     roots_raw = paths_cfg.get("source_roots") or paths_cfg.get("source_root") or []

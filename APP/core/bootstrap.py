@@ -172,7 +172,7 @@ def _check_db_integrity_on_startup(persistence) -> None:
             logging.error(warning)
             Bootstrap._integrity_warning = warning
     except Exception:
-        pass  # never block startup on integrity check failures
+        logging.warning("Database integrity check could not run", exc_info=True)
 
 
 class Bootstrap:

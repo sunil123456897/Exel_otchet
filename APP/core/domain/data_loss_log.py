@@ -59,8 +59,8 @@ def _get_logger() -> logging.Logger:
             logging.warning(
                 "Could not restrict %s permissions: %s", log_path, chmod_err
             )
-    except OSError:
-        pass
+    except OSError as e:
+        logging.warning("Could not create data-loss log directory/file: %s", e)
     _initialised = True
     return log
 
