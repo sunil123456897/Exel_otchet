@@ -8,7 +8,6 @@ Consolidates duplicated functions that were previously copy-pasted:
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
 from typing import Any
 
 

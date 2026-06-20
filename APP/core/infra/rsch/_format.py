@@ -4,15 +4,9 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from typing import Any, Dict, Optional
 
-from core.infra.excel_utils import excel_safe_text as _excel_safe_text
 from ._constants import (
-    RSCH_HEADERS,
-    RSCH_TABLE_HEADERS,
-    RSCH_TEMPLATE_HEADERS,
-    DEFAULT_RSCH_TEMPLATE_PATH,
     SPECIAL_CUSTOMER_MARKERS as _SPECIAL_CUSTOMER_MARKERS,
     NO_ACCOUNT_MARKERS as _NO_ACCOUNT_MARKERS,
 )
@@ -147,7 +141,6 @@ def _display_len(value: Any) -> int:
     return len(str(value))
 
 
-# Re-exported for backward compatibility.
-# Canonical implementation: core.infra.excel_utils.excel_safe_text
+
 
 

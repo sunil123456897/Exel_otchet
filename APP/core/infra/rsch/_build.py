@@ -23,26 +23,22 @@ from core.infra.excel_styles import (
     WARNING_FILL as _WARNING_FILL,
     INCOME_FONT as _INCOME_FONT,
     EXPENSE_FONT as _EXPENSE_FONT,
-    HEADER_FILL as _HEADER_FILL,
     TOTAL_FILL as _TOTAL_FILL,
-    HEADER_FONT as _HEADER_FONT,
     THIN_BORDER as _THIN_BORDER,
     TOTAL_BORDER as _TOTAL_BORDER,
-    HEADER_ALIGNMENT as _HEADER_ALIGNMENT,
     TEXT_ALIGNMENT as _TEXT_ALIGNMENT,
     ACCOUNT_ALIGNMENT as _ACCOUNT_ALIGNMENT,
     AMOUNT_ALIGNMENT as _AMOUNT_ALIGNMENT,
     DATE_ALIGNMENT as _DATE_ALIGNMENT,
-    DEFAULT_AMOUNT_NUMBER_FORMAT as _DEFAULT_AMOUNT_NUMBER_FORMAT,
 )
 
+from core.infra.excel_utils import excel_safe_text as _excel_safe_text
 from ._constants import (
     RSCH_HEADERS,
     RSCH_TABLE_HEADERS,
-    RSCH_TEMPLATE_HEADERS,
     DEFAULT_RSCH_TEMPLATE_PATH,
 )
-from ._format import _display_len, _excel_safe_text, _is_problem_row
+from ._format import _display_len, _is_problem_row
 from ._collect import _collect_rows_from_workbook, _copy_style, _normalize_source_paths
 from ._template import _create_builtin_template_workbook, _find_total_row, _resolve_template_style_layout, _ensure_header_style
 

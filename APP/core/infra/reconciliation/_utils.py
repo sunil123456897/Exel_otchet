@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from typing import Any
 
-from openpyxl.styles import Border, Font, PatternFill, Side
+from openpyxl.styles import Font, PatternFill
 
 from core.infra.excel_styles import (
     HEADER_FILL,
