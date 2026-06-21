@@ -77,24 +77,11 @@ _PREFERRED_HEADER_ORDER = (
     "currency",
     "filters",
 )
-_STRICT_TEMPLATE_ORDER = (
-    "customer",
-    "contractor",
-    "amount",
-    "income",
-    "expense",
-    "commission",
-    "total",
-    "transit_obligation",
-    "percent_broker",
-    "broker1",
-    "percent_broker2",
-    "broker2",
-    "exchange_rate",
-    "currency_amount",
-    "currency",
-    "filters",
-)
+# ponytail: тот же список, другое имя. _PREFERRED задаёт порядок дисплея
+# заголовков в каноническом выводе, _STRICT — контракт шаблона для валидации
+# структуры (required keys, column order, unexpected columns). Сейчас
+# идентичны; разойдутся, если формат шаблона изменится — тогда развести.
+_STRICT_TEMPLATE_ORDER = _PREFERRED_HEADER_ORDER
 _STRICT_OPTIONAL_KEYS = frozenset(
     {
         "filters",
@@ -135,6 +122,11 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
 
     Поддерживаемые форматы: DD.MM.YYYY, DD.MM.YY, DD,MM,YY и т.д.
     Если год не указан — лист считается некорректным и игнорируется.
+
+    Если передан ``with_year_hint=True``, возвращает словарь
+    ``{"date": "DD.MM.YYYY", "year_hint": <int>}`` — год выносится наружу,
+    чтобы вызывающий код мог использовать его как fallback для строк без
+    явной даты (см. ``_unpack_sheet_date_meta``).
     """
     if not sheet_name:
         return None
@@ -148,19 +140,16 @@ def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
         try:
             d, month = int(m.group(2)), int(m.group(3))
             year_token = m.group(4)
-            year_hint = kwargs.get("year_hint")
-            if year_token is None and year_hint is None:
+            # Бизнес-правило: лист без явного года (напр. "13.04") невалиден.
+            # Реальная фильтрация дублируется в file_processor._has_explicit_year.
+            if year_token is None:
                 return None
-
-            if year_token is not None:
-                y = int(year_token)
-                if len(year_token) == 2:
-                    # Y2K pivot (Excel default): 00-29 → 20XX, 30-99 → 19XX.
-                    # Without this, "01.01.99" became 2099 (future) and the
-                    # whole sheet's rows were silently dropped by the date filter.
-                    y += 2000 if y < 30 else 1900
-            else:
-                y = int(year_hint)
+            y = int(year_token)
+            if len(year_token) == 2:
+                # Y2K pivot (Excel default): 00-29 → 20XX, 30-99 → 19XX.
+                # Without this, "01.01.99" became 2099 (future) and the
+                # whole sheet's rows were silently dropped by the date filter.
+                y += 2000 if y < 30 else 1900
             normalized = datetime(y, month, d).strftime("%d.%m.%Y")
             if kwargs.get("with_year_hint"):
                 return {
