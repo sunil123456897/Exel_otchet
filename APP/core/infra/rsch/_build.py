@@ -486,35 +486,16 @@ def build_rsch_report(
                 for row in rows:
                     rows_by_date.setdefault(row["date"], []).append(row)
                 sorted_dates = sorted(rows_by_date)
-                # BUG 4 guard: the per-day sheets are named "%d.%m" (no
-                # year). If the period spans January of two consecutive
-                # years (e.g. 31.12.2024 + 01.01.2025), openpyxl rejects
-                # the duplicate sheet name with a low-level ValueError
-                # long after we've already started writing — detect the
-                # collision up-front and tell the user to include the year.
-                name_to_dates: Dict[str, List[date]] = {}
-                for d in sorted_dates:
-                    name_to_dates.setdefault(d.strftime("%d.%m"), []).append(d)
-                duplicates = {
-                    name: ds for name, ds in name_to_dates.items() if len(ds) > 1
-                }
-                if duplicates:
-                    parts = []
-                    for name, ds in duplicates.items():
-                        ds_str = ", ".join(d.strftime("%d.%m.%Y") for d in ds)
-                        parts.append(
-                            f"даты [{ds_str}] дают одинаковый лист '{name}'"
-                        )
-                    raise ValueError(
-                        "Конфликт имён листов: "
-                        + "; ".join(parts)
-                        + ". Укажите период с указанием года."
-                    )
+                # Имена листов всегда с годом (%d.%m.%Y) — совпадает с
+                # форматом мастер-отчёта и исключает коллизию при периоде,
+                # охватывающем январь двух лет (31.12.2024 + 01.01.2025).
+                # Раньше был guard на %d.%m без года + ValueError при конфликте;
+                # с годом конфликт невозможен, guard убран.
                 for idx, row_date in enumerate(sorted_dates, start=1):
                     _write_rsch_sheet(
                         wb_out,
                         template_ws,
-                        row_date.strftime("%d.%m"),
+                        row_date.strftime("%d.%m.%Y"),
                         rows_by_date[row_date],
                         first_sheet=idx == 1,
                     )
@@ -530,7 +511,9 @@ def build_rsch_report(
                 )
             else:
                 sheet_date = target_date or start_date
-                sheet_name = sheet_date.strftime("%d.%m") if sheet_date else template_ws.title
+                sheet_name = (
+                    sheet_date.strftime("%d.%m.%Y") if sheet_date else template_ws.title
+                )
                 _write_rsch_sheet(
                     wb_out,
                     template_ws,
