@@ -165,29 +165,34 @@ class AliasesTab:
     ) -> None:
         dlg = tk.Toplevel(self.parent)
         dlg.title("Добавить алиас" if mode == "add" else "Изменить алиас")
-        dlg.geometry("520x230")
+        dlg.geometry("780x280")
+        dlg.minsize(640, 240)
         dlg.transient(self.parent)
         dlg.grab_set()
 
+        # Колонка полей ввода и строка заметок растягиваются вместе с окном.
+        dlg.columnconfigure(1, weight=1)
+        dlg.rowconfigure(2, weight=1)
+
         ttk.Label(dlg, text="Заказчик со стороны куратора:").grid(row=0, column=0, sticky="w", padx=8, pady=(12, 4))
-        master_entry = ttk.Entry(dlg, width=60)
-        master_entry.grid(row=0, column=1, padx=8, pady=(12, 4))
+        master_entry = ttk.Entry(dlg)
+        master_entry.grid(row=0, column=1, sticky="ew", padx=8, pady=(12, 4))
         master_entry.insert(0, master)
 
         ttk.Label(dlg, text="Заказчик со стороны РСЧ:").grid(row=1, column=0, sticky="w", padx=8, pady=4)
-        rsch_entry = ttk.Entry(dlg, width=60)
-        rsch_entry.grid(row=1, column=1, padx=8, pady=4)
+        rsch_entry = ttk.Entry(dlg)
+        rsch_entry.grid(row=1, column=1, sticky="ew", padx=8, pady=4)
         rsch_entry.insert(0, rsch)
 
         ttk.Label(dlg, text="Заметки:").grid(row=2, column=0, sticky="nw", padx=8, pady=4)
-        notes_entry = tk.Text(dlg, width=60, height=3, wrap=tk.WORD)
-        notes_entry.grid(row=2, column=1, padx=8, pady=4)
+        notes_entry = tk.Text(dlg, height=3, wrap=tk.WORD)
+        notes_entry.grid(row=2, column=1, sticky="nsew", padx=8, pady=4)
         notes_entry.insert("1.0", notes)
 
         btn_frame = ttk.Frame(dlg)
         btn_frame.grid(row=3, column=0, columnspan=2, pady=(12, 8))
 
-        def save():
+        def save() -> None:
             m = master_entry.get().strip()
             r = rsch_entry.get().strip()
             n = notes_entry.get("1.0", tk.END).strip()
@@ -206,8 +211,36 @@ class AliasesTab:
             except Exception as e:
                 messagebox.showerror("Ошибка", f"Не удалось сохранить: {e}", parent=dlg)
 
-        ttk.Button(btn_frame, text="Сохранить", command=save).pack(side=tk.LEFT, padx=4)
+        ok_btn = ttk.Button(btn_frame, text="Сохранить", command=save)
+        ok_btn.pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_frame, text="Отмена", command=dlg.destroy).pack(side=tk.LEFT, padx=4)
+
+        # Контекстное меню (правый клик): Вырезать/Копировать/Вставить/Выделить всё.
+        def _send_event(virtual_event: str) -> None:
+            widget = dlg.focus_get()
+            if widget is not None:
+                widget.event_generate(virtual_event)
+
+        ctx = tk.Menu(dlg, tearoff=0)
+        ctx.add_command(label="Вырезать", command=lambda: _send_event("<<Cut>>"))
+        ctx.add_command(label="Копировать", command=lambda: _send_event("<<Copy>>"))
+        ctx.add_command(label="Вставить", command=lambda: _send_event("<<Paste>>"))
+        ctx.add_separator()
+        ctx.add_command(label="Выделить всё", command=lambda: _send_event("<<SelectAll>>"))
+
+        def _show_context_menu(event: tk.Event) -> None:
+            ctx.tk_popup(event.x_root, event.y_root)
+
+        for w in (master_entry, rsch_entry, notes_entry):
+            w.bind("<Button-3>", _show_context_menu)
+
+        # Горячие клавиши: Enter — сохранить, Escape — отмена.
+        def _on_enter(_event: tk.Event) -> None:
+            if "disabled" not in ok_btn.state():  # type: ignore[no-untyped-call]
+                save()
+
+        dlg.bind("<Return>", _on_enter)
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
 
         dlg.update_idletasks()
         dlg.geometry(f"+{self.parent.winfo_rootx() + 100}+{self.parent.winfo_rooty() + 100}")

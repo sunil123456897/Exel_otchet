@@ -179,6 +179,67 @@ def _canonical_match_text_cached(text: str) -> str:
     return text
 
 
+def _extract_canonical_customer(value: Any) -> str:
+    """Выделить короткое имя заказчика из «мусорной» строки куратора.
+
+    Со стороны кураторов в колонку «Заказчик» часто пишут не только имя, но и
+    номер проекта, ИНН, сумму, выходной банк — всё в одну ячейку:
+        «Анастасия рекрутинг 529. ... ИНН 280128132624, сумма 70 605,00»
+    Эта функция отрезает имя по первому разделителю (2+ цифры / точка / запятая
+    / маркеры «инн», «сумма», «выход») и возвращает чистый префикс.
+
+    Возвращает "" для пустого/короткого результата — тогда вызывающий код
+    оставляет исходную строку и работает прежний алгоритм сравнения.
+    """
+    return _extract_canonical_customer_cached(_normalize_text(value))
+
+
+@lru_cache(maxsize=65536)
+def _extract_canonical_customer_cached(text: str) -> str:
+    if not text:
+        return ""
+    # Разделители: 2+ цифр подряд, точка, запятая, либо слова-маркеры мусора.
+    parts = re.split(r"\s*\d{2,}|\s*[.,]|\s+(?:инн|сумма|выход)\b", text, maxsplit=1)
+    canonical = parts[0].strip()
+    if len(canonical) < 3:
+        return ""
+    if len(canonical) > 40:
+        canonical = canonical[:40].rsplit(" ", 1)[0]
+    return canonical
+
+
+def _customer_prefix_match(canonical_master: str, rsch_candidate: str) -> bool:
+    """Проверить, что rsch-имя — это префикс из целых токенов канонического master.
+
+    Реальные строки куратора часто содержат после имени заказчика юр. форму и
+    контрагента: «Анастасия рекрутинг ООО Интернет Решения ИНН ...». После
+    _extract_canonical_customer остаётся «анастасия рекрутинг ооо интернет
+    решения», а в РСЧ записано коротко «анастасия рекрутинг». Сравнение по
+    целым токенам (rsch должен полностью укладываться в начало master-токенов)
+    безопаснее, чем подстрока/compact-startswith: оно не разрывает слова и не
+    путает «гетворк мерч» с «гетворк анкор мерчандайзинг».
+    """
+    if not canonical_master or not rsch_candidate:
+        return False
+    master_tokens = _name_prefix_tokens(canonical_master)
+    rsch_tokens = _name_prefix_tokens(rsch_candidate)
+    if not master_tokens or not rsch_tokens:
+        return False
+    if len(rsch_tokens) > len(master_tokens):
+        return False
+    return master_tokens[: len(rsch_tokens)] == rsch_tokens
+
+
+@lru_cache(maxsize=65536)
+def _name_prefix_tokens(text: str) -> tuple[str, ...]:
+    """Токены имени для префиксного сравнения (канонизированные, ≥4 символов)."""
+    canon = _canonical_match_text(text)
+    return tuple(
+        w for w in re.split(r"[^0-9a-zа-я]+", canon)
+        if len(w) >= 4 and not w.isdigit()
+    )
+
+
 def _compact_text(value: Any) -> str:
     return _compact_text_cached(_canonical_match_text(value))
 

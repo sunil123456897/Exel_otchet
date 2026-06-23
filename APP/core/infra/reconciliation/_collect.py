@@ -12,7 +12,8 @@ from ._utils import (_to_decimal, _normalize_text, _is_total_row,
     REASON_NO_CURATOR, REASON_NO_RSCH, REASON_AMOUNT_MISMATCH,
     REASON_EXECUTOR_MISMATCH, REASON_CUSTOMER_MISMATCH,
     _MASTER_HEADER_ALIASES,
-    _text_tokens, _compact_text)
+    _text_tokens, _compact_text, _extract_canonical_customer,
+    _customer_prefix_match)
 from ._resolve import (_executor_matches, _row_amount_matches,
     _rsch_customer_matches, _rsch_customer_matches_weak)
 
@@ -24,10 +25,16 @@ def _customer_exact_or_alias_match(
 ) -> bool:
     """Strict customer match for VERIFIED status.
 
-    Returns True only if:
+    Returns True if any of the following holds:
     1. Exact text match (case-insensitive, whitespace-normalised) between
        master customer and any of rsch customer/contractor/comment, OR
-    2. An explicit alias exists in the alias repository.
+    2. The canonical prefix of the master customer (name extracted before
+       trailing noise — project number, INN, amount) equals the normalised
+       rsch candidate. Handles curator cells like
+       «Анастасия рекрутинг 529. ... ИНН ... сумма ...».
+    3. An explicit alias exists in the alias repository — looked up by the
+       canonical prefix (so one alias «анастасия рекрутинг» covers every
+       noisy variant of that customer), falling back to the raw master text.
 
     Loose/substring matches do NOT qualify — those get REVIEW status
     so accountants can review and add aliases if appropriate.
@@ -37,16 +44,39 @@ def _customer_exact_or_alias_match(
     master_norm = _normalize_text(master_customer)
     if not master_norm:
         return False
+
+    # Уровень 1 — точное совпадение нормализованного текста.
     for candidate in (rsch_row.customer, rsch_row.contractor, rsch_row.comment):
         if not candidate:
             continue
         cand_norm = _normalize_text(candidate)
         if cand_norm and cand_norm == master_norm:
             return True
-    if alias_repo is not None:
-        for candidate in (rsch_row.customer, rsch_row.contractor):
-            if candidate and alias_repo.is_alias(master_customer, candidate):
+
+    # Уровень 2 — авто-извлечение канонического префикса из «мусорной» строки.
+    canonical = _extract_canonical_customer(master_customer)
+    if canonical and canonical != master_norm:
+        for candidate in (rsch_row.customer, rsch_row.contractor, rsch_row.comment):
+            if not candidate:
+                continue
+            cand_norm = _normalize_text(candidate)
+            # 2a — точное совпадение извлечённого префикса с rsch-кандидатом.
+            if cand_norm and canonical == cand_norm:
                 return True
+            # 2b — rsch-имя является префиксом из целых токенов канонического
+            # master (имя заказчика + хвост из юр.формы/контрагента). Покрывает
+            # «Анастасия рекрутинг ООО Интернет Решения ИНН ...» ↔ «анастасия
+            # рекрутинг».
+            if cand_norm and _customer_prefix_match(canonical, candidate):
+                return True
+
+    # Уровень 3 — алиас по каноническому префиксу, затем по исходному тексту.
+    if alias_repo is not None:
+        keys = [canonical, master_customer] if canonical else [master_customer]
+        for key in keys:
+            for candidate in (rsch_row.customer, rsch_row.contractor):
+                if candidate and alias_repo.is_alias(key, candidate):
+                    return True
     return False
 
 
