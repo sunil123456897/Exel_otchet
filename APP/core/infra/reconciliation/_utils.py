@@ -198,6 +198,10 @@ def _extract_canonical_customer(value: Any) -> str:
 def _extract_canonical_customer_cached(text: str) -> str:
     if not text:
         return ""
+    # Пропустить ведущий номер проекта: «511. Икарус ...» → «икарус ...»,
+    # «530_рубашка ...» → «рубашка ...». Только 1-4 цифры в самом начале,
+    # за которыми следует разделитель (точка/подчёркивание/пробел).
+    text = re.sub(r"^\d{1,4}[._\s]+", "", text)
     # Разделители: 2+ цифр подряд, точка, запятая, либо слова-маркеры мусора.
     parts = re.split(r"\s*\d{2,}|\s*[.,]|\s+(?:инн|сумма|выход)\b", text, maxsplit=1)
     canonical = parts[0].strip()
