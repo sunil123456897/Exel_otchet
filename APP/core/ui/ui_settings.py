@@ -29,6 +29,7 @@ _log = logging.getLogger(__name__)
 
 _PATH_TYPE_DIR = "dir"
 _PATH_TYPE_FILE = "file"
+_PATH_TYPE_SAVE_DIR = "save_dir"
 
 
 def _scrollable(parent: tk.Widget) -> tuple[tk.Canvas, ttk.Frame]:
@@ -91,11 +92,13 @@ class _PathRow(ttk.Frame):
         ttk.Button(self, text="…", width=3, command=self._browse).pack(side=tk.LEFT)
 
     def _browse(self) -> None:
-        current = self._var.get()
-        if self._path_type == _PATH_TYPE_DIR:
+        current = self._var.get() or ""
+        if self._path_type in (_PATH_TYPE_DIR, _PATH_TYPE_SAVE_DIR):
             chosen = filedialog.askdirectory(initialdir=current or None)
+        elif self._path_type == _PATH_TYPE_FILE:
+            chosen = filedialog.askopenfilename(initialdir=current or None)
         else:
-            chosen = filedialog.askopenfilename(initialdir=current and str(current) or None)
+            chosen = filedialog.asksaveasfilename(initialdir=current or None)
         if chosen:
             self._var.set(chosen)
 
@@ -378,11 +381,13 @@ class SettingsDialog(tk.Toplevel):
             fill=tk.X, pady=pad
         )
 
-        # Curator paths
+        # Curator paths (save-as file dialog — choose where the report file will be saved)
         for cname in ("boris", "ivan"):
             section = (curators or {}).get(cname, {})
             label = f"Вывод {cname.capitalize()}:"
-            _PathRow(tab, label, initial=section.get("output_path", "")).pack(fill=tk.X, pady=pad)
+            _PathRow(
+                tab, label, path_type=_PATH_TYPE_SAVE_DIR, initial=section.get("output_path", "")
+            ).pack(fill=tk.X, pady=pad)
 
         rsch_out = rsch.get("last_output_dir", "")
         _PathRow(tab, "Папка вывода РСЧ:", initial=rsch_out or "../РСЧ").pack(fill=tk.X, pady=pad)
