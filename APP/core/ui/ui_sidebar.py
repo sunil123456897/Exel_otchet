@@ -291,7 +291,7 @@ class Sidebar(ttk.Frame):
         theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=2)
         theme_frame.pack(fill=tk.X, pady=(0, 2))
         self.theme_var = tk.StringVar(value="light")
-        theme_row = ttk.Frame(theme_frame)
+        theme_row = ttk.Frame(theme_frame, style="Sidebar.TFrame")
         theme_row.pack(fill=tk.X)
         for value, label in (
             ("light", "☀️ Светлая"),
