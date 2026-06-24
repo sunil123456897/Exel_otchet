@@ -368,7 +368,7 @@ class SettingsDialog(tk.Toplevel):
         curators = self._work.get("curators", {})
         pad = (8, 4)
         _PathRow(
-            tab, "Master-файл:", path_type=_PATH_TYPE_FILE, initial=paths.get("master_file", "")
+            tab, "Master-файл:", path_type="save_file", initial=paths.get("master_file", "")
         ).pack(fill=tk.X, pady=pad)
         list_row = ttk.LabelFrame(tab, text="Корневые папки источников", padding=4)
         list_row.pack(fill=tk.X, pady=pad)
