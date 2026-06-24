@@ -355,8 +355,10 @@ class SettingsDialog(tk.Toplevel):
         ).pack(side=tk.LEFT)
 
     def _build_paths_tab(self, notebook: ttk.Notebook) -> None:
-        _, tab = _scrollable(notebook)
-        notebook.add(tab, text="📁 Пути и файлы")
+        outer = ttk.Frame(notebook)
+        notebook.add(outer, text="📁 Пути и файлы")
+        _, tab = _scrollable(outer)
+        outer.columnconfigure(0, weight=1)
 
         paths = self._work.get("paths", {})
         rsch = self._work.get("rsch", {})
@@ -418,8 +420,9 @@ class SettingsDialog(tk.Toplevel):
         )
 
     def _build_network_tab(self, notebook: ttk.Notebook) -> None:
-        _, tab = _scrollable(notebook)
-        notebook.add(tab, text="🌐 Сеть")
+        outer = ttk.Frame(notebook)
+        notebook.add(outer, text="🌐 Сеть")
+        _, tab = _scrollable(outer)
         net = self._work.get("network", {})
 
         list_row = ttk.LabelFrame(tab, text="Буквы сетевых дисков", padding=4)
@@ -430,8 +433,9 @@ class SettingsDialog(tk.Toplevel):
         self._drive_letters_editor.pack(fill=tk.X)
 
     def _build_logic_tab(self, notebook: ttk.Notebook) -> None:
-        _, tab = _scrollable(notebook)
-        notebook.add(tab, text="🧮 Логика")
+        outer = ttk.Frame(notebook)
+        notebook.add(outer, text="🧮 Логика")
+        _, tab = _scrollable(outer)
         logic = self._work.get("logic", {})
 
         row = ttk.Frame(tab)
