@@ -13,6 +13,7 @@ Design tokens
 - ``SPACING``   : 4-step spacing scale (xs/sm/md/lg/xl/xxl).
 - ``animate_background`` : classmethod helper for smooth bg transitions.
 """
+
 from __future__ import annotations
 
 import tkinter as tk
@@ -160,17 +161,33 @@ class ThemeManager:
 
     @classmethod
     def init_scaling(cls, root: tk.Tk) -> None:
-        """Calculate DPI scale factor and rebuild FONTS/SPACING accordingly.
+        """Calculate adaptive scale based on DPI AND screen height.
 
-        Must be called once after ``root = tk.Tk()`` so that Tk's
-        ``winfo_fpixels`` reports the actual monitor DPI. On 100% DPI
-        the scale is 1.0; on 150% it's ~1.5, etc.
+        On small screens (e.g. 1366x768, 1024x600) the scale factor
+        is reduced so the whole UI fits without scrolling. On large
+        high-DPI screens the DPI component dominates so text stays
+        crisp.
+
+        Fonts and spacing are rebuilt afterwards. Must be called once
+        after ``root = tk.Tk()``.
         """
         try:
             dpi = root.winfo_fpixels("1i")
-            cls._scale = max(1.0, round(dpi / 96.0 * 2) / 2)
+            dpi_scale = max(1.0, round(dpi / 96.0 * 2) / 2)
         except Exception:
-            cls._scale = 1.0
+            dpi_scale = 1.0
+
+        # --- screen-height factor -------------------------------------------
+        # 900 px  → factor 1.0  (full-size)
+        # 768 px  → factor 0.85 (compact — 1366×768 laptop)
+        # 600 px  → factor 0.78 (very compact — netbook)
+        try:
+            screen_h = root.winfo_screenheight()
+            height_factor = min(1.0, max(0.78, (screen_h or 768) / 900))
+        except Exception:
+            height_factor = 1.0
+
+        cls._scale = max(0.78, dpi_scale * height_factor)
         cls._rebuild_fonts()
         cls._rebuild_spacing()
 
@@ -202,9 +219,7 @@ class ThemeManager:
         should only offer choices that have been registered.
         """
         if name not in cls._PALETTES:
-            raise ValueError(
-                f"Unknown theme {name!r}. Known: {sorted(cls._PALETTES)}"
-            )
+            raise ValueError(f"Unknown theme {name!r}. Known: {sorted(cls._PALETTES)}")
         cls._current = name
         cls.COLORS = dict(cls._PALETTES[name])
         try:
@@ -219,9 +234,7 @@ class ThemeManager:
         for entry in list(cls._themed_widgets):
             try:
                 widget, bg_key, fg_key = entry
-                widget.configure(
-                    background=cls.COLORS[bg_key], foreground=cls.COLORS[fg_key]
-                )
+                widget.configure(background=cls.COLORS[bg_key], foreground=cls.COLORS[fg_key])
             except Exception:
                 try:
                     cls._themed_widgets.remove(entry)
@@ -350,7 +363,7 @@ class ThemeManager:
         style.configure(
             "TButton",
             font=f["button"],
-            padding=(sp["md"], sp["sm"]),
+            padding=(4, 2),
             relief="flat",
             borderwidth=0,
             background=c["bg_panel"],
@@ -371,7 +384,7 @@ class ThemeManager:
         style.configure(
             "Action.TButton",
             font=f["button"],
-            padding=(sp["md"], sp["sm"]),
+            padding=(4, 2),
             relief="flat",
             borderwidth=0,
             background=c["primary"],
@@ -386,7 +399,7 @@ class ThemeManager:
         style.configure(
             "Success.TButton",
             font=f["button"],
-            padding=(sp["md"], sp["sm"]),
+            padding=(4, 2),
             relief="flat",
             borderwidth=0,
             background=c["success"],
@@ -401,7 +414,7 @@ class ThemeManager:
         style.configure(
             "Audit.TButton",
             font=f["button"],
-            padding=(sp["md"], sp["sm"]),
+            padding=(4, 2),
             relief="flat",
             borderwidth=0,
             background=c["info"],
@@ -416,7 +429,7 @@ class ThemeManager:
         style.configure(
             "Danger.TButton",
             font=f["button"],
-            padding=(sp["md"], sp["sm"]),
+            padding=(4, 2),
             relief="flat",
             borderwidth=0,
             background=c["danger"],
@@ -431,7 +444,7 @@ class ThemeManager:
         style.configure(
             "Ghost.TButton",
             font=f["button"],
-            padding=(sp["md"], sp["sm"]),
+            padding=(4, 2),
             relief="flat",
             borderwidth=0,
             background=c["bg_main"],

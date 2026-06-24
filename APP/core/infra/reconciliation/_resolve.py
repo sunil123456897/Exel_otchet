@@ -7,9 +7,16 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from core.infra.utils import get_local_copy
 from ._types import MasterReconciliationRow, RschReconciliationRow
-from ._utils import (_compact_text, _normalize_text,
-    _canonical_match_text, _executor_alias_keys, _executor_tokens,
-    _text_tokens, _weak_customer_tokens)
+from ._utils import (
+    _compact_text,
+    _normalize_text,
+    _canonical_match_text,
+    _executor_alias_keys,
+    _executor_tokens,
+    _text_tokens,
+    _weak_customer_tokens,
+)
+
 
 def _amount_equal(left: Decimal, right: Decimal) -> bool:
     return abs(left - right) <= Decimal("0.01")
@@ -75,7 +82,7 @@ def _customer_matches_weak(left_value: str, right_value: str) -> bool:
     if _customer_matches_loose(left_value, right_value):
         return False
     common_tokens = _weak_customer_tokens(left_value) & _weak_customer_tokens(right_value)
-    return bool(common_tokens)
+    return len(common_tokens) >= 2
 
 
 def _rsch_customer_matches_weak(master_customer: str, rsch_row: RschReconciliationRow) -> bool:
@@ -133,12 +140,8 @@ def _common_sheet_dates(master_wb, rsch_wb) -> list[date]:
     master_dates, master_day_months = _workbook_sheet_dates(master_wb)
     rsch_dates, rsch_day_months = _workbook_sheet_dates(rsch_wb)
     common = set(master_dates & rsch_dates)
-    common.update(
-        d for d in master_dates if (d.day, d.month) in rsch_day_months
-    )
-    common.update(
-        d for d in rsch_dates if (d.day, d.month) in master_day_months
-    )
+    common.update(d for d in master_dates if (d.day, d.month) in rsch_day_months)
+    common.update(d for d in rsch_dates if (d.day, d.month) in master_day_months)
     return sorted(common)
 
 
@@ -178,9 +181,7 @@ def _find_sheet(wb, target_date: date) -> Worksheet:
     for ws in wb.worksheets:
         if ws.title in candidates:
             return ws
-    raise ValueError(
-        f"Не найден лист за дату {target_date.strftime('%d.%m.%Y')}"
-    )
+    raise ValueError(f"Не найден лист за дату {target_date.strftime('%d.%m.%Y')}")
 
 
 def _resolve_combined_target_date(
@@ -228,5 +229,3 @@ def _local_read_path(path: Path, drive_letters: tuple[str, ...] = ("Q", "Z")):
     finally:
         if temp_file:
             Path(temp_file).unlink(missing_ok=True)
-
-

@@ -10,9 +10,7 @@ from core.ui.debounce import Debouncer
 def _last_day_of_month(month_start: datetime) -> datetime:
     if month_start.month == 12:
         return month_start.replace(day=31)
-    return (month_start.replace(day=28) + timedelta(days=4)).replace(
-        day=1
-    ) - timedelta(days=1)
+    return (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
 
 
 def _previous_month_start(today: datetime) -> datetime:
@@ -35,14 +33,12 @@ class Sidebar(ttk.Frame):
     def __init__(self, parent, controller):
         screen_w = parent.winfo_screenwidth()
         sidebar_w = max(260, min(360, int(screen_w * 0.22)))
-        super().__init__(parent, width=sidebar_w, padding="10", style="Sidebar.TFrame")
+        super().__init__(parent, width=sidebar_w, padding="4", style="Sidebar.TFrame")
         self.controller = controller
         self.pack_propagate(False)
         # Debounce date changes so clicking through dates in the picker
         # does not fire a full refresh per click.
-        self._date_debouncer = Debouncer(
-            self, self.controller.refresh_status, delay_ms=250
-        )
+        self._date_debouncer = Debouncer(self, self.controller.refresh_status, delay_ms=250)
         self.canvas = tk.Canvas(
             self,
             borderwidth=0,
@@ -52,13 +48,9 @@ class Sidebar(ttk.Frame):
         # Canvas uses explicit colours (not a ttk style), so register
         # it to be re-themed on ThemeManager.set_theme().
         ThemeManager.register(self.canvas, bg_key="bg_sidebar")
-        self.scrollbar = ttk.Scrollbar(
-            self, orient=tk.VERTICAL, command=self.canvas.yview
-        )
+        self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
         self.content = ttk.Frame(self.canvas, style="Sidebar.TFrame")
-        self._content_window = self.canvas.create_window(
-            (0, 0), window=self.content, anchor=tk.NW
-        )
+        self._content_window = self.canvas.create_window((0, 0), window=self.content, anchor=tk.NW)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -110,18 +102,21 @@ class Sidebar(ttk.Frame):
     def _setup_ui(self):
         ttk.Label(
             self.content,
-            text="📊 ПАНЕЛЬ УПРАВЛЕНИЯ",
+            text="📊 ПАНЕЛЬ",
             style="Header.TLabel",
             background=ThemeManager.COLORS["bg_sidebar"],
-        ).pack(pady=(0, 10), anchor=tk.W)
+        ).pack(pady=(0, 4), anchor=tk.W)
 
         # Date Selection
-        date_frame = ttk.LabelFrame(self.content, text="📅 ВЫБОР ДАТЫ", padding=6)
-        date_frame.pack(fill=tk.X, pady=(4, 8))
+        date_frame = ttk.LabelFrame(self.content, text="📅 ВЫБОР ДАТЫ", padding=2)
+        date_frame.pack(fill=tk.X, pady=(1, 2))
+
+        date_row = ttk.Frame(date_frame)
+        date_row.pack(fill=tk.X)
 
         self.date_entry = DateEntry(
-            date_frame,
-            width=12,
+            date_row,
+            width=8,
             background=ThemeManager.COLORS["primary"],
             foreground="white",
             borderwidth=2,
@@ -132,36 +127,36 @@ class Sidebar(ttk.Frame):
             if "accent" in ThemeManager.COLORS
             else "#007bff",
         )
-        self.date_entry.pack(pady=(0, 4), fill=tk.X)
-        self.date_entry.bind(
-            "<<DateEntrySelected>>", lambda e: self._date_debouncer()
-        )
+        self.date_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.date_entry.bind("<<DateEntrySelected>>", lambda e: self._date_debouncer())
         self.bind("<Destroy>", self._on_destroy, add="+")
 
+        from core.ui.tooltip import Tooltip
+
         self.refresh_btn = ttk.Button(
-            date_frame,
-            text="🔄 Обновить статус",
+            date_row,
+            text="🔄",
+            width=3,
             command=self.controller.refresh_status,
         )
-        self.refresh_btn.pack(fill=tk.X, pady=(0, 4))
-
-        # Employee Management
-        emp_frame = ttk.LabelFrame(self.content, text="👤 СОТРУДНИКИ", padding=6)
-        emp_frame.pack(fill=tk.X, pady=(0, 8))
+        self.refresh_btn.pack(side=tk.RIGHT, padx=(4, 0))
+        Tooltip(self.refresh_btn, "Обновить статус")
+        emp_frame = ttk.LabelFrame(self.content, text="👤 СОТРУДНИКИ", padding=2)
+        emp_frame.pack(fill=tk.X, pady=(0, 2))
 
         self.add_employee_btn = ttk.Button(
             emp_frame, text="➕ Добавить", command=self.controller.add_employee_dialog
         )
-        self.add_employee_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.add_employee_btn.pack(fill=tk.X, pady=(0, 1))
 
         self.attach_btn = ttk.Button(
             emp_frame, text="📎 Привязать", command=self.controller.attach_file_dialog
         )
-        self.attach_btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.attach_btn.pack(fill=tk.X)
 
         # Consolidation Actions
-        action_frame = ttk.LabelFrame(self.content, text="🚀 СБОРКА", padding=6)
-        action_frame.pack(fill=tk.X, pady=(0, 8))
+        action_frame = ttk.LabelFrame(self.content, text="🚀 СБОРКА", padding=2)
+        action_frame.pack(fill=tk.X, pady=(0, 2))
 
         ttk.Label(action_frame, text="Кураторский отчет:").pack(anchor=tk.W)
         self.curator_var = tk.StringVar(value="Общий отчет")
@@ -171,7 +166,7 @@ class Sidebar(ttk.Frame):
             state="readonly",
             values=["Общий отчет", "Куратор Борис", "Куратор Иван"],
         )
-        self.curator_combo.pack(fill=tk.X, pady=(0, 4))
+        self.curator_combo.pack(fill=tk.X, pady=(0, 2))
 
         self.consolidate_btn = ttk.Button(
             action_frame,
@@ -179,99 +174,28 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_consolidation,
         )
-        self.consolidate_btn.pack(fill=tk.X, pady=(0, 4))
+        self.consolidate_btn.pack(fill=tk.X, pady=(0, 1))
 
         self.consolidate_all_btn = ttk.Button(
             action_frame,
             text="🌍 СОБРАТЬ ВСЕ ДАТЫ",
             command=self.controller.run_consolidation_all_dates,
         )
-        self.consolidate_all_btn.pack(fill=tk.X, pady=(0, 4))
-
-        # Monthly Range Section
-        month_frame = ttk.LabelFrame(self.content, text="📆 СБОРКА ЗА ПЕРИОД", padding=6)
-        month_frame.pack(fill=tk.X, pady=(0, 8))
-
-        ttk.Label(month_frame, text="С:").pack(anchor=tk.W)
-        self.month_start_entry = DateEntry(
-            month_frame,
-            width=12,
-            background=ThemeManager.COLORS["primary"],
-            foreground="white",
-            borderwidth=2,
-            date_pattern="dd.mm.yyyy",
-            locale="ru_RU",
-            headersbackground=ThemeManager.COLORS["primary"],
-        )
-        self.month_start_entry.pack(pady=(0, 4), fill=tk.X)
-        # По умолчанию — текущий месяц, а 1-го числа — прошлый полный месяц.
-        today = datetime.now()
-        default_start, default_end = get_default_period_range(today)
-        self.month_start_entry.set_date(default_start)
-
-        ttk.Label(month_frame, text="По:").pack(anchor=tk.W)
-        self.month_end_entry = DateEntry(
-            month_frame,
-            width=12,
-            background=ThemeManager.COLORS["primary"],
-            foreground="white",
-            borderwidth=2,
-            date_pattern="dd.mm.yyyy",
-            locale="ru_RU",
-            headersbackground=ThemeManager.COLORS["primary"],
-        )
-        self.month_end_entry.pack(pady=(0, 4), fill=tk.X)
-        self.month_end_entry.set_date(default_end)
-        # Realtime validation: when the user changes either date, refresh
-        # the visual state of the affected DateEntry (red border when
-        # the end is earlier than the start) and update the tooltip.
-        self.month_start_entry.bind(
-            "<<DateEntrySelected>>", lambda e: self._validate_period_range()
-        )
-        self.month_end_entry.bind(
-            "<<DateEntrySelected>>", lambda e: self._validate_period_range()
-        )
-        self._range_warning_tooltip = None
-        self._range_invalid = False
-
-        # Quick month preset buttons
-        preset_frame = ttk.Frame(month_frame)
-        preset_frame.pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(
-            preset_frame, text="Этот месяц", command=self._set_current_month
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
-        ttk.Button(
-            preset_frame, text="Пред. месяц", command=self._set_previous_month
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(3, 0))
-
-        self.consolidate_month_btn = ttk.Button(
-            month_frame,
-            text="📊 СОБРАТЬ ПЕРИОД",
-            style="Action.TButton",
-            command=self.controller.run_consolidation_month,
-        )
-        self.consolidate_month_btn.pack(fill=tk.X, pady=(0, 4))
-
-        self.rsch_month_btn = ttk.Button(
-            month_frame,
-            text="🧾 СОБРАТЬ РСЧ ЗА ПЕРИОД",
-            command=self.controller.run_rsch_report_month,
-        )
-        self.rsch_month_btn.pack(fill=tk.X)
+        self.consolidate_all_btn.pack(fill=tk.X, pady=(0, 1))
 
         self.rsch_btn = ttk.Button(
             action_frame,
             text="🧾 СОБРАТЬ РСЧ",
             command=self.controller.run_rsch_report,
         )
-        self.rsch_btn.pack(fill=tk.X, pady=(0, 4))
+        self.rsch_btn.pack(fill=tk.X, pady=(0, 1))
 
         self.reconciliation_btn = ttk.Button(
             action_frame,
             text="✅ СВЕРИТЬ С РСЧ",
             command=self.controller.run_reconciliation_report,
         )
-        self.reconciliation_btn.pack(fill=tk.X, pady=(0, 4))
+        self.reconciliation_btn.pack(fill=tk.X, pady=(0, 1))
 
         self.auto_reconciliation_btn = ttk.Button(
             action_frame,
@@ -279,40 +203,106 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_auto_reconciliation_day,
         )
-        self.auto_reconciliation_btn.pack(fill=tk.X, pady=(0, 4))
+        self.auto_reconciliation_btn.pack(fill=tk.X, pady=(0, 2))
+
+        # --- Collapsible Period Section ---------------------------------
+        self._period_expanded = False
+        self._per_container = ttk.LabelFrame(self.content, text="📆 ЗА ПЕРИОД", padding=0)
+        self._per_container.pack(fill=tk.X, pady=(0, 2))
+
+        self._per_toggle = ttk.Button(
+            self._per_container,
+            text="▶  Развернуть",
+            command=self._toggle_period_section,
+            style="Ghost.TButton",
+        )
+        self._per_toggle.pack(fill=tk.X, padx=2, pady=2)
+
+        self._per_panel = ttk.Frame(self._per_container, padding=2, style="Sidebar.TFrame")
+        # Panel content (built once, hidden until first expand)
+        # Date inputs side by side: "С: [date]  По: [date]"
+        dates_row = ttk.Frame(self._per_panel)
+        dates_row.pack(fill=tk.X, pady=(0, 1))
+        ttk.Label(dates_row, text="С:").pack(side=tk.LEFT)
+        self.month_start_entry = DateEntry(
+            dates_row,
+            width=7,
+            background=ThemeManager.COLORS["primary"],
+            foreground="white",
+            borderwidth=2,
+            date_pattern="dd.mm.yyyy",
+            locale="ru_RU",
+            headersbackground=ThemeManager.COLORS["primary"],
+        )
+        self.month_start_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 6))
+        today = datetime.now()
+        default_start, default_end = get_default_period_range(today)
+        self.month_start_entry.set_date(default_start)
+
+        ttk.Label(dates_row, text="По:").pack(side=tk.LEFT)
+        self.month_end_entry = DateEntry(
+            dates_row,
+            width=7,
+            background=ThemeManager.COLORS["primary"],
+            foreground="white",
+            borderwidth=2,
+            date_pattern="dd.mm.yyyy",
+            locale="ru_RU",
+            headersbackground=ThemeManager.COLORS["primary"],
+        )
+        self.month_end_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.month_end_entry.set_date(default_end)
+        self.month_start_entry.bind(
+            "<<DateEntrySelected>>", lambda e: self._validate_period_range()
+        )
+        self.month_end_entry.bind("<<DateEntrySelected>>", lambda e: self._validate_period_range())
+        self._range_warning_tooltip = None
+        self._range_invalid = False
+
+        # Quick month preset buttons
+        preset_frame = ttk.Frame(self._per_panel)
+        preset_frame.pack(fill=tk.X, pady=(0, 1))
+        ttk.Button(preset_frame, text="Этот месяц", command=self._set_current_month).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3)
+        )
+        ttk.Button(preset_frame, text="Пред. месяц", command=self._set_previous_month).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(3, 0)
+        )
+
+        self.consolidate_month_btn = ttk.Button(
+            self._per_panel,
+            text="📊 СОБРАТЬ ПЕРИОД",
+            style="Action.TButton",
+            command=self.controller.run_consolidation_month,
+        )
+        self.consolidate_month_btn.pack(fill=tk.X, pady=(0, 2))
+
+        self.rsch_month_btn = ttk.Button(
+            self._per_panel,
+            text="🧾 СОБРАТЬ РСЧ ЗА ПЕРИОД",
+            command=self.controller.run_rsch_report_month,
+        )
+        self.rsch_month_btn.pack(fill=tk.X)
 
         # Theme switcher: 3 options (light/dark/system). The "system"
         # option is auto-disabled on Windows 8 where the registry key
         # we read is not present — there's nothing to follow.
-        theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=6)
-        theme_frame.pack(fill=tk.X, pady=(0, 8))
+        theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=2)
+        theme_frame.pack(fill=tk.X, pady=(0, 2))
         self.theme_var = tk.StringVar(value="light")
-        from core.ui.system_theme import is_windows_8_or_earlier
-        win8 = is_windows_8_or_earlier()
+        theme_row = ttk.Frame(theme_frame)
+        theme_row.pack(fill=tk.X)
         for value, label in (
             ("light", "☀️ Светлая"),
             ("dark", "🌙 Тёмная"),
         ):
             ttk.Radiobutton(
-                theme_frame,
+                theme_row,
                 text=label,
                 variable=self.theme_var,
                 value=value,
                 command=self._on_theme_changed,
-            ).pack(anchor=tk.W)
-        # "Системная" only useful on Win 10/11, macOS, modern Linux.
-        rb_system = ttk.Radiobutton(
-            theme_frame,
-            text="💻 Системная" + (" (нет данных)" if win8 else ""),
-            variable=self.theme_var,
-            value="system",
-            command=self._on_theme_changed,
-        )
-        rb_system.pack(anchor=tk.W)
-        if win8:
-            rb_system.state(["disabled"])
-        from core.ui.tooltip import Tooltip
-        Tooltip(rb_system, "Следовать теме ОС. На Windows 8/8.1 недоступно — ОС не публикует тему.")
+            ).pack(side=tk.LEFT, padx=(0, 4))
 
     def _on_theme_changed(self):
         """Forward the chosen theme to the master controller."""
@@ -325,6 +315,16 @@ class Sidebar(ttk.Frame):
         # Cancel any pending debounced calls so a fast destroy during
         # the user's date-picking does not fire a stale refresh.
         self._date_debouncer.cancel()
+
+    def _toggle_period_section(self):
+        """Expand/collapse the period compilation panel."""
+        self._period_expanded = not getattr(self, "_period_expanded", False)
+        if self._period_expanded:
+            self._per_panel.pack(fill=tk.X, after=self._per_toggle)
+            self._per_toggle.configure(text="▼  Свернуть")
+        else:
+            self._per_panel.pack_forget()
+            self._per_toggle.configure(text="▶  Развернуть")
 
     def _set_current_month(self):
         today = datetime.now()
@@ -364,6 +364,7 @@ class Sidebar(ttk.Frame):
             self.month_start_entry.configure(foreground="#dc3545")
             self.month_end_entry.configure(foreground="#dc3545")
             from core.ui.tooltip import Tooltip
+
             if self._range_warning_tooltip is None:
                 self._range_warning_tooltip = Tooltip(
                     self.month_end_entry,
@@ -377,6 +378,7 @@ class Sidebar(ttk.Frame):
             self.month_start_entry.configure(foreground="white")
             self.month_end_entry.configure(foreground="white")
             from core.ui.tooltip import Tooltip
+
             if self._range_warning_tooltip is not None:
                 self._range_warning_tooltip.set_text("")
 
