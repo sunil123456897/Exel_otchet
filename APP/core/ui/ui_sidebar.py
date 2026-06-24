@@ -291,9 +291,6 @@ class Sidebar(ttk.Frame):
         theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=2)
         theme_frame.pack(fill=tk.X, pady=(0, 2))
         self.theme_var = tk.StringVar(value="light")
-        from core.ui.system_theme import is_windows_8_or_earlier
-
-        win8 = is_windows_8_or_earlier()
         theme_row = ttk.Frame(theme_frame)
         theme_row.pack(fill=tk.X)
         for value, label in (
@@ -307,19 +304,6 @@ class Sidebar(ttk.Frame):
                 value=value,
                 command=self._on_theme_changed,
             ).pack(side=tk.LEFT, padx=(0, 4))
-        rb_system = ttk.Radiobutton(
-            theme_row,
-            text="💻 Сист.",
-            variable=self.theme_var,
-            value="system",
-            command=self._on_theme_changed,
-        )
-        rb_system.pack(side=tk.LEFT)
-        if win8:
-            rb_system.state(["disabled"])
-        from core.ui.tooltip import Tooltip
-
-        Tooltip(rb_system, "Следовать теме ОС")
 
         # Settings button (opens universal settings dialog)
         self.settings_btn = ttk.Button(
