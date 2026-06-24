@@ -126,6 +126,10 @@ class EmployeeTable(ttk.Frame):
         """Re-apply theme-dependent tag colours after a palette switch."""
         self._configure_tags()
 
+    def reflow_columns(self) -> None:
+        """Recalculate column widths proportionally (called on scale change)."""
+        self._resize_columns()
+
     def _resize_columns(self, event: object = None) -> None:
         """Distribute treeview width proportionally across columns.
 

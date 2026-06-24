@@ -1,36 +1,38 @@
-"""Centralised colour palette and ttk style configuration.
+"""Centralised colour palette, ttk style configuration and adaptive scaling v2.
 
 Exposes two palettes (light + dark) and a runtime ``set_theme`` that
 re-applies the ttk styles so widgets that are created later pick up
-the active palette. Widgets already in the tree pick up the changes
-on the next ``configure`` call, which the GuiMaster triggers after
-the user switches themes.
+the active palette.
 
-Design tokens
--------------
+Design tokens (v2)
+------------------
 - ``COLORS``    : active palette (dict of hex strings).
 - ``FONTS``     : typography hierarchy (display / heading / body / ...).
-- ``SPACING``   : 4-step spacing scale (xs/sm/md/lg/xl/xxl).
-- ``animate_background`` : classmethod helper for smooth bg transitions.
+- ``SPACING``   : 6-step spacing scale (xs/sm/md/lg/xl/xxl).
+- ``RADIUS``    : border-radius scale (none / sm / md / lg / pill).
+- ``CONTROL``   : geometry of controls (button_h, row_h, scrollbar_w, …).
+
+Scaled values derive from a single ``_scale ∈ [0.72, 2.0]`` factor
+computed from **four** independent signals:
+
+  1. DPI — ``winfo_fpixels("1i") / 96``, rounded to 0.25.
+  2. Screen height — linear interpolation [600, 1440] → [0.78, 1.15].
+  3. Viewport width — linear interpolation [700, 1600] → [0.85, 1.12],
+     recalculated on every window resize (debounced 120 ms).
+  4. User multiplier — ``[0.80, 1.50]``, manual override.
 """
 
 from __future__ import annotations
 
+import math
 import tkinter as tk
 from tkinter import ttk
-from typing import ClassVar
+from typing import Callable, ClassVar
 
 # ---------------------------------------------------------------------------
 # Palettes
 # ---------------------------------------------------------------------------
-# All pre-existing keys (primary, primary_active, success, success_active,
-# danger, warning, info, info_active, bg_main, bg_sidebar, bg_panel, trough,
-# text, text_inverse, accent, tooltip_bg, tooltip_fg) are preserved verbatim
-# so existing call sites keep working. New refined keys are appended:
-#   danger_active, text_muted, border_subtle, border_default,
-#   success_subtle, danger_subtle, warning_subtle, info_subtle.
 _LIGHT = {
-    # --- accent / semantic ---
     "primary": "#2563eb",
     "primary_active": "#1d4ed8",
     "success": "#16a34a",
@@ -41,30 +43,24 @@ _LIGHT = {
     "info": "#0891b2",
     "info_active": "#0e7490",
     "accent": "#2563eb",
-    # --- backgrounds (warm off-white) ---
     "bg_main": "#f3f4f6",
     "bg_sidebar": "#ffffff",
     "bg_panel": "#e9ecef",
     "trough": "#cbd5e1",
-    # --- text ---
     "text": "#334155",
     "text_muted": "#64748b",
     "text_inverse": "#ffffff",
-    # --- borders ---
     "border_subtle": "#e2e8f0",
     "border_default": "#cbd5e1",
-    # --- subtle semantic fills (badges / cards) ---
     "success_subtle": "#dcfce7",
     "danger_subtle": "#fee2e2",
     "warning_subtle": "#fef3c7",
     "info_subtle": "#e0f2fe",
-    # --- misc ---
     "tooltip_bg": "#0f172a",
     "tooltip_fg": "#e2e8f0",
 }
 
 _DARK = {
-    # --- accent / semantic ---
     "primary": "#60a5fa",
     "primary_active": "#93c5fd",
     "success": "#4ade80",
@@ -75,31 +71,25 @@ _DARK = {
     "info": "#22d3ee",
     "info_active": "#67e8f9",
     "accent": "#60a5fa",
-    # --- backgrounds (rich charcoal) ---
     "bg_main": "#0f172a",
     "bg_sidebar": "#1e293b",
     "bg_panel": "#334155",
     "trough": "#334155",
-    # --- text ---
     "text": "#e2e8f0",
     "text_muted": "#94a3b8",
     "text_inverse": "#0f172a",
-    # --- borders ---
     "border_subtle": "#334155",
     "border_default": "#475569",
-    # --- subtle semantic fills ---
     "success_subtle": "#052e16",
     "danger_subtle": "#450a0a",
     "warning_subtle": "#422006",
     "info_subtle": "#082f49",
-    # --- misc ---
     "tooltip_bg": "#020617",
     "tooltip_fg": "#e2e8f0",
 }
 
 
 def _lerp_hex(a: str, b: str, t: float) -> str:
-    """Linearly interpolate between two ``#rrggbb`` colours (0<=t<=1)."""
     ar, ag, ab = int(a[1:3], 16), int(a[3:5], 16), int(a[5:7], 16)
     br, bg, bb = int(b[1:3], 16), int(b[3:5], 16), int(b[5:7], 16)
     r = round(ar + (br - ar) * t)
@@ -108,8 +98,20 @@ def _lerp_hex(a: str, b: str, t: float) -> str:
     return f"#{r:02x}{g:02x}{bl:02x}"
 
 
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
+
+
+def _lerp(lo: float, hi: float, t: float) -> float:
+    """Linearly interpolate (clamped)."""
+    return lo + (hi - lo) * _clamp(t, 0.0, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# ThemeManager
+# ---------------------------------------------------------------------------
 class ThemeManager:
-    """Static palette + ttk style configuration."""
+    """Static palette + ttk style configuration + adaptive scaling v2."""
 
     _PALETTES: ClassVar[dict[str, dict[str, str]]] = {
         "light": _LIGHT,
@@ -118,11 +120,33 @@ class ThemeManager:
 
     COLORS: ClassVar[dict[str, str]] = dict(_LIGHT)
     _current: ClassVar[str] = "light"
-    _scale: ClassVar[float] = 1.0
-    _scaled_fonts: ClassVar[dict[str, tuple]] = {}
 
-    # Typography hierarchy. "Segoe UI Semibold" is not universally available
-    # on Windows; ("Segoe UI", N, "bold") is, and visually close enough.
+    # ── scaling state ─────────────────────────────────────────
+    _scale: ClassVar[float] = 1.0
+    _scale_mode: ClassVar[str] = "auto"  # "auto" | "manual"
+    _user_scale: ClassVar[float] = 1.0  # ∈ [0.80, 1.50]
+    _density: ClassVar[str] = "normal"  # "compact" | "normal" | "comfortable"
+
+    # cached inputs for scale recomputation
+    _dpi: ClassVar[float] = 96.0
+    _screen_h: ClassVar[int] = 768
+    _viewport_w: ClassVar[int] = 1100
+    _viewport_h: ClassVar[int] = 700
+
+    _SCALE_MIN: ClassVar[float] = 0.72
+    _SCALE_MAX: ClassVar[float] = 2.0
+
+    _DENSITY_FACTORS: ClassVar[dict[str, float]] = {
+        "compact": 0.70,
+        "normal": 1.00,
+        "comfortable": 1.35,
+    }
+
+    # ── resize listener ───────────────────────────────────────
+    _resize_after_id: ClassVar[str | None] = None  # type: ignore[valid-type]
+    _scale_listeners: ClassVar[list[Callable[[float, str], None]]] = []
+
+    # ── typography ────────────────────────────────────────────
     _BASE_FONTS: ClassVar[dict[str, tuple]] = {
         "display": ("Segoe UI", 14, "bold"),
         "heading": ("Segoe UI", 12, "bold"),
@@ -133,9 +157,9 @@ class ThemeManager:
         "button": ("Segoe UI", 10),
     }
     FONTS: ClassVar[dict[str, tuple]] = dict(_BASE_FONTS)
+    _scaled_fonts: ClassVar[dict[str, tuple]] = {}
 
-    # 4-step spacing scale (pixels). Other modules may reference
-    # ThemeManager.SPACING["md"] instead of hardcoded numbers.
+    # ── spacing scale ─────────────────────────────────────────
     _BASE_SPACING: ClassVar[dict[str, int]] = {
         "xs": 4,
         "sm": 8,
@@ -146,50 +170,199 @@ class ThemeManager:
     }
     SPACING: ClassVar[dict[str, int]] = dict(_BASE_SPACING)
 
-    # Widgets that use explicit ``background=ThemeManager.COLORS[...]``
-    # (tk.Canvas, tk.Text, DateEntry, ...) do not pick up ttk style
-    # changes automatically. Register them here so ``set_theme`` can
-    # re-apply the current palette's colours to each. Entries are
-    # ``(widget, bg_key, fg_key)`` tuples; destroyed widgets are pruned
-    # lazily on the next ``set_theme`` call.
+    # ── border-radius tokens ──────────────────────────────────
+    _BASE_RADIUS: ClassVar[dict[str, int]] = {
+        "none": 0,
+        "sm": 4,
+        "md": 8,
+        "lg": 12,
+        "pill": 20,
+    }
+    RADIUS: ClassVar[dict[str, int]] = dict(_BASE_RADIUS)
+
+    # ── control-geometry tokens ───────────────────────────────
+    _BASE_CONTROL: ClassVar[dict[str, int]] = {
+        "button_h": 30,
+        "button_pad_x": 12,
+        "button_pad_y": 6,
+        "row_h": 32,
+        "row_h_compact": 26,
+        "scrollbar_w": 10,
+        "entry_h": 28,
+        "tab_pad_x": 16,
+        "tab_pad_y": 10,
+        "sidebar_min": 240,
+        "sidebar_max": 380,
+        "icon": 16,
+        "progress_h": 12,
+        "statusbar_h": 24,
+    }
+    CONTROL: ClassVar[dict[str, int]] = dict(_BASE_CONTROL)
+
+    # ── non-ttk widget registry ───────────────────────────────
     _themed_widgets: ClassVar[list] = []
+
+    # ── public: registration ──────────────────────────────────
 
     @classmethod
     def register(cls, widget, *, bg_key: str = "bg_panel", fg_key: str = "text") -> None:
         """Track a non-ttk widget so its colours follow theme switches."""
         cls._themed_widgets.append((widget, bg_key, fg_key))
 
+    # ── public: scaling ───────────────────────────────────────
+
     @classmethod
     def init_scaling(cls, root: tk.Tk) -> None:
-        """Calculate adaptive scale based on DPI AND screen height.
+        """Initialise scale inputs from the display. Called once after root creation."""
+        try:
+            cls._dpi = root.winfo_fpixels("1i")
+        except Exception:
+            cls._dpi = 96.0
+        try:
+            cls._screen_h = root.winfo_screenheight() or 768
+        except Exception:
+            cls._screen_h = 768
+        try:
+            cls._viewport_w = root.winfo_width() or 1100
+            cls._viewport_h = root.winfo_height() or 700
+        except Exception:
+            cls._viewport_w = 1100
+            cls._viewport_h = 700
+        cls._recompute_scale()
+        cls._rebuild_tokens()
 
-        On small screens (e.g. 1366x768, 1024x600) the scale factor
-        is reduced so the whole UI fits without scrolling. On large
-        high-DPI screens the DPI component dominates so text stays
-        crisp.
+    @classmethod
+    def attach_resize_listener(cls, root: tk.Tk) -> None:
+        """Subscribe to ``<Configure>`` on *root* and recalculate scale on resize.
 
-        Fonts and spacing are rebuilt afterwards. Must be called once
-        after ``root = tk.Tk()``.
+        Uses a 120 ms debounce so fast window resizes don't trigger a
+        cascade of style rebuilds.
         """
-        try:
-            dpi = root.winfo_fpixels("1i")
-            dpi_scale = max(1.0, round(dpi / 96.0 * 2) / 2)
-        except Exception:
-            dpi_scale = 1.0
+        cls._resize_after_id = None
 
-        # --- screen-height factor -------------------------------------------
-        # 900 px  → factor 1.0  (full-size)
-        # 768 px  → factor 0.85 (compact — 1366×768 laptop)
-        # 600 px  → factor 0.78 (very compact — netbook)
-        try:
-            screen_h = root.winfo_screenheight()
-            height_factor = min(1.0, max(0.78, (screen_h or 768) / 900))
-        except Exception:
-            height_factor = 1.0
+        def _on_configure(event: tk.Event) -> None:
+            if event.widget is not root:
+                return
+            if event.width == cls._viewport_w and event.height == cls._viewport_h:
+                return
+            cls._viewport_w = event.width
+            cls._viewport_h = event.height
+            if cls._resize_after_id is not None:
+                try:
+                    root.after_cancel(cls._resize_after_id)
+                except Exception:
+                    pass
+            cls._resize_after_id = root.after(120, cls._on_resize_tick, root)
 
-        cls._scale = max(0.78, dpi_scale * height_factor)
+        root.bind("<Configure>", _on_configure, add="+")
+
+    @classmethod
+    def _on_resize_tick(cls, _root: tk.Tk) -> None:
+        old = cls._scale
+        cls._recompute_scale()
+        # Only rebuild if scale actually changed (within 4th decimal).
+        if abs(cls._scale - old) < 0.0001:
+            return
+        cls._rebuild_tokens()
+
+    @classmethod
+    def apply_preferences(
+        cls,
+        *,
+        scale_mode: str | None = None,
+        user_scale: float | None = None,
+        density: str | None = None,
+    ) -> None:
+        """Apply external prefs and rebuild if anything changed.
+
+        Called by the settings dialog (live preview) and by
+        :meth:`GuiMasterSettingsMixin.apply_ui_preferences`.
+        """
+        changed = False
+        if scale_mode is not None and scale_mode != cls._scale_mode:
+            cls._scale_mode = scale_mode
+            changed = True
+        if user_scale is not None and abs(user_scale - cls._user_scale) > 0.001:
+            cls._user_scale = user_scale
+            changed = True
+        if density is not None and density != cls._density:
+            cls._density = density
+            changed = True
+        if changed:
+            old = cls._scale
+            cls._recompute_scale()
+            if abs(cls._scale - old) >= 0.0001 or changed:
+                cls._rebuild_tokens()
+
+    @classmethod
+    def add_scale_listener(cls, cb: Callable[[float, str], None]) -> None:
+        """Register a callback invoked when scale (or density) changes.
+
+        The callback receives ``(new_scale, viewport_mode)``.
+        Use :meth:`remove_scale_listener` to unsubscribe.
+        """
+        if cb not in cls._scale_listeners:
+            cls._scale_listeners.append(cb)
+
+    @classmethod
+    def remove_scale_listener(cls, cb: Callable[[float, str], None]) -> None:
+        """Unregister a previously added scale-listener callback."""
+        try:
+            cls._scale_listeners.remove(cb)
+        except ValueError:
+            pass
+
+    @classmethod
+    def viewport_mode(cls) -> str:
+        """Classify the current window width.
+
+        Returns ``"compact"`` (<900 px), ``"normal"`` (900-1400 px),
+        or ``"large"`` (>1400 px).
+        """
+        w = cls._viewport_w
+        if w < 900:
+            return "compact"
+        if w <= 1400:
+            return "normal"
+        return "large"
+
+    # ── internal: scale recomputation ─────────────────────────
+
+    @classmethod
+    def _recompute_scale(cls) -> None:
+        if cls._scale_mode == "manual":
+            cls._scale = _clamp(cls._user_scale, cls._SCALE_MIN, cls._SCALE_MAX)
+            return
+
+        dpi_factor = max(1.0, round(cls._dpi / 96.0 * 4) / 4)
+        h = max(480, cls._screen_h)
+        height_factor = _lerp(0.78, 1.15, (h - 600) / (1440 - 600))
+        height_factor = _clamp(height_factor, 0.78, 1.15)
+
+        vw = max(640, cls._viewport_w)
+        viewport_factor = _lerp(0.85, 1.12, (vw - 700) / (1600 - 700))
+        viewport_factor = _clamp(viewport_factor, 0.85, 1.12)
+
+        combined = dpi_factor * height_factor * viewport_factor * cls._user_scale
+        cls._scale = _clamp(combined, cls._SCALE_MIN, cls._SCALE_MAX)
+
+    @classmethod
+    def _rebuild_tokens(cls) -> None:
+        """Rebuild all token groups from current ``_scale`` and ``_density``."""
         cls._rebuild_fonts()
         cls._rebuild_spacing()
+        cls._rebuild_radius()
+        cls._rebuild_control()
+        try:
+            cls.apply_styles()
+        except Exception:
+            pass
+        mode = cls.viewport_mode()
+        for cb in cls._scale_listeners:
+            try:
+                cb(cls._scale, mode)
+            except Exception:
+                pass
 
     @classmethod
     def _rebuild_fonts(cls) -> None:
@@ -204,8 +377,26 @@ class ThemeManager:
 
     @classmethod
     def _rebuild_spacing(cls) -> None:
-        s = cls._scale
+        s = cls._scale * cls._DENSITY_FACTORS.get(cls._density, 1.0)
         cls.SPACING = {k: max(2, int(v * s)) for k, v in cls._BASE_SPACING.items()}
+
+    @classmethod
+    def _rebuild_radius(cls) -> None:
+        s = cls._scale
+        cls.RADIUS = {k: max(0, math.ceil(v * s)) for k, v in cls._BASE_RADIUS.items()}
+
+    @classmethod
+    def _rebuild_control(cls) -> None:
+        s = cls._scale
+        d = cls._DENSITY_FACTORS.get(cls._density, 1.0)
+        cls.CONTROL = {k: max(4, int(v * s)) for k, v in cls._BASE_CONTROL.items()}
+        # density only affects padding, not button/row heights
+        cls.CONTROL["button_pad_x"] = max(4, int(cls._BASE_CONTROL["button_pad_x"] * s * d))
+        cls.CONTROL["button_pad_y"] = max(2, int(cls._BASE_CONTROL["button_pad_y"] * s * d))
+        cls.CONTROL["tab_pad_x"] = max(4, int(cls._BASE_CONTROL["tab_pad_x"] * s * d))
+        cls.CONTROL["tab_pad_y"] = max(4, int(cls._BASE_CONTROL["tab_pad_y"] * s * d))
+
+    # ── public: theme switching ───────────────────────────────
 
     @classmethod
     def current_theme(cls) -> str:
@@ -213,11 +404,6 @@ class ThemeManager:
 
     @classmethod
     def set_theme(cls, name: str) -> None:
-        """Switch the palette AND re-apply ttk styles.
-
-        Unknown theme names raise ``ValueError`` — the caller's UI
-        should only offer choices that have been registered.
-        """
         if name not in cls._PALETTES:
             raise ValueError(f"Unknown theme {name!r}. Known: {sorted(cls._PALETTES)}")
         cls._current = name
@@ -225,12 +411,7 @@ class ThemeManager:
         try:
             cls.apply_styles()
         except Exception:
-            # If there is no Tk yet (e.g. unit test importing the module),
-            # the styles are still in place and the next GUI boot will
-            # call apply_styles() with the right palette active.
             pass
-        # Re-apply explicit colours to non-ttk widgets (Canvas, Text,
-        # DateEntry, ...). Destroyed widgets are pruned silently.
         for entry in list(cls._themed_widgets):
             try:
                 widget, bg_key, fg_key = entry
@@ -243,28 +424,18 @@ class ThemeManager:
 
     @classmethod
     def palette(cls) -> dict[str, str]:
-        """Return a fresh copy of the active palette."""
         return dict(cls._PALETTES[cls._current])
 
     @classmethod
     def resolve_effective(cls, preference: str) -> str:
-        """Resolve "system" to the actual light/dark value.
-
-        Used by the GUI when the user has "follow system" selected.
-        On Windows 8 the registry key is absent, so we fall back to
-        the light theme and let the user switch manually.
-        """
         if preference != "system":
             return preference
-        # Local import: avoid pulling in GUI/registry code at module
-        # import time during tests.
         from core.ui.system_theme import detect_system_theme
 
         return detect_system_theme() or "light"
 
-    # ------------------------------------------------------------------
-    # Smooth background animation helper
-    # ------------------------------------------------------------------
+    # ── smooth background animation ───────────────────────────
+
     @classmethod
     def animate_background(
         cls,
@@ -273,19 +444,10 @@ class ThemeManager:
         steps: int = 8,
         delay_ms: int = 16,
     ) -> None:
-        """Interpolate ``widget`` background to ``target`` over ~``steps*delay_ms`` ms.
-
-        Cancels any in-flight animation for the same widget before starting
-        a new one (avoids flicker when Enter/Leave fire in quick succession).
-        Intended for plain ``tk`` widgets (Frame, Label, ...). ttk widgets
-        ignore ``background=`` for the most part — callers should pick
-        appropriate targets. Best-effort: silently bails on any Tcl error.
-        """
         try:
             current = widget.cget("background")
         except Exception:
             return
-        # Cancel pending animation for this widget, if any.
         prev = getattr(widget, "_theme_anim_ids", None)
         if prev:
             for aid in prev:
@@ -310,60 +472,44 @@ class ThemeManager:
             except Exception:
                 return
         try:
-            widget._theme_anim_ids = ids  # type: ignore[attr-defined]
+            widget._theme_anim_ids = ids
         except Exception:
             pass
 
-    # ------------------------------------------------------------------
-    # ttk style configuration
-    # ------------------------------------------------------------------
+    # ── ttk style configuration ───────────────────────────────
+
     @classmethod
     def apply_styles(cls) -> None:
         c = cls.COLORS
         f = cls.FONTS
         s = cls._scale
         sp = cls.SPACING
+        ctrl = cls.CONTROL
         style = ttk.Style()
         try:
             style.theme_use("clam")
         except Exception:
-            # Some custom themes may not exist on a system. The default
-            # 'clam' is bundled with Tk; if even that fails we leave
-            # whatever theme is active so the app still starts.
             pass
 
-        # --- Frames -------------------------------------------------------
+        # --- Frames ---
         style.configure("Main.TFrame", background=c["bg_main"])
         style.configure("Sidebar.TFrame", background=c["bg_sidebar"], relief="flat")
 
-        # --- Labels -------------------------------------------------------
+        # --- Labels ---
+        style.configure("TLabel", background=c["bg_main"], foreground=c["text"], font=f["body"])
         style.configure(
-            "TLabel",
-            background=c["bg_main"],
-            foreground=c["text"],
-            font=f["body"],
+            "Sidebar.TLabel", background=c["bg_sidebar"], foreground=c["text"], font=f["body"]
         )
         style.configure(
-            "Sidebar.TLabel",
-            background=c["bg_sidebar"],
-            foreground=c["text"],
-            font=f["body"],
-        )
-        style.configure(
-            "Header.TLabel",
-            font=f["display"],
-            foreground=c["primary"],
-            background=c["bg_main"],
+            "Header.TLabel", font=f["display"], foreground=c["primary"], background=c["bg_main"]
         )
 
-        # --- Buttons (base + variants) -----------------------------------
-        # Flat, breathable padding. Hover handled via style.map (instant,
-        # reliable). Smooth animation is available via animate_background
-        # for non-ttk widgets (toast frames, etc.).
+        # --- Buttons (all use control tokens for padding) ---
+        btn_pad = (ctrl["button_pad_x"], ctrl["button_pad_y"])
         style.configure(
             "TButton",
             font=f["button"],
-            padding=(4, 2),
+            padding=btn_pad,
             relief="flat",
             borderwidth=0,
             background=c["bg_panel"],
@@ -371,20 +517,14 @@ class ThemeManager:
         )
         style.map(
             "TButton",
-            background=[
-                ("active", c["primary"]),
-                ("disabled", c["bg_panel"]),
-            ],
-            foreground=[
-                ("active", c["text_inverse"]),
-                ("disabled", c["text_muted"]),
-            ],
+            background=[("active", c["primary"]), ("disabled", c["bg_panel"])],
+            foreground=[("active", c["text_inverse"]), ("disabled", c["text_muted"])],
         )
-        # Primary action (was: Action.TButton). Keep exact name.
+
         style.configure(
             "Action.TButton",
             font=f["button"],
-            padding=(4, 2),
+            padding=btn_pad,
             relief="flat",
             borderwidth=0,
             background=c["primary"],
@@ -395,11 +535,11 @@ class ThemeManager:
             background=[("active", c["primary_active"]), ("disabled", c["bg_panel"])],
             foreground=[("disabled", c["text_muted"])],
         )
-        # Success (positive actions).
+
         style.configure(
             "Success.TButton",
             font=f["button"],
-            padding=(4, 2),
+            padding=btn_pad,
             relief="flat",
             borderwidth=0,
             background=c["success"],
@@ -410,11 +550,11 @@ class ThemeManager:
             background=[("active", c["success_active"]), ("disabled", c["bg_panel"])],
             foreground=[("disabled", c["text_muted"])],
         )
-        # Audit (informational, was: info/blue).
+
         style.configure(
             "Audit.TButton",
             font=f["button"],
-            padding=(4, 2),
+            padding=btn_pad,
             relief="flat",
             borderwidth=0,
             background=c["info"],
@@ -425,11 +565,11 @@ class ThemeManager:
             background=[("active", c["info_active"]), ("disabled", c["bg_panel"])],
             foreground=[("disabled", c["text_muted"])],
         )
-        # Danger (destructive actions like delete).
+
         style.configure(
             "Danger.TButton",
             font=f["button"],
-            padding=(4, 2),
+            padding=btn_pad,
             relief="flat",
             borderwidth=0,
             background=c["danger"],
@@ -440,11 +580,11 @@ class ThemeManager:
             background=[("active", c["danger_active"]), ("disabled", c["bg_panel"])],
             foreground=[("disabled", c["text_muted"])],
         )
-        # Ghost (transparent secondary; border surfaces on hover).
+
         style.configure(
             "Ghost.TButton",
             font=f["button"],
-            padding=(4, 2),
+            padding=btn_pad,
             relief="flat",
             borderwidth=0,
             background=c["bg_main"],
@@ -452,19 +592,26 @@ class ThemeManager:
         )
         style.map(
             "Ghost.TButton",
-            background=[
-                ("active", c["bg_panel"]),
-                ("disabled", c["bg_main"]),
-            ],
-            foreground=[
-                ("active", c["primary"]),
-                ("disabled", c["text_muted"]),
-            ],
+            background=[("active", c["bg_panel"]), ("disabled", c["bg_main"])],
+            foreground=[("active", c["primary"]), ("disabled", c["text_muted"])],
         )
 
-        # --- LabelFrame / Card -------------------------------------------
-        # Modern flat card: subtle border, muted label (not primary —
-        # muted reads as a refined card title rather than a heading).
+        style.configure(
+            "Settings.TButton",
+            font=f["button"],
+            padding=btn_pad,
+            relief="flat",
+            borderwidth=0,
+            background=c["bg_main"],
+            foreground=c["text"],
+        )
+        style.map(
+            "Settings.TButton",
+            background=[("active", c["primary"])],
+            foreground=[("active", c["text_inverse"])],
+        )
+
+        # --- LabelFrame / Card ---
         style.configure(
             "TLabelframe",
             background=c["bg_sidebar"],
@@ -478,7 +625,6 @@ class ThemeManager:
             foreground=c["text_muted"],
             font=f["heading"],
         )
-        # Card variant — same look, explicit so callers can opt in.
         style.configure(
             "Card.TLabelframe",
             background=c["bg_sidebar"],
@@ -493,11 +639,11 @@ class ThemeManager:
             font=f["heading"],
         )
 
-        # --- Treeview -----------------------------------------------------
+        # --- Treeview ---
         style.configure(
             "Treeview",
             font=f["body"],
-            rowheight=int(32 * s),
+            rowheight=ctrl.get("row_h_compact" if cls._density == "compact" else "row_h", 32),
             background=c["bg_sidebar"],
             fieldbackground=c["bg_sidebar"],
             foreground=c["text"],
@@ -518,12 +664,9 @@ class ThemeManager:
             background=[("selected", c["primary"])],
             foreground=[("selected", c["text_inverse"])],
         )
-        style.map(
-            "Treeview.Heading",
-            background=[("active", c["border_default"])],
-        )
+        style.map("Treeview.Heading", background=[("active", c["border_default"])])
 
-        # --- Entry / Combobox --------------------------------------------
+        # --- Entry / Combobox ---
         style.configure(
             "TEntry",
             fieldbackground=c["bg_sidebar"],
@@ -566,7 +709,8 @@ class ThemeManager:
             arrowcolor=[("active", c["primary"])],
         )
 
-        # --- Scrollbars (thinner, subtler) -------------------------------
+        # --- Scrollbars ---
+        sw = ctrl.get("scrollbar_w", 10)
         for orient in ("Vertical", "Horizontal"):
             style.configure(
                 f"{orient}.TScrollbar",
@@ -575,7 +719,7 @@ class ThemeManager:
                 arrowcolor=c["text_muted"],
                 bordercolor=c["bg_main"],
                 relief="flat",
-                width=int(10 * s) if orient == "Vertical" else int(10 * s),
+                width=sw,
             )
             style.map(
                 f"{orient}.TScrollbar",
@@ -583,39 +727,27 @@ class ThemeManager:
                 arrowcolor=[("active", c["text"])],
             )
 
-        # --- Notebook / Tabs ---------------------------------------------
+        # --- Notebook ---
         style.configure(
-            "TNotebook",
-            background=c["bg_main"],
-            borderwidth=0,
-            tabmargins=(0, 4, 0, 0),
+            "TNotebook", background=c["bg_main"], borderwidth=0, tabmargins=(0, 4, 0, 0)
         )
         style.configure(
             "TNotebook.Tab",
             font=f["body"],
             background=c["bg_main"],
             foreground=c["text_muted"],
-            padding=(sp["lg"], int(10 * s)),
+            padding=(ctrl["tab_pad_x"], ctrl["tab_pad_y"]),
             borderwidth=0,
         )
         style.map(
             "TNotebook.Tab",
-            background=[
-                ("selected", c["bg_sidebar"]),
-                ("active", c["bg_panel"]),
-            ],
-            foreground=[
-                ("selected", c["primary"]),
-                ("active", c["text"]),
-            ],
+            background=[("selected", c["bg_sidebar"]), ("active", c["bg_panel"])],
+            foreground=[("selected", c["primary"]), ("active", c["text"])],
         )
 
-        # --- Checkbutton / Radiobutton -----------------------------------
+        # --- Checkbutton / Radiobutton ---
         style.configure(
-            "TCheckbutton",
-            background=c["bg_sidebar"],
-            foreground=c["text"],
-            font=f["body"],
+            "TCheckbutton", background=c["bg_sidebar"], foreground=c["text"], font=f["body"]
         )
         style.map(
             "TCheckbutton",
@@ -623,10 +755,7 @@ class ThemeManager:
             foreground=[("disabled", c["text_muted"])],
         )
         style.configure(
-            "TRadiobutton",
-            background=c["bg_sidebar"],
-            foreground=c["text"],
-            font=f["body"],
+            "TRadiobutton", background=c["bg_sidebar"], foreground=c["text"], font=f["body"]
         )
         style.map(
             "TRadiobutton",
@@ -634,10 +763,10 @@ class ThemeManager:
             foreground=[("disabled", c["text_muted"])],
         )
 
-        # --- Progressbar (slimmer) ---------------------------------------
+        # --- Progressbar ---
         style.configure(
             "TProgressbar",
-            thickness=int(12 * s),
+            thickness=ctrl.get("progress_h", 12),
             troughcolor=c["bg_panel"],
             background=c["primary"],
             bordercolor=c["border_subtle"],
@@ -645,17 +774,27 @@ class ThemeManager:
             darkcolor=c["primary"],
         )
 
-        # --- Status bar ---------------------------------------------------
-        style.configure(
-            "StatusBar.TFrame",
-            background=c["bg_panel"],
-            relief="flat",
-        )
+        # --- Status bar ---
+        style.configure("StatusBar.TFrame", background=c["bg_panel"], relief="flat")
         style.configure(
             "StatusBar.TLabel",
             background=c["bg_panel"],
             foreground=c["text_muted"],
             font=f["caption"],
+        )
+
+        # --- Spinbox ---
+        style.configure(
+            "TSpinbox",
+            fieldbackground=c["bg_sidebar"],
+            background=c["bg_sidebar"],
+            foreground=c["text"],
+            arrowcolor=c["text_muted"],
+        )
+        style.map(
+            "TSpinbox",
+            fieldbackground=[("focus", c["bg_sidebar"])],
+            arrowcolor=[("active", c["primary"])],
         )
 
 

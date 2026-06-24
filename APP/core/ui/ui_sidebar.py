@@ -1,4 +1,5 @@
 import sys
+import logging
 import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
@@ -290,6 +291,9 @@ class Sidebar(ttk.Frame):
         theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=2)
         theme_frame.pack(fill=tk.X, pady=(0, 2))
         self.theme_var = tk.StringVar(value="light")
+        from core.ui.system_theme import is_windows_8_or_earlier
+
+        win8 = is_windows_8_or_earlier()
         theme_row = ttk.Frame(theme_frame)
         theme_row.pack(fill=tk.X)
         for value, label in (
@@ -303,6 +307,31 @@ class Sidebar(ttk.Frame):
                 value=value,
                 command=self._on_theme_changed,
             ).pack(side=tk.LEFT, padx=(0, 4))
+        rb_system = ttk.Radiobutton(
+            theme_row,
+            text="💻 Сист.",
+            variable=self.theme_var,
+            value="system",
+            command=self._on_theme_changed,
+        )
+        rb_system.pack(side=tk.LEFT)
+        if win8:
+            rb_system.state(["disabled"])
+        from core.ui.tooltip import Tooltip
+
+        Tooltip(rb_system, "Следовать теме ОС")
+
+        # Settings button (opens universal settings dialog)
+        self.settings_btn = ttk.Button(
+            self.content,
+            text="⚙ НАСТРОЙКИ",
+            command=self._open_settings_fallback,
+        )
+        self.settings_btn.pack(fill=tk.X, pady=(2, 0))
+
+        # Subscribe to scale changes for adaptive width
+        self._scale_cb = lambda _s, _mode: self.after(0, self._recompute_width)
+        ThemeManager.add_scale_listener(self._scale_cb)
 
     def _on_theme_changed(self):
         """Forward the chosen theme to the master controller."""
@@ -315,6 +344,42 @@ class Sidebar(ttk.Frame):
         # Cancel any pending debounced calls so a fast destroy during
         # the user's date-picking does not fire a stale refresh.
         self._date_debouncer.cancel()
+        if hasattr(self, "_scale_cb"):
+            ThemeManager.remove_scale_listener(self._scale_cb)
+
+    def _recompute_width(self) -> None:
+        """Recalculate sidebar width from CONTROL tokens and viewport mode."""
+        ctrl = ThemeManager.CONTROL
+        sidebar_min = ctrl.get("sidebar_min", 240)
+        sidebar_max = ctrl.get("sidebar_max", 380)
+        mode = ThemeManager.viewport_mode()
+        pcts = {"compact": 0.20, "normal": 0.22, "large": 0.24}
+        pct = pcts.get(mode, 0.22)
+        screen_w = self.winfo_screenwidth()
+        new_w = max(sidebar_min, min(sidebar_max, int(screen_w * pct)))
+        if new_w != self.winfo_width():
+            self.configure(width=new_w)
+
+    def _open_settings_fallback(self) -> None:
+        """Open settings dialog — forward to controller or open directly."""
+        opener = getattr(self.controller, "open_settings", None)
+        if callable(opener):
+            opener()
+        else:
+            # Fallback: open dialog with a warning log
+            from core.ui.ui_settings import SettingsDialog
+            from core.infra.settings_store import SettingsStore
+
+            cc = getattr(self.controller, "config_controller", None)
+            store = SettingsStore(cc) if cc else None
+            logging.warning("GuiMaster.open_settings() not available — direct open")
+            SettingsDialog(
+                parent=self,
+                config_controller=cc,
+                settings_store=store,
+                current_prefs=store.load_preferences() if store else None,
+                gui=self.controller,
+            )
 
     def _toggle_period_section(self):
         """Expand/collapse the period compilation panel."""

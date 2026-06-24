@@ -24,6 +24,7 @@ from core.app_controller import AppController
 from core.view_models.employee_list_viewmodel import EmployeeListViewModel
 from core.view_models.consolidation_viewmodel import ConsolidationViewModel
 from core.ui.gui_commands import GuiCommands
+from core.ui.gui_master_settings import GuiMasterSettingsMixin
 
 
 def _fit_window_geometry(
@@ -55,12 +56,10 @@ def _resolve_initial_geometry(
     saved = load_geometry()
     if saved and is_geometry_visible(saved, screen_width, screen_height):
         return saved
-    return _fit_window_geometry(
-        preferred[0], preferred[1], screen_width, screen_height
-    )
+    return _fit_window_geometry(preferred[0], preferred[1], screen_width, screen_height)
 
 
-class GuiMaster:
+class GuiMaster(GuiMasterSettingsMixin):
     def __init__(
         self,
         root: tk.Tk,
@@ -74,6 +73,7 @@ class GuiMaster:
         )
         self.root.title("🚀 Master-Report v5.5 | Financial Consolidator")
         ThemeManager.init_scaling(self.root)
+        ThemeManager.attach_resize_listener(self.root)
         ThemeManager.apply_styles()
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         self.root.geometry(_resolve_initial_geometry((1100, 840), sw, sh))
@@ -113,9 +113,7 @@ class GuiMaster:
                 snap = self.operation_state.snapshot()
                 if snap.current:
                     label = OPERATION_LABELS.get(snap.current, "")
-                    self.root.title(
-                        f"{self._base_title} — {label} {snap.progress:.0f}%"
-                    )
+                    self.root.title(f"{self._base_title} — {label} {snap.progress:.0f}%")
                 else:
                     self.root.title(self._base_title)
             except Exception:
@@ -126,6 +124,7 @@ class GuiMaster:
         def _poll() -> None:
             _refresh_title()
             self.root.after(500, _poll)
+
         self.root.after(500, _poll)
         self.operation_state.add_listener(
             lambda snap: self.root.after(0, lambda: self.sidebar.apply(snap))
@@ -137,9 +136,7 @@ class GuiMaster:
         # Must be marshalled via root.after() — OperationState._notify
         # is called from background threads during consolidation.
         self.operation_state.add_listener(
-            lambda snap: self.root.after(
-                0, lambda: self._on_operation_snapshot(snap)
-            )
+            lambda snap: self.root.after(0, lambda: self._on_operation_snapshot(snap))
         )
         setup_gui_logging(self.log_panel.get_widget())
 
@@ -162,6 +159,7 @@ class GuiMaster:
         # has picked "Системная" we follow OS dark/light changes without
         # an app restart. No-op when the user has chosen light/dark.
         self.start_theme_polling()
+        self._init_settings(config_controller)
 
     def setup_ui(self):
         self.sidebar = Sidebar(self.root, self)
@@ -244,9 +242,7 @@ class GuiMaster:
             if ok:
                 logging.info(f"Успешно: {msg}")
                 self.dashboard_tabs.record_result("Master", ok, msg, path)
-                if path and messagebox.askyesno(
-                    "Успех", "Консолидация завершена. Открыть файл?"
-                ):
+                if path and messagebox.askyesno("Успех", "Консолидация завершена. Открыть файл?"):
                     open_path(str(path))
                 self.toasts.success("Master-отчет", msg, duration_ms=4000)
             elif cancelled:
