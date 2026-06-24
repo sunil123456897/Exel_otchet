@@ -83,6 +83,7 @@ _SPECIAL_CUSTOMER_MARKERS = (
     "% по выплате",
     "комиссия",
     "налог",
+    "взносы",
 )
 _NO_ACCOUNT_MARKERS = (
     "факторинг",

@@ -351,6 +351,7 @@ def _is_excluded_customer(value: Any) -> bool:
             "% по выплате",
             "по выплате",
             "комиссия",
+            "взносы",
         )
     )
 
