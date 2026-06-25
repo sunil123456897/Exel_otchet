@@ -90,7 +90,6 @@ _THIN_BORDER = Border(
 )
 
 
-
 def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
@@ -139,7 +138,11 @@ def _canonical_match_text_cached(text: str) -> str:
     # ANO Техникум: "АНО ТСК", "АНО ТЕХНИКУМ"
     text = re.sub(r"\bано[\s_]+тск\b", "анотехникум", text)
     text = re.sub(r"\bано[\s_]+техникум\b", "анотехникум", text)
-    text = re.sub(r"(?<![а-я])тск(?:(?:[\s_]+сбер)|(?:[\s_]+альфа)|(?:[\s_]+втб)|(?:[\s_]+сб))?(?![а-я])", "анотехникум", text)
+    text = re.sub(
+        r"(?<![а-я])тск(?:(?:[\s_]+сбер)|(?:[\s_]+альфа)|(?:[\s_]+втб)|(?:[\s_]+сб))?(?![а-я])",
+        "анотехникум",
+        text,
+    )
     # SB Защита: "СБ ЗАЩИТА", "Защита РРБ", "Защита"
     text = re.sub(r"\bсб[\s_]+защита\b", "сбзащита", text)
     text = re.sub(r"\bзащита[\s_]+ррб\b", "сбзащита", text)
@@ -147,7 +150,9 @@ def _canonical_match_text_cached(text: str) -> str:
     text = re.sub(r"\bстип[\s_]*сбер\b", "стинг", text)
     text = re.sub(r"(?<![а-я])стип(?![а-я])", "стинг", text)
     text = re.sub(r"\bстинг[\s_]*сбер\b", "стинг сбер", text)
-    text = re.sub(r"(?<![а-я])сти(?:[\s_]+сбер|[\s_]+альфа|[\s_]+втб|[\s_]+сб)?(?![а-я])", "стинг", text)
+    text = re.sub(
+        r"(?<![а-я])сти(?:[\s_]+сбер|[\s_]+альфа|[\s_]+втб|[\s_]+сб)?(?![а-я])", "стинг", text
+    )
     # Прайм = Прессбук (один банк)
     text = re.sub(r"\bпрайм\b", "прессбук", text)
     # ПБ = Прессбук (compact form)
@@ -158,10 +163,16 @@ def _canonical_match_text_cached(text: str) -> str:
     # Пиплкрафт: "Пип", "ПипКрафт", "Пипл Сбер", "Пип крафт Альфа"
     # NOTE: (?!л) prevents matching "пип" inside "пипл" which would
     # leave trailing characters (e.g. "пипл крафт" → "пипл крафтл крафт").
-    text = re.sub(r"(?<![а-я])пип(?!л)(?:[\s_]*крафт)?(?:[\s_]+альфа|[\s_]+сбер|[\s_]+втб)?", "пипл крафт", text)
+    text = re.sub(
+        r"(?<![а-я])пип(?!л)(?:[\s_]*крафт)?(?:[\s_]+альфа|[\s_]+сбер|[\s_]+втб)?",
+        "пипл крафт",
+        text,
+    )
     # Normalise "Пипл" (the full short form) with a bank suffix to canonical form.
     # "Пипл сбер" → "пипл крафт сбер", "Пипл Альфа" → "пипл крафт альфа"
-    text = re.sub(r"(?<![а-я])пипл(?:[\s_]+крафт)?[\s_]+(альфа|сбер|втб|сб)\b", r"пипл крафт \1", text)
+    text = re.sub(
+        r"(?<![а-я])пипл(?:[\s_]+крафт)?[\s_]+(альфа|сбер|втб|сб)\b", r"пипл крафт \1", text
+    )
     # Standalone "пипл" without банк suffix: keep as is, tokens will match via alias keys
     # ПУ = Пиплкрафт (ПК в одном контексте)
     text = re.sub(r"\bпу[\s_]*(альфа|сбер|втб)\b", r"пипл крафт \1", text)
@@ -238,10 +249,7 @@ def _customer_prefix_match(canonical_master: str, rsch_candidate: str) -> bool:
 def _name_prefix_tokens(text: str) -> tuple[str, ...]:
     """Токены имени для префиксного сравнения (канонизированные, ≥4 символов)."""
     canon = _canonical_match_text(text)
-    return tuple(
-        w for w in re.split(r"[^0-9a-zа-я]+", canon)
-        if len(w) >= 4 and not w.isdigit()
-    )
+    return tuple(w for w in re.split(r"[^0-9a-zа-я]+", canon) if len(w) >= 4 and not w.isdigit())
 
 
 def _compact_text(value: Any) -> str:
@@ -302,9 +310,8 @@ def _executor_alias_keys(value: Any) -> set[str]:
         or {"пилп", "крафт"}.issubset(tokens)
     ):
         aliases.add("пиплкрафт")
-    if (
-        compact in {"пб", "пбальфа", "пбсбер", "пбсб"}
-        or compact.startswith(("прессбук", "пресс", "прес"))
+    if compact in {"пб", "пбальфа", "пбсбер", "пбсб"} or compact.startswith(
+        ("прессбук", "пресс", "прес")
     ):
         aliases.add("прессбук")
     if compact.startswith(("ссс", "спецстафф", "спецстаф")):
@@ -324,10 +331,9 @@ def _is_excluded_master_filter(value: Any) -> bool:
     normalized = _normalize_text(value)
     collapsed = normalized.replace(".", " ").replace(",", " ")
     collapsed = " ".join(collapsed.split())
-    return any(
-        keyword in collapsed
-        for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS
-    ) or any(keyword in normalized for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS)
+    return any(keyword in collapsed for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS) or any(
+        keyword in normalized for keyword in _EXCLUDED_MASTER_FILTER_KEYWORDS
+    )
 
 
 def _is_excluded_master_header(value: Any) -> bool:
@@ -414,19 +420,21 @@ def _row_id(row: ReconciliationRow) -> str:
     """Stable ID for a reconciliation row based on master/rsch content."""
     parts: list[str] = []
     if row.master is not None:
-        parts.extend([
-            _normalize_text(row.master.customer),
-            _normalize_text(row.master.executor),
-            str(row.master.income),
-            str(row.master.expense),
-        ])
+        parts.extend(
+            [
+                _normalize_text(row.master.customer),
+                _normalize_text(row.master.executor),
+                str(row.master.income),
+                str(row.master.expense),
+            ]
+        )
     if row.rsch is not None:
-        parts.extend([
-            _normalize_text(row.rsch.customer),
-            _normalize_text(row.rsch.executor),
-            str(row.rsch.income),
-            str(row.rsch.expense),
-        ])
+        parts.extend(
+            [
+                _normalize_text(row.rsch.customer),
+                _normalize_text(row.rsch.executor),
+                str(row.rsch.income),
+                str(row.rsch.expense),
+            ]
+        )
     return "|".join(parts) if parts else f"status:{row.status}:{row.reason}"
-
-

@@ -1,83 +1,35 @@
 from __future__ import annotations
-import re
 from decimal import Decimal
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 from openpyxl.worksheet.worksheet import Worksheet
 from core.domain.data_loss_log import record_loss
 from core.infra.excel_hyperlinks import extract_hyperlink_formula_parts
 from ._types import MasterReconciliationRow, RschReconciliationRow, ReconciliationRow
-from ._utils import (_to_decimal, _normalize_text, _is_total_row,
-    _is_excluded_customer, _is_filter_header, _is_excluded_master_filter,
-    _is_excluded_master_header, _is_excluded_rsch_comment, _excel_safe_text, STATUS_VERIFIED, STATUS_REVIEW, STATUS_ERROR,
-    REASON_NO_CURATOR, REASON_NO_RSCH, REASON_AMOUNT_MISMATCH,
-    REASON_EXECUTOR_MISMATCH, REASON_CUSTOMER_MISMATCH,
+from ._utils import (
+    _to_decimal,
+    _normalize_text,
+    _is_total_row,
+    _is_excluded_customer,
+    _is_filter_header,
+    _is_excluded_master_filter,
+    _is_excluded_master_header,
+    _is_excluded_rsch_comment,
+    _excel_safe_text,
+    STATUS_VERIFIED,
+    STATUS_REVIEW,
+    STATUS_ERROR,
+    REASON_NO_CURATOR,
+    REASON_NO_RSCH,
     _MASTER_HEADER_ALIASES,
-    _text_tokens, _compact_text, _extract_canonical_customer,
-    _customer_prefix_match)
-from ._resolve import (_executor_matches, _row_amount_matches,
-    _rsch_customer_matches, _rsch_customer_matches_weak)
-
-
-def _customer_exact_or_alias_match(
-    master_customer: str,
-    rsch_row: RschReconciliationRow,
-    alias_repo: Optional[Any] = None,
-) -> bool:
-    """Strict customer match for VERIFIED status.
-
-    Returns True if any of the following holds:
-    1. Exact text match (case-insensitive, whitespace-normalised) between
-       master customer and any of rsch customer/contractor/comment, OR
-    2. The canonical prefix of the master customer (name extracted before
-       trailing noise — project number, INN, amount) equals the normalised
-       rsch candidate. Handles curator cells like
-       «Анастасия рекрутинг 529. ... ИНН ... сумма ...».
-    3. An explicit alias exists in the alias repository — looked up by the
-       canonical prefix (so one alias «анастасия рекрутинг» covers every
-       noisy variant of that customer), falling back to the raw master text.
-
-    Loose/substring matches do NOT qualify — those get REVIEW status
-    so accountants can review and add aliases if appropriate.
-    """
-    if not master_customer:
-        return False
-    master_norm = _normalize_text(master_customer)
-    if not master_norm:
-        return False
-
-    # Уровень 1 — точное совпадение нормализованного текста.
-    for candidate in (rsch_row.customer, rsch_row.contractor, rsch_row.comment):
-        if not candidate:
-            continue
-        cand_norm = _normalize_text(candidate)
-        if cand_norm and cand_norm == master_norm:
-            return True
-
-    # Уровень 2 — авто-извлечение канонического префикса из «мусорной» строки.
-    canonical = _extract_canonical_customer(master_customer)
-    if canonical and canonical != master_norm:
-        for candidate in (rsch_row.customer, rsch_row.contractor, rsch_row.comment):
-            if not candidate:
-                continue
-            cand_norm = _normalize_text(candidate)
-            # 2a — точное совпадение извлечённого префикса с rsch-кандидатом.
-            if cand_norm and canonical == cand_norm:
-                return True
-            # 2b — rsch-имя является префиксом из целых токенов канонического
-            # master (имя заказчика + хвост из юр.формы/контрагента). Покрывает
-            # «Анастасия рекрутинг ООО Интернет Решения ИНН ...» ↔ «анастасия
-            # рекрутинг».
-            if cand_norm and _customer_prefix_match(canonical, candidate):
-                return True
-
-    # Уровень 3 — алиас по каноническому префиксу, затем по исходному тексту.
-    if alias_repo is not None:
-        keys = [canonical, master_customer] if canonical else [master_customer]
-        for key in keys:
-            for candidate in (rsch_row.customer, rsch_row.contractor):
-                if candidate and alias_repo.is_alias(key, candidate):
-                    return True
-    return False
+    _text_tokens,
+    _compact_text,
+    _canonical_match_text,
+    _executor_alias_keys,
+)
+from ._resolve import (
+    _executor_matches,
+    _row_amount_matches,
+)
 
 
 def _to_decimal_soft(
@@ -121,7 +73,6 @@ def _sheet_source(ws: Worksheet) -> str:
     which is where the broader context lives.
     """
     return f"reconciliation:{ws.title}"
-
 
 
 def _header_map(ws: Worksheet, *, prefer_last: bool = False) -> dict[str, int]:
@@ -238,9 +189,7 @@ def _collect_master_rows(
         )
         if income == 0 and expense == 0:
             continue
-        values = [
-            _master_cell_value(ws, row_idx, headers, header) for header in output_headers
-        ]
+        values = [_master_cell_value(ws, row_idx, headers, header) for header in output_headers]
         row = MasterReconciliationRow(
             values=values,
             source=source,
@@ -303,134 +252,89 @@ def _collect_rsch_rows(ws: Worksheet) -> list[RschReconciliationRow]:
     return rows
 
 
-def _find_best_rsch_match(
-    master_row: MasterReconciliationRow,
-    customer_candidates: list[tuple[int, RschReconciliationRow]],
-    used_indexes: set[int],
-) -> tuple[Optional[int], Optional[RschReconciliationRow]]:
-    amount_candidates = [
-        (idx, row)
-        for idx, row in customer_candidates
-        if idx not in used_indexes and _row_amount_matches(master_row, row)
-    ]
-    for idx, row in amount_candidates:
-        if _executor_matches(master_row.executor, row.executor):
-            return idx, row
-    return None, None
+def _jaccard_similarity(left_tokens: set[str], right_tokens: set[str]) -> float:
+    """Jaccard coefficient on two token sets."""
+    if not left_tokens or not right_tokens:
+        return 0.0
+    intersection = left_tokens & right_tokens
+    union = left_tokens | right_tokens
+    return len(intersection) / len(union)
 
 
-def _find_likely_executor_mismatch(
-    master_row: MasterReconciliationRow,
-    customer_candidates: list[tuple[int, RschReconciliationRow]],
-    used_indexes: set[int],
-) -> tuple[Optional[int], Optional[RschReconciliationRow]]:
-    for idx, row in customer_candidates:
-        if idx not in used_indexes and _row_amount_matches(master_row, row):
-            return idx, row
-    return None, None
+def _score_pair(
+    master: MasterReconciliationRow,
+    rsch: RschReconciliationRow,
+) -> float:
+    """Compute integral match score for a (master, rsch) pair.
 
+    Returns -1 if amount does not match at all.
+    Score ≥ 100 → VERIFIED,  ≥ 40 → REVIEW,  < 40 or empty → ERROR.
+    """
+    from difflib import SequenceMatcher
 
-def _find_likely_rsch_mismatch(
-    master_row: MasterReconciliationRow,
-    customer_candidates: list[tuple[int, RschReconciliationRow]],
-    used_indexes: set[int],
-) -> tuple[Optional[int], Optional[RschReconciliationRow]]:
-    for idx, row in customer_candidates:
-        if idx not in used_indexes and _executor_matches(master_row.executor, row.executor):
-            return idx, row
-    return None, None
+    # ── amount match (required) ──────────────────────────────
+    if not _row_amount_matches(master, rsch):
+        return -1.0
 
+    score = 0.0
 
-def _weak_customer_review_candidate_matches(
-    master_row: MasterReconciliationRow,
-    rsch_row: RschReconciliationRow,
-) -> bool:
-    return (
-        _row_amount_matches(master_row, rsch_row)
-        and _executor_matches(master_row.executor, rsch_row.executor)
-        and _rsch_customer_matches_weak(master_row.customer, rsch_row)
-    )
+    # ── executor match (max +50) ─────────────────────────────
+    if _executor_matches(master.executor, rsch.executor):
+        score += 50.0
+    elif master.executor and rsch.executor:
+        # Partial: alias overlap without full token-subset
+        left_keys = _executor_alias_keys(master.executor)
+        right_keys = _executor_alias_keys(rsch.executor)
+        if left_keys & right_keys:
+            score += 30.0
 
+    # ── customer match (max +50) ─────────────────────────────
+    master_norm = _normalize_text(master.customer)
+    master_canon = _canonical_match_text(master.customer)
 
-def _find_likely_customer_mismatch(
-    master_idx: int,
-    master_count: int,
-    get_weak_candidates: Callable[[int], list[tuple[int, RschReconciliationRow]]],
-    used_indexes: set[int],
-    exact_master_indexes: set[int],
-) -> tuple[Optional[int], Optional[RschReconciliationRow]]:
-    candidates = [
-        (idx, row)
-        for idx, row in get_weak_candidates(master_idx)
-        if idx not in used_indexes
-    ]
-    if len(candidates) != 1:
-        return None, None
+    best_customer_score = 0.0
+    for candidate in (rsch.customer, rsch.contractor, rsch.comment):
+        if not candidate:
+            continue
+        cand_norm = _normalize_text(candidate)
+        cand_canon = _canonical_match_text(candidate)
 
-    candidate_idx, candidate = candidates[0]
-    competing_masters = [
-        idx
-        for idx in range(master_count)
-        if idx != master_idx
-        and idx not in exact_master_indexes
-        and any(
-            other_candidate_idx == candidate_idx
-            for other_candidate_idx, _ in get_weak_candidates(idx)
-        )
-    ]
-    if competing_masters:
-        return None, None
-    return candidate_idx, candidate
+        # Perfect canonical match → max score
+        if master_canon and master_canon == cand_canon:
+            best_customer_score = 50.0
+            break
 
+        # Substring match → high score
+        if master_norm and cand_norm and (master_norm in cand_norm or cand_norm in master_norm):
+            best_customer_score = 45.0
+            continue
 
-def _surname_tokens(value: str) -> set[str]:
-    raw = re.split(r"[^a-zа-яёA-ZА-ЯЁ]+", str(value))
-    return {
-        w.lower() for w in raw
-        if len(w) >= 3 and w[0].isalpha() and w[0].upper() == w[0]
-    }
+        # Compact substring
+        mast_comp = _compact_text(master.customer)
+        cand_comp = _compact_text(candidate)
+        if (
+            len(mast_comp) >= 6
+            and len(cand_comp) >= 6
+            and (mast_comp in cand_comp or cand_comp in mast_comp)
+        ):
+            best_customer_score = max(best_customer_score, 40.0)
+            continue
 
+        # Jaccard on tokens
+        master_tokens = _text_tokens(master.customer)
+        cand_tokens = _text_tokens(candidate)
+        j = _jaccard_similarity(master_tokens, cand_tokens)
+        if j >= 0.3:
+            best_customer_score = max(best_customer_score, 35.0 * j)
 
-def _customer_surname_matches(
-    master_customer: str,
-    rsch_row: RschReconciliationRow,
-) -> bool:
-    master_surnames = _surname_tokens(master_customer)
-    if not master_surnames:
-        return False
-    rsch_text = f"{rsch_row.comment or ''} {rsch_row.contractor or ''}".lower()
-    return any(surname in rsch_text for surname in master_surnames)
+        # difflib ratio on normalised strings
+        if master_norm and cand_norm:
+            r = SequenceMatcher(None, master_norm, cand_norm).ratio()
+            if r >= 0.6:
+                best_customer_score = max(best_customer_score, 30.0 * r)
 
-
-def _find_surname_rsch_match(
-    master_row: MasterReconciliationRow,
-    rsch_rows: list[RschReconciliationRow],
-    used_indexes: set[int],
-    amount_to_rsch: dict[Decimal, list[tuple[int, RschReconciliationRow]]],
-) -> tuple[int | None, RschReconciliationRow | None]:
-    target_amounts = set()
-    if master_row.income != 0:
-        target_amounts.add(abs(master_row.income).quantize(Decimal("0.01")))
-    if master_row.expense != 0:
-        target_amounts.add(abs(master_row.expense).quantize(Decimal("0.01")))
-
-    amount_candidates = set()
-    for amt in target_amounts:
-        if amt in amount_to_rsch:
-            for idx, _ in amount_to_rsch[amt]:
-                amount_candidates.add(idx)
-
-    candidates = [
-        (idx, rsch_rows[idx])
-        for idx in sorted(amount_candidates)
-        if idx not in used_indexes
-        and _row_amount_matches(master_row, rsch_rows[idx])
-        and _executor_matches(master_row.executor, rsch_rows[idx].executor)
-        and _customer_surname_matches(master_row.customer, rsch_rows[idx])
-    ]
-    if not candidates:
-        return None, None
-    return candidates[0]
+    score += best_customer_score
+    return score
 
 
 def _build_reconciliation_rows(
@@ -438,218 +342,128 @@ def _build_reconciliation_rows(
     rsch_rows: list[RschReconciliationRow],
     alias_repo: Optional[Any] = None,
 ) -> list[ReconciliationRow]:
-    result: list[ReconciliationRow] = []
-    used_rsch_indexes: set[int] = set()
-    exact_matches: dict[int, int] = {}
+    """Simplified scoring-based matching.
 
+    For each Master row, finds RSCH candidates by matching amount,
+    scores each candidate (executor match + customer similarity),
+    then does greedy assignment — each RSCH row used at most once.
+    """
     from collections import defaultdict
-    token_to_rsch: dict[str, list[tuple[int, RschReconciliationRow]]] = defaultdict(list)
-    compact_to_rsch: dict[str, list[tuple[int, RschReconciliationRow]]] = defaultdict(list)
-    norm_to_rsch: dict[str, list[tuple[int, RschReconciliationRow]]] = defaultdict(list)
-    amount_to_rsch: dict[Decimal, list[tuple[int, RschReconciliationRow]]] = defaultdict(list)
 
+    result: list[ReconciliationRow] = []
+    used_rsch: set[int] = set()
+
+    # ── build amount index ───────────────────────────────────
+    amount_to_rsch: dict[Decimal, list[tuple[int, RschReconciliationRow]]] = defaultdict(list)
     for idx, row in enumerate(rsch_rows):
         if row.income != 0:
             amount_to_rsch[abs(row.income).quantize(Decimal("0.01"))].append((idx, row))
         if row.expense != 0:
             amount_to_rsch[abs(row.expense).quantize(Decimal("0.01"))].append((idx, row))
 
-        for candidate in (row.customer, row.contractor, row.comment):
-            if not candidate:
-                continue
-            norm = _normalize_text(candidate)
-            if norm:
-                norm_to_rsch[norm].append((idx, row))
-            comp = _compact_text(candidate)
-            if comp:
-                compact_to_rsch[comp].append((idx, row))
-            for tok in _text_tokens(candidate):
-                token_to_rsch[tok].append((idx, row))
+    # ── for each Master, find & score candidates ─────────────
+    master_assignments: list[tuple[int, int, float]] = []  # (master_idx, rsch_idx, score)
 
-    customer_candidates_by_master = []
-    for master_row in master_rows:
-        candidate_indices = set()
-        master_tokens = _text_tokens(master_row.customer)
-        for tok in master_tokens:
-            if tok in token_to_rsch:
-                for idx, _ in token_to_rsch[tok]:
-                    candidate_indices.add(idx)
+    for mi, mrow in enumerate(master_rows):
+        target_amounts = set()
+        if mrow.income != 0:
+            target_amounts.add(abs(mrow.income).quantize(Decimal("0.01")))
+        if mrow.expense != 0:
+            target_amounts.add(abs(mrow.expense).quantize(Decimal("0.01")))
 
-        master_comp = _compact_text(master_row.customer)
-        if len(master_comp) >= 6:
-            for comp_key, rows in compact_to_rsch.items():
-                if len(comp_key) >= 6 and (master_comp in comp_key or comp_key in master_comp):
-                    for idx, _ in rows:
-                        candidate_indices.add(idx)
+        candidates: list[tuple[float, int]] = []  # (score, rsch_idx)
+        for amt in target_amounts:
+            for ri, rrow in amount_to_rsch.get(amt, []):
+                s = _score_pair(mrow, rrow)
+                if s >= 0:
+                    candidates.append((s, ri))
 
-        master_norm = _normalize_text(master_row.customer)
-        if master_norm:
-            for norm_key, rows in norm_to_rsch.items():
-                if norm_key and (master_norm in norm_key or norm_key in master_norm):
-                    for idx, _ in rows:
-                        candidate_indices.add(idx)
+        if candidates:
+            # Sort by score descending, pick the best
+            candidates.sort(key=lambda x: -x[0])
+            best_score, best_ri = candidates[0]
+            master_assignments.append((mi, best_ri, best_score))
+        else:
+            # No candidate with matching amount
+            master_assignments.append((mi, -1, -1.0))
 
-        cands = [
-            (idx, rsch_rows[idx])
-            for idx in sorted(candidate_indices)
-            if _rsch_customer_matches(master_row.customer, rsch_rows[idx])
-        ]
-        customer_candidates_by_master.append(cands)
+    # ── greedy assign (by descending score) ──────────────────
+    master_assignments.sort(key=lambda x: -x[2])
+    final_pairs: dict[int, tuple[int, float]] = {}  # master_idx → (rsch_idx, score)
 
-    weak_candidates_by_master: dict[int, list[tuple[int, RschReconciliationRow]]] = {}
-
-    def get_weak_candidates(master_idx: int) -> list[tuple[int, RschReconciliationRow]]:
-        candidates = weak_candidates_by_master.get(master_idx)
-        if candidates is None:
-            master_row = master_rows[master_idx]
+    for mi, ri, score in master_assignments:
+        if ri < 0:
+            continue
+        if ri in used_rsch:
+            # This RSCH already taken; try to find the next best
+            mrow = master_rows[mi]
             target_amounts = set()
-            if master_row.income != 0:
-                target_amounts.add(abs(master_row.income).quantize(Decimal("0.01")))
-            if master_row.expense != 0:
-                target_amounts.add(abs(master_row.expense).quantize(Decimal("0.01")))
-
-            amount_candidates = set()
-            for amt in target_amounts:
-                if amt in amount_to_rsch:
-                    for idx, _ in amount_to_rsch[amt]:
-                        amount_candidates.add(idx)
-
-            candidates = [
-                (idx, rsch_rows[idx])
-                for idx in sorted(amount_candidates)
-                if _weak_customer_review_candidate_matches(master_row, rsch_rows[idx])
+            if mrow.income != 0:
+                target_amounts.add(abs(mrow.income).quantize(Decimal("0.01")))
+            if mrow.expense != 0:
+                target_amounts.add(abs(mrow.expense).quantize(Decimal("0.01")))
+            remaining = [
+                (s, ri2)
+                for amt in target_amounts
+                for ri2, _ in amount_to_rsch.get(amt, [])
+                if ri2 not in used_rsch
+                for s in [_score_pair(mrow, rsch_rows[ri2])]
+                if s >= 0
             ]
-            weak_candidates_by_master[master_idx] = candidates
-        return candidates
+            if remaining:
+                remaining.sort(key=lambda x: -x[0])
+                final_pairs[mi] = (remaining[0][1], remaining[0][0])
+                used_rsch.add(remaining[0][1])
+        else:
+            final_pairs[mi] = (ri, score)
+            used_rsch.add(ri)
 
-    for master_idx, master_row in enumerate(master_rows):
-        match_idx, rsch_row = _find_best_rsch_match(
-            master_row,
-            customer_candidates_by_master[master_idx],
-            used_rsch_indexes,
-        )
-        if rsch_row is not None and match_idx is not None:
-            used_rsch_indexes.add(match_idx)
-            exact_matches[master_idx] = match_idx
+    # ── build output ─────────────────────────────────────────
+    matched_masters: set[int] = set()
+    for mi, mrow in enumerate(master_rows):
+        if mi in final_pairs:
+            ri, score = final_pairs[mi]
+            rrow = rsch_rows[ri]
+            matched_masters.add(mi)
 
-    for master_idx, master_row in enumerate(master_rows):
-        if master_idx in exact_matches:
-            rsch_row = rsch_rows[exact_matches[master_idx]]
-            executor_ok = _executor_matches(master_row.executor, rsch_row.executor)
-            # VERIFIED requires strict customer match (exact or alias)
-            # + amount (already guaranteed by exact_matches) + executor.
-            # Loose customer match downgrades to REVIEW so accountants
-            # can add an alias if appropriate.
-            customer_strict = _customer_exact_or_alias_match(
-                master_row.customer, rsch_row, alias_repo
-            )
-            if customer_strict and executor_ok:
+            if score >= 90:
                 status, reason = STATUS_VERIFIED, ""
-            elif not customer_strict:
-                status, reason = STATUS_REVIEW, REASON_CUSTOMER_MISMATCH
+            elif score >= 40:
+                status, reason = STATUS_REVIEW, ""
             else:
-                status, reason = STATUS_REVIEW, REASON_EXECUTOR_MISMATCH
+                # Low-score match → error, no matching RSCH really found
+                status, reason = STATUS_ERROR, REASON_NO_RSCH
+
             result.append(
                 ReconciliationRow(
-                    master=master_row,
-                    rsch=rsch_row,
+                    master=mrow,
+                    rsch=rrow,
                     status=status,
                     reason=reason,
                 )
             )
-            continue
-
-        match_idx, rsch_row = _find_likely_executor_mismatch(
-            master_row,
-            customer_candidates_by_master[master_idx],
-            used_rsch_indexes,
-        )
-        if rsch_row is not None and match_idx is not None:
-            used_rsch_indexes.add(match_idx)
+        else:
             result.append(
                 ReconciliationRow(
-                    master=master_row,
-                    rsch=rsch_row,
-                    status=STATUS_REVIEW,
-                    reason=REASON_EXECUTOR_MISMATCH,
+                    master=mrow,
+                    rsch=None,
+                    status=STATUS_ERROR,
+                    reason=REASON_NO_RSCH,
                 )
             )
-            continue
 
-        match_idx, rsch_row = _find_likely_rsch_mismatch(
-            master_row,
-            customer_candidates_by_master[master_idx],
-            used_rsch_indexes,
-        )
-        if rsch_row is not None and match_idx is not None:
-            used_rsch_indexes.add(match_idx)
+    # Unmatched RSCH rows
+    for ri, rrow in enumerate(rsch_rows):
+        if ri not in used_rsch:
             result.append(
                 ReconciliationRow(
-                    master=master_row,
-                    rsch=rsch_row,
-                    status=STATUS_REVIEW,
-                    reason=REASON_AMOUNT_MISMATCH,
+                    master=None,
+                    rsch=rrow,
+                    status=STATUS_ERROR,
+                    reason=REASON_NO_CURATOR,
                 )
             )
-            continue
 
-        match_idx, rsch_row = _find_likely_customer_mismatch(
-            master_idx,
-            len(master_rows),
-            get_weak_candidates,
-            used_rsch_indexes,
-            set(exact_matches),
-        )
-        if rsch_row is not None and match_idx is not None:
-            used_rsch_indexes.add(match_idx)
-            result.append(
-                ReconciliationRow(
-                    master=master_row,
-                    rsch=rsch_row,
-                    status=STATUS_REVIEW,
-                    reason=REASON_CUSTOMER_MISMATCH,
-                )
-            )
-            continue
-
-        match_idx, rsch_row = _find_surname_rsch_match(
-            master_row,
-            rsch_rows,
-            used_rsch_indexes,
-            amount_to_rsch,
-        )
-        if rsch_row is not None and match_idx is not None:
-            used_rsch_indexes.add(match_idx)
-            result.append(
-                ReconciliationRow(
-                    master=master_row,
-                    rsch=rsch_row,
-                    status=STATUS_REVIEW,
-                    reason=REASON_CUSTOMER_MISMATCH,
-                )
-            )
-            continue
-
-        result.append(
-            ReconciliationRow(
-                master=master_row,
-                rsch=None,
-                status=STATUS_ERROR,
-                reason=REASON_NO_RSCH,
-            )
-        )
-
-    for idx, row in enumerate(rsch_rows):
-        if idx in used_rsch_indexes:
-            continue
-        result.append(
-            ReconciliationRow(
-                master=None,
-                rsch=row,
-                status=STATUS_ERROR,
-                reason=REASON_NO_CURATOR,
-            )
-        )
     return result
 
 
@@ -663,26 +477,22 @@ def _suppress_rsch_rows_matched_by_excluded_master_filters(
     suppressed_indexes: set[int] = set()
     for master_row in excluded_master_rows:
         candidates = [
-            (idx, row)
-            for idx, row in enumerate(rsch_rows)
-            if idx not in suppressed_indexes
-            and _rsch_customer_matches(master_row.customer, row)
+            (idx, row) for idx, row in enumerate(rsch_rows) if idx not in suppressed_indexes
         ]
-        match_idx, _rsch_row = _find_best_rsch_match(
-            master_row,
-            candidates,
-            suppressed_indexes,
-        )
-        if match_idx is not None:
-            suppressed_indexes.add(match_idx)
+        # Score each candidate, pick the best
+        best_idx: int | None = None
+        best_score = -1.0
+        for idx, row in candidates:
+            s = _score_pair(master_row, row)
+            if s > best_score:
+                best_score = s
+                best_idx = idx
+        if best_idx is not None:
+            suppressed_indexes.add(best_idx)
 
     if not suppressed_indexes:
         return rsch_rows
-    return [
-        row
-        for idx, row in enumerate(rsch_rows)
-        if idx not in suppressed_indexes
-    ]
+    return [row for idx, row in enumerate(rsch_rows) if idx not in suppressed_indexes]
 
 
 def _rsch_values(row: Optional[RschReconciliationRow]) -> list[Any]:
@@ -711,5 +521,3 @@ def _master_values(row: ReconciliationRow, master_headers: list[str]) -> list[An
     if values:
         values[0] = _excel_safe_text(row.reason)
     return values
-
-

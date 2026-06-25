@@ -11,16 +11,42 @@ from core.infra.excel_hyperlinks import apply_cell_hyperlink
 from core.infra.excel_backup import backup_existing_excel_output
 from core.infra.utils import atomic_save_workbook
 from ._types import RschReconciliationRow, ReconciliationRow
-from ._utils import (_COMBINED_SHEET_PRIORITY,
-    _is_numeric_header, _is_percent_header,
-    _normalize_text, _HEADER_FILL, _HEADER_FONT, _THIN_BORDER,
-    _STATUS_OK_FILL, _STATUS_REVIEW_FILL, _STATUS_ERROR_FILL, _STATUS_FONT,
-    _MASTER_EXPENSE_FILL, STATUS_VERIFIED, STATUS_REVIEW, REASON_HEADER, STATUS_HEADER, REASON_NO_CURATOR, RSCH_HEADERS, _SUMMARY_REASON_LABELS)
-from ._resolve import (_resolve_target_date, _resolve_combined_target_date,
-    _find_sheet, _local_read_path)
-from ._collect import (_collect_master_rows, _collect_rsch_rows, _master_values, _rsch_values,
+from ._utils import (
+    _COMBINED_SHEET_PRIORITY,
+    _is_numeric_header,
+    _is_percent_header,
+    _normalize_text,
+    _HEADER_FILL,
+    _HEADER_FONT,
+    _THIN_BORDER,
+    _STATUS_OK_FILL,
+    _STATUS_REVIEW_FILL,
+    _STATUS_ERROR_FILL,
+    _STATUS_FONT,
+    _MASTER_EXPENSE_FILL,
+    STATUS_VERIFIED,
+    STATUS_REVIEW,
+    REASON_HEADER,
+    STATUS_HEADER,
+    REASON_NO_CURATOR,
+    RSCH_HEADERS,
+    _SUMMARY_REASON_LABELS,
+)
+from ._resolve import (
+    _resolve_target_date,
+    _resolve_combined_target_date,
+    _find_sheet,
+    _local_read_path,
+)
+from ._collect import (
+    _collect_master_rows,
+    _collect_rsch_rows,
+    _master_values,
+    _rsch_values,
     _build_reconciliation_rows,
-    _suppress_rsch_rows_matched_by_excluded_master_filters)
+    _suppress_rsch_rows_matched_by_excluded_master_filters,
+)
+
 
 def _reason_label(reason: str) -> str:
     return _SUMMARY_REASON_LABELS.get(reason, reason)
@@ -83,8 +109,12 @@ def _append_reconciliation_row(
         _update_column_widths(column_widths, values)
     ws.append(values)
     row_idx = ws.max_row
-    is_even = (row_idx % 2 == 0)
-    row_fill = PatternFill("solid", fgColor="FFF2F2F2") if is_even else PatternFill("solid", fgColor="FFFFFFFF")
+    is_even = row_idx % 2 == 0
+    row_fill = (
+        PatternFill("solid", fgColor="FFF2F2F2")
+        if is_even
+        else PatternFill("solid", fgColor="FFFFFFFF")
+    )
     for col_idx, header in enumerate(headers, start=1):
         cell = ws.cell(row_idx, col_idx)
         cell.border = _THIN_BORDER
@@ -209,11 +239,7 @@ def _matched_rsch_row_ids(rows: Iterable[ReconciliationRow]) -> set[str]:
 
 
 def _is_rsch_only_no_curator_row(row: ReconciliationRow) -> bool:
-    return (
-        row.master is None
-        and row.rsch is not None
-        and row.reason == REASON_NO_CURATOR
-    )
+    return row.master is None and row.rsch is not None and row.reason == REASON_NO_CURATOR
 
 
 def _build_curator_routing(sheet_names: Iterable[str]) -> dict[str, str]:
