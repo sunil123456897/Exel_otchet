@@ -47,8 +47,8 @@ def _executor_matches(master_executor: str, rsch_executor: str) -> bool:
         return True
     if _executor_alias_keys(left) & _executor_alias_keys(right):
         return True
-    left_tokens = {t for t in _executor_tokens(left) if len(t) >= 4}
-    right_tokens = {t for t in _executor_tokens(right) if len(t) >= 4}
+    left_tokens = {t for t in _executor_tokens(left) if len(t) >= 2}
+    right_tokens = {t for t in _executor_tokens(right) if len(t) >= 2}
     if not left_tokens or not right_tokens:
         return False
     return left_tokens.issubset(right_tokens) or right_tokens.issubset(left_tokens)
