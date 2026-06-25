@@ -201,6 +201,7 @@ def _collect_master_rows(
             executor=executor,
             income=income,
             expense=expense,
+            row_index=row_idx,
         )
         if filter_col is not None and _is_excluded_master_filter(
             _cell_display_value(ws, row_idx, filter_col)
@@ -250,9 +251,31 @@ def _collect_rsch_rows(ws: Worksheet) -> list[RschReconciliationRow]:
                 income=income,
                 expense=expense,
                 source_link=_cell_hyperlink_target(ws, row_idx, headers.get("Источник", 1)),
+                row_index=row_idx,
             )
         )
     return rows
+
+
+def _token_substring_match(
+    master_tokens: set[str],
+    cand_tokens: set[str],
+) -> bool:
+    """Check if any token from one set is a substring of any token in the other (≥3 chars).
+
+    Covers cases like «Дерево» ↔ «ДЕРЕВОПР18».
+    """
+    if not master_tokens or not cand_tokens:
+        return False
+    for mt in master_tokens:
+        if len(mt) < 3:
+            continue
+        for ct in cand_tokens:
+            if len(ct) < 3:
+                continue
+            if mt in ct or ct in mt:
+                return True
+    return False
 
 
 def _jaccard_similarity(left_tokens: set[str], right_tokens: set[str]) -> float:
@@ -267,11 +290,12 @@ def _jaccard_similarity(left_tokens: set[str], right_tokens: set[str]) -> float:
 def _score_pair(
     master: MasterReconciliationRow,
     rsch: RschReconciliationRow,
+    same_row_bonus: bool = False,
 ) -> float:
     """Compute integral match score for a (master, rsch) pair.
 
     Returns -1 if amount does not match at all.
-    Score ≥ 100 → VERIFIED,  ≥ 40 → REVIEW,  < 40 or empty → ERROR.
+    Score ≥ 100 → VERIFIED,  ≥ 40 → REVIEW,  < 40 → ERROR.
     """
     from difflib import SequenceMatcher
 
@@ -281,11 +305,14 @@ def _score_pair(
 
     score = 0.0
 
+    # ── same-row bonus (curator manually paired them) ────────
+    if same_row_bonus:
+        score += 30.0
+
     # ── executor match (max +50) ─────────────────────────────
     if _executor_matches(master.executor, rsch.executor):
         score += 50.0
     elif master.executor and rsch.executor:
-        # Partial: alias overlap without full token-subset
         left_keys = _executor_alias_keys(master.executor)
         right_keys = _executor_alias_keys(rsch.executor)
         if left_keys & right_keys:
@@ -294,6 +321,7 @@ def _score_pair(
     # ── customer match (max +50) ─────────────────────────────
     master_norm = _normalize_text(master.customer)
     master_canon = _canonical_match_text(master.customer)
+    master_tokens = _text_tokens(master.customer)
 
     best_customer_score = 0.0
     for candidate in (rsch.customer, rsch.contractor, rsch.comment):
@@ -301,13 +329,14 @@ def _score_pair(
             continue
         cand_norm = _normalize_text(candidate)
         cand_canon = _canonical_match_text(candidate)
+        cand_tokens = _text_tokens(candidate)
 
         # Perfect canonical match → max score
         if master_canon and master_canon == cand_canon:
             best_customer_score = 50.0
             break
 
-        # Substring match → high score
+        # Substring match on full text → high score
         if master_norm and cand_norm and (master_norm in cand_norm or cand_norm in master_norm):
             best_customer_score = 45.0
             continue
@@ -323,14 +352,27 @@ def _score_pair(
             best_customer_score = max(best_customer_score, 40.0)
             continue
 
+        # Token-level substring match (≥3 chars)
+        # «ДЕРЕВОПР18» contains «Дерево»
+        if _token_substring_match(master_tokens, cand_tokens):
+            best_customer_score = max(best_customer_score, 38.0)
+            continue
+
+        # Any token of RSCH appears in ANY position of Master tokens.
+        # «Стамбул» is found somewhere in a long Master string.
+        if master_tokens and cand_tokens:
+            master_text = " ".join(master_tokens)
+            for ct in cand_tokens:
+                if len(ct) >= 4 and ct in master_text:
+                    best_customer_score = max(best_customer_score, 35.0)
+                    break
+
         # Jaccard on tokens
-        master_tokens = _text_tokens(master.customer)
-        cand_tokens = _text_tokens(candidate)
         j = _jaccard_similarity(master_tokens, cand_tokens)
         if j >= 0.3:
             best_customer_score = max(best_customer_score, 35.0 * j)
 
-        # difflib ratio on normalised strings
+        # difflib ratio
         if master_norm and cand_norm:
             r = SequenceMatcher(None, master_norm, cand_norm).ratio()
             if r >= 0.6:
@@ -419,7 +461,8 @@ def _build_reconciliation_rows(
         candidates: list[tuple[float, int]] = []  # (score, rsch_idx)
         for amt in target_amounts:
             for ri, rrow in amount_to_rsch.get(amt, []):
-                s = _score_pair(mrow, rrow)
+                same_row = mrow.row_index > 0 and mrow.row_index == rrow.row_index
+                s = _score_pair(mrow, rrow, same_row_bonus=same_row)
                 if s >= 0:
                     candidates.append((s, ri))
 
@@ -452,7 +495,15 @@ def _build_reconciliation_rows(
                 for amt in target_amounts
                 for ri2, _ in amount_to_rsch.get(amt, [])
                 if ri2 not in used_rsch
-                for s in [_score_pair(mrow, rsch_rows[ri2])]
+                for s in [
+                    _score_pair(
+                        mrow,
+                        rsch_rows[ri2],
+                        same_row_bonus=(
+                            mrow.row_index > 0 and mrow.row_index == rsch_rows[ri2].row_index
+                        ),
+                    )
+                ]
                 if s >= 0
             ]
             if remaining:
@@ -529,7 +580,11 @@ def _suppress_rsch_rows_matched_by_excluded_master_filters(
         best_idx: int | None = None
         best_score = -1.0
         for idx, row in candidates:
-            s = _score_pair(master_row, row)
+            s = _score_pair(
+                master_row,
+                row,
+                same_row_bonus=(master_row.row_index > 0 and master_row.row_index == row.row_index),
+            )
             if s > best_score:
                 best_score = s
                 best_idx = idx

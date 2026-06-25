@@ -13,6 +13,7 @@ class MasterReconciliationRow:
     executor: str
     income: Decimal
     expense: Decimal
+    row_index: int = -1
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class RschReconciliationRow:
     income: Decimal
     expense: Decimal
     source_link: str | None
+    row_index: int = -1
 
 
 @dataclass(frozen=True)

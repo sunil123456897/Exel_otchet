@@ -187,6 +187,10 @@ def _canonical_match_text_cached(text: str) -> str:
     # ВоркБрайт = ВБ (Slot WorkBright)
     text = re.sub(r"(?<![а-я])слот[\s_]*воркбрайт(?![а-я])", "вб", text)
     text = re.sub(r"(?<![а-я])воркбрайт(?![а-я])", "вб", text)
+    # ЛАЙН (LINE) — executor abbreviation
+    text = re.sub(r"(?<![а-я])лайн(?:[\s_]+(?:альфа|сбер|втб|сб))?(?![а-я])", "лайн", text)
+    # ДЕЛИВЕРИ (Delivery) — executor abbreviation
+    text = re.sub(r"(?<![а-я])деливери(?:[\s_]+(?:альфа|сбер|втб|сб))?(?![а-я])", "деливери", text)
     return text
 
 
@@ -318,6 +322,10 @@ def _executor_alias_keys(value: Any) -> set[str]:
         aliases.add("спецстаффсервис")
     if compact.startswith("воркбрайт") or compact == "вб" or "вб" in tokens:
         aliases.add("вб")
+    if compact.startswith("лайн") or "лайн" in tokens:
+        aliases.add("лайн")
+    if compact.startswith("деливери") or "деливери" in tokens:
+        aliases.add("деливери")
     if compact.startswith("ук") and len(compact) >= 3:
         aliases.add("ук")
     return aliases
