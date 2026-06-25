@@ -20,6 +20,9 @@ from ._utils import (
     STATUS_ERROR,
     REASON_NO_CURATOR,
     REASON_NO_RSCH,
+    REASON_CUSTOMER_MISMATCH,
+    REASON_EXECUTOR_MISMATCH,
+    REASON_AMOUNT_MISMATCH,
     _MASTER_HEADER_ALIASES,
     _text_tokens,
     _compact_text,
@@ -337,6 +340,48 @@ def _score_pair(
     return score
 
 
+def _pair_reason(
+    master: MasterReconciliationRow,
+    rsch: RschReconciliationRow,
+    score: float,
+) -> str:
+    """Determine human-readable reason for a match pair.
+
+    Returns empty string for VERIFIED (≥90), specific reason otherwise.
+    """
+    if score >= 90:
+        return ""
+    if score < 0:
+        return REASON_NO_RSCH
+
+    # Check what went wrong
+    executor_ok = _executor_matches(master.executor, rsch.executor)
+
+    customer_ok = False
+    for candidate in (rsch.customer, rsch.contractor, rsch.comment):
+        if not candidate:
+            continue
+        mc = _canonical_match_text(master.customer)
+        cc = _canonical_match_text(candidate)
+        if mc and mc == cc:
+            customer_ok = True
+            break
+        mn = _normalize_text(master.customer)
+        cn = _normalize_text(candidate)
+        if mn and cn and (mn in cn or cn in mn):
+            customer_ok = True
+            break
+
+    if executor_ok and not customer_ok:
+        return REASON_CUSTOMER_MISMATCH
+    if customer_ok and not executor_ok:
+        return REASON_EXECUTOR_MISMATCH
+    if not executor_ok and not customer_ok:
+        return REASON_CUSTOMER_MISMATCH
+    # Amount-only fallback
+    return REASON_AMOUNT_MISMATCH
+
+
 def _build_reconciliation_rows(
     master_rows: list[MasterReconciliationRow],
     rsch_rows: list[RschReconciliationRow],
@@ -429,10 +474,11 @@ def _build_reconciliation_rows(
             if score >= 90:
                 status, reason = STATUS_VERIFIED, ""
             elif score >= 40:
-                status, reason = STATUS_REVIEW, ""
+                status = STATUS_REVIEW
+                reason = _pair_reason(mrow, rrow, score)
             else:
-                # Low-score match → error, no matching RSCH really found
-                status, reason = STATUS_ERROR, REASON_NO_RSCH
+                status = STATUS_ERROR
+                reason = _pair_reason(mrow, rrow, score)
 
             result.append(
                 ReconciliationRow(
