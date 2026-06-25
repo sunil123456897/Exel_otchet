@@ -45,6 +45,7 @@ from ._collect import (
     _rsch_values,
     _build_reconciliation_rows,
     _suppress_rsch_rows_matched_by_excluded_master_filters,
+    _cooccurrence_upgrade,
 )
 
 
@@ -225,6 +226,7 @@ def _build_reconciliation_sheet_data(
         excluded_master_rows,
     )
     rows = _build_reconciliation_rows(master_rows, rsch_rows, alias_repo=alias_repo)
+    rows = _cooccurrence_upgrade(rows)
     return effective_date, master_headers, rows
 
 
@@ -403,6 +405,26 @@ def build_combined_reconciliation_report(
                         if master_wb is not None:
                             master_wb.close()
                 sheet_rows.append((sheet_name, master_headers, rows))
+
+            # Global co-occurrence upgrade across ALL sheets
+            all_rows_flat: list[ReconciliationRow] = []
+            for _sheet_name, _master_headers, _rows in sheet_rows:
+                all_rows_flat.extend(_rows)
+            upgraded_rows = _cooccurrence_upgrade(all_rows_flat)
+
+            # Re-split upgraded rows back into sheets
+            idx = 0
+            new_sheet_rows: list[tuple[str, list[str], list[ReconciliationRow]]] = []
+            for _sheet_name, _master_headers, _rows in sheet_rows:
+                new_sheet_rows.append(
+                    (
+                        _sheet_name,
+                        _master_headers,
+                        upgraded_rows[idx : idx + len(_rows)],
+                    )
+                )
+                idx += len(_rows)
+            sheet_rows = new_sheet_rows
 
             matched_rsch_ids = {
                 row_id

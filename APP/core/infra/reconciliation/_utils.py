@@ -191,6 +191,8 @@ def _canonical_match_text_cached(text: str) -> str:
     text = re.sub(r"(?<![а-я])лайн(?:[\s_]+(?:альфа|сбер|втб|сб))?(?![а-я])", "лайн", text)
     # ДЕЛИВЕРИ (Delivery) — executor abbreviation
     text = re.sub(r"(?<![а-я])деливери(?:[\s_]+(?:альфа|сбер|втб|сб))?(?![а-я])", "деливери", text)
+    # ГЕТВОРК (GetWork) — executor abbreviation
+    text = re.sub(r"(?<![а-я])гетворк(?:[\s_]+(?:альфа|сбер|втб|сб))?(?![а-я])", "гетворк", text)
     return text
 
 
@@ -326,6 +328,8 @@ def _executor_alias_keys(value: Any) -> set[str]:
         aliases.add("лайн")
     if compact.startswith("деливери") or "деливери" in tokens:
         aliases.add("деливери")
+    if compact.startswith("гетворк") or "гетворк" in tokens:
+        aliases.add("гетворк")
     if compact.startswith("ук") and len(compact) >= 3:
         aliases.add("ук")
     return aliases

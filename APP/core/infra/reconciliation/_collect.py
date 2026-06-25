@@ -1,10 +1,13 @@
 from __future__ import annotations
+import logging
 from decimal import Decimal
 from typing import Any, Optional
 from openpyxl.worksheet.worksheet import Worksheet
 from core.domain.data_loss_log import record_loss
 from core.infra.excel_hyperlinks import extract_hyperlink_formula_parts
 from ._types import MasterReconciliationRow, RschReconciliationRow, ReconciliationRow
+
+_log = logging.getLogger(__name__)
 from ._utils import (
     _to_decimal,
     _normalize_text,
@@ -562,6 +565,60 @@ def _build_reconciliation_rows(
             )
 
     return result
+
+
+def _cooccurrence_upgrade(rows: list[ReconciliationRow]) -> list[ReconciliationRow]:
+    """Second pass: upgrade REVIEW → VERIFIED for trusted executor pairs.
+
+    A trusted pair (Master_executor ↔ RSCH_executor) is one that appears
+    in **≥3** VERIFIED rows across the entire dataset.  All remaining
+    REVIEW rows whose executor pair matches a trusted pair are promoted
+    to VERIFIED — the executor alignment itself is proof enough,
+    regardless of how "dirty" the customer field may be.
+    """
+    from collections import Counter
+
+    # 1. Count normalized executor pairs in VERIFIED rows
+    pair_counts: Counter[tuple[str, str]] = Counter()
+    for row in rows:
+        if row.status == STATUS_VERIFIED and row.master is not None and row.rsch is not None:
+            m_exec = _canonical_match_text(row.master.executor)
+            r_exec = _canonical_match_text(row.rsch.executor)
+            if m_exec and r_exec:
+                pair_counts[(m_exec, r_exec)] += 1
+
+    # 2. Trusted pairs: ≥3 occurrences
+    trusted_pairs = {pair for pair, count in pair_counts.items() if count >= 3}
+    if not trusted_pairs:
+        return rows
+
+    # 3. Upgrade REVIEW rows that have a trusted pair
+    upgraded = 0
+    new_rows: list[ReconciliationRow] = []
+    for row in rows:
+        if row.status == STATUS_REVIEW and row.master is not None and row.rsch is not None:
+            m_exec = _canonical_match_text(row.master.executor)
+            r_exec = _canonical_match_text(row.rsch.executor)
+            if (m_exec, r_exec) in trusted_pairs:
+                new_rows.append(
+                    ReconciliationRow(
+                        master=row.master,
+                        rsch=row.rsch,
+                        status=STATUS_VERIFIED,
+                        reason="",
+                    )
+                )
+                upgraded += 1
+                continue
+        new_rows.append(row)
+
+    _log.info(
+        "Co-occurrence: %d REVIEW → VERIFIED (trusted pairs: %d, total pairs: %d)",
+        upgraded,
+        len(trusted_pairs),
+        len(pair_counts),
+    )
+    return new_rows
 
 
 def _suppress_rsch_rows_matched_by_excluded_master_filters(
