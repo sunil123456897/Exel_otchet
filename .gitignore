@@ -7,8 +7,8 @@ Master-Report_*_TechnicalDoc.docx
 PROMPT_AI_SVERKA.md
 ИТОГИ_СЕССИИ_*.txt
 
-# Debug / temp scripts
-tools/*.py
+# Debug / temp scripts (explicit files only)
+# tools/*.py  — no blanket ignore, bat files and tools are project files
 
 # Python
 __pycache__/
