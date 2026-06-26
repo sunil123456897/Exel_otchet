@@ -131,16 +131,25 @@ class DiscoveryService:
         roots_key = hashlib.md5(
             str(self._roots_key(roots_to_scan)).encode()
         ).hexdigest()
-        
+
         # Try SQLite cache first
         if self.persistence is not None:
             try:
                 cached = self.persistence.get_discovery_cache(roots_key)
                 if cached is not None:
+                    # TD-020: spot-check that a sample of cached files
+                    # still exists on disk. If any are missing, the
+                    # network drive has changed and the cache is stale.
+                    if self._discovery_cache_is_stale(cached):
+                        logging.info(
+                            "[CACHE] Discovery cache invalidated: "
+                            "sampled files no longer exist on disk"
+                        )
+                        return None
                     return cached
             except Exception as e:
                 logging.debug(f"SQLite discovery cache miss: {e}")
-        
+
         # Fall back to YAML cache
         cache = config.get("discovery_cache") if hasattr(config, "get") else None
         if not isinstance(cache, dict):
@@ -159,7 +168,50 @@ class DiscoveryService:
         files = cache.get("files")
         if not isinstance(files, list):
             return None
-        return [dict(item) for item in files if isinstance(item, dict)]
+        result = [dict(item) for item in files if isinstance(item, dict)]
+        # TD-020: spot-check YAML cache too
+        if self._discovery_cache_is_stale(result):
+            logging.info(
+                "[CACHE] YAML discovery cache invalidated: "
+                "sampled files no longer exist on disk"
+            )
+            return None
+        return result
+
+    @staticmethod
+    def _discovery_cache_is_stale(
+        cached_files: List[Dict[str, Any]],
+        sample_size: int = 5,
+    ) -> bool:
+        """TD-020: Check a sample of cached files still exist on disk.
+
+        Stat-ing every file would defeat the cache, so we check only
+        ``sample_size`` files (first, last, and a few in between). If
+        any are missing, the cache is stale. This catches the common
+        case of files being moved/renamed on a network drive between
+        runs without waiting for the TTL to expire.
+        """
+        if not cached_files:
+            return False
+        n = len(cached_files)
+        if n <= sample_size:
+            indices = range(n)
+        else:
+            # Sample: first, last, and evenly spaced in between
+            indices = set(
+                int(i * (n - 1) / (sample_size - 1)) for i in range(sample_size)
+            )
+        for i in indices:
+            entry = cached_files[i]
+            path_str = entry.get("path") if isinstance(entry, dict) else None
+            if not path_str:
+                continue
+            try:
+                if not Path(path_str).exists():
+                    return True  # stale — file gone
+            except (OSError, ValueError):
+                return True  # treat invalid path as stale
+        return False
 
     def _save_discovery_cache(
         self,

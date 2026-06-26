@@ -52,6 +52,7 @@ class OperationStatusBar(ttk.Frame):
         self._progress_var = tk.DoubleVar(value=0.0)
         self._elapsed_var = tk.StringVar(value="")
         self._eta_var = tk.StringVar(value="")
+        self._file_var = tk.StringVar(value="")  # FIX-009: current file
 
         self._title_label = ttk.Label(
             self,
@@ -61,6 +62,17 @@ class OperationStatusBar(ttk.Frame):
             anchor=tk.W,
         )
         self._title_label.pack(fill=tk.X, anchor=tk.W)
+
+        # FIX-009: current file label, shown below the operation title
+        # when a file is being processed. Small font, muted colour.
+        self._file_label = ttk.Label(
+            self,
+            textvariable=self._file_var,
+            style="StatusBar.TLabel",
+            font=("Segoe UI", 8),
+            anchor=tk.W,
+        )
+        self._file_label.pack(fill=tk.X, anchor=tk.W)
 
         row = ttk.Frame(self, style="StatusBar.TFrame")
         row.pack(fill=tk.X, pady=(2, 0))
@@ -112,7 +124,7 @@ class OperationStatusBar(ttk.Frame):
         self._cancel_btn.pack(fill=tk.X, pady=(4, 0))
 
         self._operation_state.add_listener(self._on_snapshot)
-        self._render(OperationType.NONE, 0.0, None, False)
+        self._render(OperationType.NONE, 0.0, None, False, "")
 
     def _on_cancel_clicked(self) -> None:
         try:
@@ -127,7 +139,8 @@ class OperationStatusBar(ttk.Frame):
         # schedule another doomed ``after`` call and log a TclError).
         try:
             self.after(0, lambda: self._render(
-                snap.current, snap.progress, snap.started_at, snap.cancelling
+                snap.current, snap.progress, snap.started_at, snap.cancelling,
+                snap.current_file,
             ))
         except tk.TclError:
             self._operation_state.remove_listener(self._on_snapshot)
@@ -138,6 +151,7 @@ class OperationStatusBar(ttk.Frame):
         progress: float,
         started_at: Optional[float],
         cancelling: bool,
+        current_file: str = "",
     ) -> None:
         busy = current is not OperationType.NONE
         if not busy:
@@ -145,6 +159,7 @@ class OperationStatusBar(ttk.Frame):
             self._progress_var.set(0.0)
             self._elapsed_var.set("")
             self._eta_var.set("")
+            self._file_var.set("")
             self._pct_label.config(text="")
             self._cancel_btn.config(state="disabled")
             return
@@ -154,6 +169,8 @@ class OperationStatusBar(ttk.Frame):
         else:
             label = f"🔄 {OPERATION_LABELS.get(current, '')}"
         self._label_var.set(label)
+        # FIX-009: show current file below the operation title
+        self._file_var.set(f"📄 {current_file}" if current_file else "")
         self._progress_var.set(progress)
         self._pct_label.config(text=f"{progress:.0f}%")
 

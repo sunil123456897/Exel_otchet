@@ -35,16 +35,55 @@ class GuiMasterSettingsMixin:
 
     # ── public setup — call from GuiMaster.__init__ ───────────
 
+    def _load_theme_early(self, config_controller: ConfigController) -> None:
+        """Load persisted theme/scale/density and apply to ThemeManager.
+
+        Must be called **before** ``setup_ui()`` so that all widgets are
+        created with the correct palette from the start, avoiding the
+        flash of light-theme colours on a dark-theme startup.
+        """
+        self._settings_store = SettingsStore(config_controller)
+        prefs = self._settings_store.load_preferences()
+        self._early_prefs = prefs
+
+        # Apply the persisted theme to ThemeManager before any widget
+        # is created, so widgets pick up the correct colours at birth.
+        effective = ThemeManager.resolve_effective(prefs.theme)
+        try:
+            ThemeManager.set_theme(effective)
+        except Exception:
+            _log.exception("Failed to apply persisted theme %s", prefs.theme)
+
+        # Apply scale/density to ThemeManager (triggers _rebuild_tokens → apply_styles).
+        ThemeManager.apply_preferences(
+            scale_mode=prefs.scale_mode,
+            user_scale=prefs.user_scale,
+            density=prefs.density,
+        )
+
     def _init_settings(self, config_controller: ConfigController) -> None:
-        """Load persisted UI prefs and apply them to the running GUI.
+        """Sync sidebar theme picker and subscribe to scale changes.
 
         Must be called **after** ``setup_ui()`` so that all widgets
         (sidebar, employee_table) exist.
         """
-        self._settings_store = SettingsStore(config_controller)
-        prefs = self._settings_store.load_preferences()
+        prefs = getattr(self, "_early_prefs", None)
+        if prefs is None:
+            # Fallback: load now if _load_theme_early wasn't called
+            self._settings_store = SettingsStore(config_controller)
+            prefs = self._settings_store.load_preferences()
+            effective = ThemeManager.resolve_effective(prefs.theme)
+            try:
+                ThemeManager.set_theme(effective)
+            except Exception:
+                _log.exception("Failed to apply persisted theme %s", prefs.theme)
+            ThemeManager.apply_preferences(
+                scale_mode=prefs.scale_mode,
+                user_scale=prefs.user_scale,
+                density=prefs.density,
+            )
 
-        # Sync theme picker in sidebar (if it exists) to the persisted value.
+        # Sync theme picker in sidebar to the persisted value.
         if hasattr(self, "sidebar") and self.sidebar is not None:
             try:
                 sidebar = self.sidebar
@@ -53,12 +92,9 @@ class GuiMasterSettingsMixin:
             except Exception:
                 _log.exception("Failed to sync sidebar theme")
 
-        # Apply scale/density to ThemeManager (triggers _rebuild_tokens → apply_styles).
-        ThemeManager.apply_preferences(
-            scale_mode=prefs.scale_mode,
-            user_scale=prefs.user_scale,
-            density=prefs.density,
-        )
+        # Update root bg to match the (possibly changed) theme.
+        if hasattr(self, "root"):
+            self.root.configure(bg=ThemeManager.COLORS["bg_main"])
 
         # Subscribe to scale changes so the table reflows.
         ThemeManager.add_scale_listener(self._reflow_on_scale)

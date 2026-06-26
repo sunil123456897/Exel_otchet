@@ -97,6 +97,7 @@ def finish(
     record_result: Optional[Callable[[str, bool, str, Optional[Path]], None]] = None,
     success_duration_ms: int = 4000,
     error_duration_ms: int = 6000,
+    detail: str = "",
 ) -> None:
     """Shared completion handler for the build/reconciliation commands.
 
@@ -108,6 +109,10 @@ def finish(
     * cancelled      → warning toast (NOT an error)
     * error          → error toast (or ``messagebox.showerror`` when
                        no toast manager is available)
+
+    FIX-006: ``detail`` is shown in an expandable section of the
+    error/warning toast so the user can see the underlying cause
+    (exception message, file path) without it flooding the title line.
     """
     # Release the operation slot BEFORE showing any toasts or messageboxes.
     # Otherwise the sidebar buttons stay locked during the dialog, and if
@@ -131,14 +136,14 @@ def finish(
         if record_result is not None:
             record_result(label, False, msg, path)
         if ctx.toasts:
-            ctx.toasts.show(ToastLevel.WARNING, f"{label}: отменено", msg, success_duration_ms)
+            ctx.toasts.show(ToastLevel.WARNING, f"{label}: отменено", msg, success_duration_ms, detail=detail)
         return
 
     logging.error("Ошибка (%s): %s", label, msg)
     if record_result is not None:
         record_result(label, ok, msg, path)
     if ctx.toasts:
-        ctx.toasts.show(ToastLevel.ERROR, f"{label}: ошибка", msg, error_duration_ms)
+        ctx.toasts.show(ToastLevel.ERROR, f"{label}: ошибка", msg, error_duration_ms, detail=detail)
     else:
         messagebox.showerror("Ошибка", msg)
 

@@ -169,6 +169,9 @@ class AliasesTab:
         dlg.minsize(640, 240)
         dlg.transient(self.parent)
         dlg.grab_set()
+        # Theme the dialog background for dark mode.
+        from core.ui.theme import ThemeManager
+        dlg.configure(background=ThemeManager.COLORS.get("bg_main", "#f3f4f6"))
 
         # Колонка полей ввода и строка заметок растягиваются вместе с окном.
         dlg.columnconfigure(1, weight=1)
@@ -186,6 +189,14 @@ class AliasesTab:
 
         ttk.Label(dlg, text="Заметки:").grid(row=2, column=0, sticky="nw", padx=8, pady=4)
         notes_entry = tk.Text(dlg, height=3, wrap=tk.WORD)
+        ThemeManager.register(notes_entry, bg_key="bg_sidebar", fg_key="text")
+        notes_entry.configure(
+            insertbackground=ThemeManager.COLORS["text"],
+            selectbackground=ThemeManager.COLORS["primary"],
+            selectforeground=ThemeManager.COLORS["text_inverse"],
+            highlightthickness=0,
+            borderwidth=0,
+        )
         notes_entry.grid(row=2, column=1, sticky="nsew", padx=8, pady=4)
         notes_entry.insert("1.0", notes)
 

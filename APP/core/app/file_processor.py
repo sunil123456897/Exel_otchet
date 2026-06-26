@@ -342,6 +342,7 @@ def run_engine(
     end_date_str=None,
     on_file_error: Optional[Callable[[List[Dict[str, str]]], None]] = None,
     cancel_event: Optional[threading.Event] = None,
+    on_current_file: Optional[Callable[[str, int, int], None]] = None,
 ) -> bool:
     total_files = sum(len(paths) for paths in employees_map.values())
     if total_files == 0:
@@ -398,6 +399,18 @@ def run_engine(
 
             processed_files += 1
             on_progress((processed_files / total_files) * 50)
+            # FIX-009: notify the UI of the current file being processed.
+            # Uses the future's associated meta to derive a short label.
+            if on_current_file is not None:
+                meta = future_to_file.get(future)
+                if isinstance(meta, dict):
+                    file_label = meta.get("path") or meta.get("name") or ""
+                else:
+                    file_label = str(meta)
+                try:
+                    on_current_file(safe_file_label(file_label), processed_files, total_files)
+                except Exception:
+                    pass  # UI callback must never crash the worker
 
     # Wait for pending DB writes to drain before returning so the
     # caller can safely check cancel or read consolidated data.

@@ -52,6 +52,7 @@ class OperationSnapshot:
     progress: float
     started_at: Optional[float]
     label: str
+    current_file: str = ""  # FIX-009: file being processed, for status bar display
 
 
 class OperationState:
@@ -69,6 +70,7 @@ class OperationState:
         self._progress: float = 0.0
         self._started_at: Optional[float] = None
         self._listeners: List[Callable[[OperationSnapshot], None]] = []
+        self._current_file: str = ""  # FIX-009
 
     # --- read API --------------------------------------------------------
 
@@ -80,6 +82,7 @@ class OperationState:
                 progress=self._progress,
                 started_at=self._started_at,
                 label=OPERATION_LABELS.get(self._current, ""),
+                current_file=self._current_file,
             )
 
     @property
@@ -144,6 +147,7 @@ class OperationState:
             self._cancel_event.clear()
             self._progress = 0.0
             self._started_at = None
+            self._current_file = ""  # FIX-009: clear on end
         self._notify()
 
     def request_cancel(self) -> bool:
@@ -160,6 +164,19 @@ class OperationState:
             if self._current == OperationType.NONE:
                 return
             self._progress = max(0.0, min(100.0, value))
+        self._notify()
+
+    def set_current_file(self, name: str) -> None:
+        """FIX-009: Set the file currently being processed.
+
+        Called from the worker thread so the status bar can show
+        ``"Обработка: ivan_petrov.xlsx (3/5)"`` instead of just a
+        bare percentage. Thread-safe via the same lock as set_progress.
+        """
+        with self._lock:
+            if self._current == OperationType.NONE:
+                return
+            self._current_file = name
         self._notify()
 
     # --- listener API ----------------------------------------------------

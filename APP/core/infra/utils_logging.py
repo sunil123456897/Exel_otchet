@@ -6,9 +6,14 @@ Maintained for high modularity, testability, and structural integrity.
 """
 import logging
 import queue
-import hashlib
 import re
-from pathlib import Path, PureWindowsPath
+
+# TD-007: path-scrubbing helpers now live in core.shared.path_scrub so
+# that domain code can import them without depending on infra. This
+# module re-exports them for backward compatibility with the many
+# existing callers that do ``from core.infra.utils_logging import
+# scrub_path``.
+from core.shared.path_scrub import scrub_path, safe_file_label  # noqa: F401
 
 try:
     import tkinter as tk
@@ -18,18 +23,6 @@ except ModuleNotFoundError:  # pragma: no cover - headless environments
 
 WINDOWS_USER_RE = re.compile(r"C:\\Users\\[^\\]+", re.IGNORECASE)
 SMB_RE = re.compile(r"\\\\[^\\]+\\[^\\]+")
-
-
-def scrub_path(value: str) -> str:
-    value = WINDOWS_USER_RE.sub(r"C:\\Users\\<user>", str(value))
-    return SMB_RE.sub(r"\\\\<server>\<share>", value)
-
-
-def safe_file_label(path: str | Path) -> str:
-    raw = str(path)
-    name = PureWindowsPath(raw).name or Path(raw).name or "<file>"
-    digest = hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()[:10]
-    return f"{name}#{digest}"
 
 class TextHandler(logging.Handler):
     def __init__(self, text_widget):

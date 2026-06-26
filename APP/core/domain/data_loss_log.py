@@ -11,7 +11,9 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core.infra.utils_logging import scrub_path
+# TD-007: import from core.shared (not core.infra) to avoid a
+# domain→infra layering violation. The helper is a pure text utility.
+from core.shared.path_scrub import scrub_path
 
 _LOCK = threading.Lock()
 _LOGGER_NAME = "data_loss"

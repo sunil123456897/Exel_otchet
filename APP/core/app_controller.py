@@ -127,6 +127,20 @@ class AppController:
             alias_repo=self.alias_repo,
         )
 
+        # TD-019: purge old completed/failed/cancelled sessions on startup
+        # so cache.db does not grow unboundedly across months of daily use.
+        # Best-effort — never blocks startup if the purge fails.
+        self._purge_old_sessions_on_startup()
+
+    def _purge_old_sessions_on_startup(self, max_age_days: int = 30) -> None:
+        """Delete sessions older than ``max_age_days`` (best-effort)."""
+        try:
+            purge = getattr(self.persistence, "purge_old_sessions", None)
+            if callable(purge):
+                purge(max_age_days)
+        except Exception:
+            logging.warning("Startup session purge failed (non-fatal)", exc_info=True)
+
     @property
     def rename_detected(self):
         return self.discovery.rename_detected
@@ -535,6 +549,7 @@ class AppController:
         curator: Optional[str] = None,
         on_failure_code: Optional[Callable[[str], None]] = None,
         cancel_event: Optional[threading.Event] = None,
+        on_current_file: Optional[Callable[[str, int, int], None]] = None,
     ) -> None:
         import time as _time
         _t0 = _time.monotonic()
@@ -596,6 +611,7 @@ class AppController:
                 end_date_str=effective_end_date,
                 on_file_error=collect_file_errors,
                 cancel_event=cancel_event,
+                on_current_file=on_current_file,
             ):
                 self.persistence.update_session_status(session_id, "failed")
                 if callable(on_failure_code):
@@ -735,6 +751,7 @@ class AppController:
         use_fresh_employees: bool = False,
         curator: Optional[str] = None,
         cancel_event: Optional[threading.Event] = None,
+        on_current_file: Optional[Callable[[str, int, int], None]] = None,
     ):
         """Core consolidation logic shared by all consolidation entry points.
 
@@ -769,6 +786,7 @@ class AppController:
                 use_fresh_employees,
                 curator,
                 cancel_event=cancel_event,
+                on_current_file=on_current_file,
             )
 
         self._start_thread(task)
@@ -780,6 +798,7 @@ class AppController:
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
         cancel_event: Optional[threading.Event] = None,
+        on_current_file: Optional[Callable[[str, int, int], None]] = None,
     ):
         """Run consolidation for a single selected date."""
         self._run_consolidation_core(
@@ -789,6 +808,7 @@ class AppController:
             session_type="daily",
             curator=curator,
             cancel_event=cancel_event,
+            on_current_file=on_current_file,
         )
 
     def run_consolidation_all_dates(
@@ -797,6 +817,7 @@ class AppController:
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
         cancel_event: Optional[threading.Event] = None,
+        on_current_file: Optional[Callable[[str, int, int], None]] = None,
     ):
         """Run consolidation for all available dates."""
         self._run_consolidation_core(
@@ -806,6 +827,7 @@ class AppController:
             use_fresh_employees=True,
             curator=curator,
             cancel_event=cancel_event,
+            on_current_file=on_current_file,
         )
 
     def run_consolidation_month(
@@ -816,6 +838,7 @@ class AppController:
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
         cancel_event: Optional[threading.Event] = None,
+        on_current_file: Optional[Callable[[str, int, int], None]] = None,
     ):
         """Run consolidation for a date range (monthly)."""
         self._run_consolidation_core(
@@ -826,6 +849,7 @@ class AppController:
             session_type="monthly",
             curator=curator,
             cancel_event=cancel_event,
+            on_current_file=on_current_file,
         )
 
     def _run_consolidation_blocking(

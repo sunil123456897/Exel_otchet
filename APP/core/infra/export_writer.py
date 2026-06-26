@@ -57,12 +57,55 @@ DEFAULT_HEADERS = [
     "Расход",
     "Комиссия",
     "ИТОГ",
-    "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ",
     "% посредника",
     "посредник 1(кэш)",
     "посредник 2",
     "Фильтры",
 ]
+
+# Per-curator headers — Boris and Ivan have separate templates with
+# different columns. The common Master report (curator=None) uses
+# DEFAULT_HEADERS which does NOT include the transit column (it's
+# Ivan-only). Boris has an extra "% посредник 2" column. Ivan has
+# transit + currency columns (курс, сумма, валюта).
+BORIS_HEADERS = [
+    "Источник",
+    "ЗАКАЗЧИК",
+    "ИСПОЛНИТЕЛЬ",
+    "Приход",
+    "Расход",
+    "Комиссия",
+    "ИТОГ",
+    "% посредника",
+    "посредник 1(кэш)",
+    "% посредник 2",
+    "посредник 2",
+    "Фильтры",
+]
+
+IVAN_HEADERS = [
+    "Сотрудник",
+    "ЗАКАЗЧИК",
+    "ИСПОЛНИТЕЛЬ",
+    "Приход",
+    "Расход",
+    "Комиссия",
+    "ИТОГ",
+    "ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ",
+    "% посредника",
+    "посредник 1(кэш)",
+    "посредник 2",
+    "Курс",
+    "Сумма",
+    "Валюта",
+    "Фильтры",
+]
+
+# Map curator → headers for quick lookup in write_daily_data.
+_CURATOR_HEADERS = {
+    "boris": BORIS_HEADERS,
+    "ivan": IVAN_HEADERS,
+}
 
 
 class MasterWriter(IExporter):
@@ -316,7 +359,6 @@ class MasterWriter(IExporter):
                     _safe_decimal(r.get("сумма платежа РАСХОД", 0)),
                     _safe_decimal(r.get("комиссия", 0)),
                     _safe_decimal(r.get("ИТОГ", 0)),
-                    _safe_decimal(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                     _safe_decimal(r.get("% посредника", 0)),
                     _safe_decimal(r.get("посредник 1(кэш)", 0)),
                     _safe_decimal(r.get("посредник 2", 0)),
@@ -427,7 +469,6 @@ class MasterWriter(IExporter):
                         _safe_decimal(r.get("сумма платежа РАСХОД", 0)),
                         _safe_decimal(r.get("комиссия", 0)),
                         _safe_decimal(r.get("ИТОГ", 0)),
-                        _safe_decimal(r.get("ОТПРАВКА ТРАНЗИТНЫХ ОБЯЗАТЕЛЬСТВ", 0)),
                         _safe_decimal(r.get("% посредника", 0)),
                         _safe_decimal(r.get("посредник 1(кэш)", 0)),
                         _safe_decimal(r.get("посредник 2", 0)),
@@ -470,7 +511,13 @@ class MasterWriter(IExporter):
             # Make the newly created sheet active so wb.active access works as expected
             wb.active = wb.sheetnames.index(sh_name)
 
-            ws.append(headers or DEFAULT_HEADERS)
+            # Select headers: explicit override → per-curator → default.
+            # This ensures Boris/Ivan get headers matching their row
+            # builders (different column counts and orderings).
+            effective_headers = headers
+            if effective_headers is None and curator in _CURATOR_HEADERS:
+                effective_headers = _CURATOR_HEADERS[curator]
+            ws.append(effective_headers or DEFAULT_HEADERS)
             self._apply_header_style(ws)
             ws.freeze_panes = "A2"
 

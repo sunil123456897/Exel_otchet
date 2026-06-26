@@ -51,6 +51,24 @@ def _executor_matches(master_executor: str, rsch_executor: str) -> bool:
     right_tokens = {t for t in _executor_tokens(right) if len(t) >= 2}
     if not left_tokens or not right_tokens:
         return False
+    # Single-token matching is too aggressive for short/generic names.
+    # A single token should only match when both sides have the SAME
+    # single token (handled by left==right above) or when BOTH sides
+    # are multi-token and one is a subset of the other.
+    # This prevents false positives like "ООО" matching "ООО Ромашка"
+    # or "ООО" matching "ООО A A" (where short secondary tokens are
+    # filtered out, leaving only "ООО" on both sides).
+    if len(left_tokens) == 1 and len(right_tokens) >= 1:
+        # Both have the same single token but different names?
+        # Reject unless the canonical texts or their compacts match.
+        if left_tokens == right_tokens:
+            return _compact_text(left) == _compact_text(right)
+        # Single token on one side, multiple on other → no match
+        return False
+    if len(right_tokens) == 1 and len(left_tokens) >= 1:
+        if left_tokens == right_tokens:
+            return _compact_text(left) == _compact_text(right)
+        return False
     return left_tokens.issubset(right_tokens) or right_tokens.issubset(left_tokens)
 
 

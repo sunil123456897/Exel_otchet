@@ -4,6 +4,24 @@ from tkinter import ttk, filedialog
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from core.ui.theme import ThemeManager
+
+
+def _theme_toplevel(dialog: tk.Toplevel) -> None:
+    """Apply dark-mode background to a Toplevel dialog."""
+    dialog.configure(background=ThemeManager.COLORS.get("bg_main", "#f3f4f6"))
+
+
+def _theme_listbox(lb: tk.Listbox) -> None:
+    """Theme a tk.Listbox for dark mode."""
+    ThemeManager.register(lb, bg_key="bg_sidebar", fg_key="text")
+    lb.configure(
+        selectbackground=ThemeManager.COLORS["primary"],
+        selectforeground=ThemeManager.COLORS["text_inverse"],
+        highlightthickness=0,
+        borderwidth=0,
+    )
+
 
 def show_multi_file_select_dialog(
     parent,
@@ -29,6 +47,7 @@ def show_multi_file_select_dialog(
     dialog.minsize(480, 280)
     dialog.transient(parent)
     dialog.grab_set()
+    _theme_toplevel(dialog)
 
     _title_label = ttk.Label(
         dialog, text=f"{title} — выбрано: 0", padding=(10, 10, 10, 0)
@@ -148,6 +167,7 @@ def show_attach_file_dialog(
     dialog.geometry("450x400")
     dialog.transient(parent)
     dialog.grab_set()
+    _theme_toplevel(dialog)
 
     ttk.Label(dialog, text="Выберите сотрудника:", padding=10).pack()
     employee_var = tk.StringVar()
@@ -169,6 +189,7 @@ def show_attach_file_dialog(
     selected_files_frame = ttk.LabelFrame(dialog, text="Выбранные файлы", padding=6)
     selected_files_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
     files_listbox = tk.Listbox(selected_files_frame, height=6)
+    _theme_listbox(files_listbox)
     files_listbox.pack(fill=tk.BOTH, expand=True)
 
     append_var = tk.BooleanVar(value=True)
@@ -218,6 +239,7 @@ def ask_employee_name(existing_names: Optional[List[str]] = None) -> str:
     dialog.transient(dialog.master)
     dialog.grab_set()
     dialog.resizable(False, False)
+    _theme_toplevel(dialog)
 
     ttk.Label(dialog, text="Имя сотрудника:", padding=(10, 10, 10, 0)).pack(anchor=tk.W)
 

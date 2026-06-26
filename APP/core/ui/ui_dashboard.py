@@ -3,7 +3,7 @@ import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 from typing import Callable, TypeVar
 
 from core.infra import open_path
@@ -46,32 +46,32 @@ class DashboardTabs:
         self.reports_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
         self.diagnostics_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
         self.logs_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
-        self.settings_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
         self.aliases_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
+        self.history_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")  # UX-008
 
         notebook.add(self.employees_tab, text="Сотрудники")
         notebook.add(self.home_tab, text="Панель")
         notebook.add(self.reports_tab, text="Отчеты")
+        notebook.add(self.history_tab, text="📜 История")  # UX-008
         notebook.add(self.diagnostics_tab, text="Диагностика")
         notebook.add(self.logs_tab, text="Логи")
         notebook.add(self.aliases_tab, text="🔗 Алиасы сверки")
-        notebook.add(self.settings_tab, text="Настройки")
         notebook.select(self.employees_tab)
 
         self._setup_home()
         self._setup_reports()
+        self._setup_history()  # UX-008
         self._setup_diagnostics()
         self._setup_logs()
-        self._setup_settings()
         self._setup_aliases()
 
     def _setup_home(self) -> None:
-        summary_frame = ttk.LabelFrame(self.home_tab, text="Состояние", padding=8)
+        summary_frame = ttk.LabelFrame(self.home_tab, text="Состояние", padding=8, style="Main.TLabelframe")
         summary_frame.pack(fill=tk.X, pady=(0, 8))
         self.state_label = ttk.Label(summary_frame, text="", justify=tk.LEFT, wraplength=600)
         self.state_label.pack(fill=tk.X)
 
-        quick_frame = ttk.LabelFrame(self.home_tab, text="Быстрые действия", padding=8)
+        quick_frame = ttk.LabelFrame(self.home_tab, text="Быстрые действия", padding=8, style="Main.TLabelframe")
         quick_frame.pack(fill=tk.X, pady=(0, 8))
         ttk.Button(
             quick_frame,
@@ -94,7 +94,7 @@ class DashboardTabs:
             command=lambda: self._open_path(self.repo_root),
         ).pack(side=tk.LEFT)
 
-        last_frame = ttk.LabelFrame(self.home_tab, text="Последние результаты", padding=8)
+        last_frame = ttk.LabelFrame(self.home_tab, text="Последние результаты", padding=8, style="Main.TLabelframe")
         last_frame.pack(fill=tk.BOTH, expand=True)
         self.results_tree = ttk.Treeview(
             last_frame,
@@ -159,6 +159,116 @@ class DashboardTabs:
             self.reports_tree.column(column, width=width, anchor=tk.W, stretch=(column == "path"))
         self.reports_tree.pack(fill=tk.BOTH, expand=True)
         self.reports_tree.bind("<Double-1>", lambda _event: self._open_selected_report())
+
+    # ── UX-008: History tab ──────────────────────────────────────
+
+    def _setup_history(self) -> None:
+        """Build the operation history tab showing recent sessions."""
+        action_frame = ttk.Frame(self.history_tab, style="Main.TFrame")
+        action_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Button(
+            action_frame, text="🔄 Обновить", command=self._refresh_history
+        ).pack(side=tk.LEFT)
+        ttk.Label(
+            action_frame,
+            text="Последние операции (из БД):",
+            style="Main.TLabel",
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
+        self.history_tree = ttk.Treeview(
+            self.history_tab,
+            columns=("Date", "Type", "Status", "Files", "Target"),
+            show="headings",
+        )
+        self.history_tree.heading("Date", text="Дата/Время")
+        self.history_tree.heading("Type", text="Тип")
+        self.history_tree.heading("Status", text="Статус")
+        self.history_tree.heading("Files", text="Файлов")
+        self.history_tree.heading("Target", text="Дата сбора")
+        self.history_tree.column("Date", width=140)
+        self.history_tree.column("Type", width=120)
+        self.history_tree.column("Status", width=100)
+        self.history_tree.column("Files", width=60)
+        self.history_tree.column("Target", width=100)
+
+        # Status colours
+        self.history_tree.tag_configure(
+            "completed", foreground=_c("success", "#28a745")
+        )
+        self.history_tree.tag_configure(
+            "failed", foreground=_c("danger", "#dc3545")
+        )
+        self.history_tree.tag_configure(
+            "cancelled", foreground=_c("warning", "#ffc107")
+        )
+
+        self.history_tree.pack(fill=tk.BOTH, expand=True)
+        # Load on init (best-effort — DB may not have sessions yet)
+        try:
+            self._refresh_history()
+        except Exception:
+            pass
+
+    def _refresh_history(self) -> None:
+        """Reload sessions from the DB into the history tree."""
+        for item in self.history_tree.get_children():
+            self.history_tree.delete(item)
+        # Get persistence from the controller
+        persistence = getattr(self.controller, "persistence", None)
+        if persistence is None:
+            # Try app_controller → persistence
+            app_ctl = getattr(self.controller, "app_controller", None)
+            if app_ctl is not None:
+                persistence = getattr(app_ctl, "persistence", None)
+        if persistence is None:
+            self.history_tree.insert(
+                "", tk.END,
+                values=("", "", "БД недоступна", "", ""),
+            )
+            return
+        list_sessions = getattr(persistence, "list_recent_sessions", None)
+        if not callable(list_sessions):
+            self.history_tree.insert(
+                "", tk.END,
+                values=("", "", "list_recent_sessions недоступен", "", ""),
+            )
+            return
+        try:
+            sessions = list_sessions(limit=50)
+        except Exception as e:
+            self.history_tree.insert(
+                "", tk.END,
+                values=("", "", f"Ошибка: {e}", "", ""),
+            )
+            return
+        if not sessions:
+            self.history_tree.insert(
+                "", tk.END,
+                values=("Нет данных", "", "", "", ""),
+                tags=("empty",),
+            )
+            return
+        type_labels = {
+            "daily": "Сборка за день",
+            "all_dates": "Сборка все даты",
+            "monthly": "Сборка за период",
+            "rsch": "РСЧ",
+            "rsch_month": "РСЧ за период",
+            "reconciliation": "Сверка",
+        }
+        for s in sessions:
+            status = s.get("status", "")
+            created = str(s.get("created_at", ""))
+            stype = type_labels.get(s.get("session_type", ""), s.get("session_type", ""))
+            files = s.get("file_count", 0)
+            target = s.get("target_date") or s.get("start_date", "")
+            if s.get("end_date"):
+                target = f"{target}..{s['end_date']}"
+            self.history_tree.insert(
+                "", tk.END,
+                values=(created, stype, status, files, target),
+                tags=(status,) if status in ("completed", "failed", "cancelled") else (),
+            )
 
     def _setup_diagnostics(self) -> None:
         action_frame = ttk.Frame(self.diagnostics_tab, style="Main.TFrame")
@@ -231,129 +341,23 @@ class DashboardTabs:
             state="disabled",
             wrap=tk.WORD,
         )
-        
+        ThemeManager.register(self.log_errors, bg_key="bg_panel", fg_key="text")
+        self.log_errors.configure(
+            insertbackground=ThemeManager.COLORS["text"],
+            selectbackground=ThemeManager.COLORS["primary"],
+            selectforeground=ThemeManager.COLORS["text_inverse"],
+            highlightthickness=0,
+            borderwidth=0,
+        )
+
         scroll_y = ttk.Scrollbar(self.logs_tab, orient=tk.VERTICAL, command=self.log_errors.yview)
         scroll_x = ttk.Scrollbar(self.logs_tab, orient=tk.HORIZONTAL, command=self.log_errors.xview)
-        
+
         self.log_errors.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
-        
+
         scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
         scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.log_errors.pack(fill=tk.BOTH, expand=True)
-        ThemeManager.register(self.log_errors, bg_key="bg_panel", fg_key="text")
-
-    def _setup_settings(self) -> None:
-        self.settings_mode = "visual"  # "visual" или "yaml"
-        
-        # Переменные для формы настроек
-        self.master_file_var = tk.StringVar()
-        self.archive_dir_var = tk.StringVar()
-        self.drive_letters_var = tk.StringVar()
-        self.excel_keep_var = tk.IntVar(value=10)
-        
-        # Общий action_frame
-        action_frame = ttk.Frame(self.settings_tab, style="Main.TFrame")
-        action_frame.pack(fill=tk.X, pady=(0, 8))
-        
-        self.save_btn = ttk.Button(
-            action_frame,
-            text="Сохранить",
-            command=self._save_settings,
-        )
-        self.save_btn.pack(side=tk.LEFT)
-        
-        self.reset_btn = ttk.Button(
-            action_frame,
-            text="Сбросить",
-            command=self._refresh_settings,
-        )
-        self.reset_btn.pack(side=tk.LEFT, padx=(6, 0))
-        
-        self.mode_btn = ttk.Button(
-            action_frame,
-            text="Режим YAML-кода",
-            command=self._toggle_settings_mode,
-        )
-        self.mode_btn.pack(side=tk.LEFT, padx=(6, 0))
-        
-        self.external_btn = ttk.Button(
-            action_frame,
-            text="Открыть в Блокноте",
-            command=lambda: self._open_path(Path(self.config_controller.config_path)),
-        )
-        self.external_btn.pack(side=tk.LEFT, padx=(6, 0))
-
-        # Контейнер для двух режимов
-        self.settings_container = ttk.Frame(self.settings_tab, style="Main.TFrame")
-        self.settings_container.pack(fill=tk.BOTH, expand=True)
-
-        # 1. Фрейм визуального режима
-        self.settings_visual_frame = ttk.Frame(self.settings_container, style="Main.TFrame")
-        
-        # Поле Master-отчета
-        master_frame = ttk.LabelFrame(self.settings_visual_frame, text="Основной сводный отчет (Master_Report.xlsx)", padding=8)
-        master_frame.pack(fill=tk.X, pady=(0, 8))
-        ttk.Entry(master_frame, textvariable=self.master_file_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-        ttk.Button(master_frame, text="Обзор...", command=self._browse_master_file).pack(side=tk.RIGHT)
-        
-        # Поле папки бэкапов
-        backup_frame = ttk.LabelFrame(self.settings_visual_frame, text="Папка для резервных копий (archive_dir)", padding=8)
-        backup_frame.pack(fill=tk.X, pady=(0, 8))
-        ttk.Entry(backup_frame, textvariable=self.archive_dir_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-        ttk.Button(backup_frame, text="Обзор...", command=self._browse_archive_dir).pack(side=tk.RIGHT)
-        
-        # Список папок-источников (кураторов)
-        sources_frame = ttk.LabelFrame(self.settings_visual_frame, text="Папки с отчетами кураторов (source_roots)", padding=8)
-        sources_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
-        
-        list_container = ttk.Frame(sources_frame)
-        list_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
-        
-        self.sources_listbox = tk.Listbox(list_container)
-        ThemeManager.register(self.sources_listbox, bg_key="bg_panel", fg_key="text")
-        
-        scroll_y_lb = ttk.Scrollbar(list_container, orient=tk.VERTICAL, command=self.sources_listbox.yview)
-        self.sources_listbox.configure(yscrollcommand=scroll_y_lb.set)
-        
-        self.sources_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll_y_lb.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        btn_container = ttk.Frame(sources_frame)
-        btn_container.pack(side=tk.RIGHT, fill=tk.Y)
-        ttk.Button(btn_container, text="Добавить...", command=self._add_source_root).pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(btn_container, text="Удалить", command=self._remove_source_root).pack(fill=tk.X)
-        
-        # Дополнительные настройки (сетевые диски и число бэкапов)
-        misc_frame = ttk.LabelFrame(self.settings_visual_frame, text="Дополнительно", padding=8)
-        misc_frame.pack(fill=tk.X)
-        misc_frame.grid_columnconfigure(1, weight=1)
-        
-        # Сетевые диски
-        ttk.Label(misc_frame, text="Сетевые диски (буквы через запятую):").grid(row=0, column=0, sticky=tk.W, pady=4, padx=(0, 8))
-        ttk.Entry(misc_frame, textvariable=self.drive_letters_var).grid(row=0, column=1, sticky="ew", pady=4)
-        
-        # Хранение бэкапов
-        ttk.Label(misc_frame, text="Количество хранимых бэкапов Excel:").grid(row=1, column=0, sticky=tk.W, pady=4, padx=(0, 8))
-        ttk.Entry(misc_frame, textvariable=self.excel_keep_var).grid(row=1, column=1, sticky="ew", pady=4)
-
-        # 2. Фрейм YAML-режима
-        self.settings_yaml_frame = ttk.Frame(self.settings_container, style="Main.TFrame")
-        
-        self.settings_text = tk.Text(
-            self.settings_yaml_frame,
-            undo=True,
-            wrap=tk.NONE,
-        )
-        scroll_y = ttk.Scrollbar(self.settings_yaml_frame, orient=tk.VERTICAL, command=self.settings_text.yview)
-        scroll_x = ttk.Scrollbar(self.settings_yaml_frame, orient=tk.HORIZONTAL, command=self.settings_text.xview)
-        self.settings_text.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
-        
-        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
-        scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
-        self.settings_text.pack(fill=tk.BOTH, expand=True)
-        ThemeManager.register(self.settings_text, bg_key="bg_panel", fg_key="text")
-        
-        self.settings_visual_frame.pack(fill=tk.BOTH, expand=True)
 
     def _setup_aliases(self) -> None:
         from core.ui.ui_aliases import AliasesTab
@@ -364,7 +368,6 @@ class DashboardTabs:
         self._refresh_reports()
         self._refresh_home()
         self._refresh_logs()
-        self._refresh_settings()
 
     def refresh_theme(self) -> None:
         """Re-apply theme-dependent tag colours after a palette switch."""
@@ -552,148 +555,6 @@ class DashboardTabs:
         else:
             self.log_errors.insert(tk.END, "Событий в логах не найдено.")
         self.log_errors.configure(state="disabled")
-
-    def _refresh_settings(self) -> None:
-        # 1. Загрузка в YAML-редактор
-        self.settings_text.configure(state="normal")
-        self.settings_text.delete("1.0", tk.END)
-        config_path = Path(self.config_controller.config_path)
-        if config_path.exists():
-            try:
-                text = config_path.read_text(encoding="utf-8")
-                self.settings_text.insert(tk.END, text)
-            except Exception as e:
-                self.settings_text.insert(tk.END, f"# Ошибка чтения файла настроек: {e}")
-        else:
-            self.settings_text.insert(tk.END, "# Файл config.yaml не найден.")
-        
-        # 2. Загрузка в визуальную форму
-        cfg = self.config_controller.config
-        paths_cfg = cfg.get("paths", {})
-        
-        self.master_file_var.set(paths_cfg.get("master_file", ""))
-        self.archive_dir_var.set(paths_cfg.get("archive_dir", ""))
-        
-        # Загрузка списка источников
-        self.sources_listbox.delete(0, tk.END)
-        source_roots = paths_cfg.get("source_roots", [])
-        if isinstance(source_roots, list):
-            for root in source_roots:
-                self.sources_listbox.insert(tk.END, str(root))
-                
-        # Сетевые диски
-        network_cfg = cfg.get("network", {})
-        drive_letters = network_cfg.get("drive_letters", [])
-        if isinstance(drive_letters, list):
-            self.drive_letters_var.set(", ".join(str(d) for d in drive_letters))
-        else:
-            self.drive_letters_var.set(str(drive_letters))
-            
-        # Число бэкапов
-        backup_cfg = cfg.get("backup", {})
-        self.excel_keep_var.set(backup_cfg.get("excel_keep", 10))
-
-    def _save_settings(self) -> None:
-        config_path = Path(self.config_controller.config_path)
-        from ruamel.yaml import YAML
-        yaml = YAML()
-        
-        if self.settings_mode == "yaml":
-            # Сохранение в режиме YAML-кода
-            text = self.settings_text.get("1.0", tk.END)
-            try:
-                parsed = yaml.load(text)
-                if not isinstance(parsed, dict):
-                    raise ValueError("Корневой элемент конфигурации должен быть объектом (словарем)")
-            except Exception as e:
-                messagebox.showerror("Ошибка сохранения", f"Некорректный синтаксис YAML:\n{e}")
-                return
-                
-            try:
-                config_path.write_text(text, encoding="utf-8")
-                self.config_controller.config = parsed
-                messagebox.showinfo("Успех", "Настройки успешно сохранены!")
-            except Exception as e:
-                messagebox.showerror("Ошибка сохранения", f"Не удалось записать файл config.yaml:\n{e}")
-        else:
-            # Сохранение из визуальной формы
-            cfg = self.config_controller.config
-            
-            if "paths" not in cfg:
-                cfg["paths"] = {}
-            if "network" not in cfg:
-                cfg["network"] = {}
-            if "backup" not in cfg:
-                cfg["backup"] = {}
-                
-            cfg["paths"]["master_file"] = self.master_file_var.get()
-            cfg["paths"]["archive_dir"] = self.archive_dir_var.get()
-            
-            roots = list(self.sources_listbox.get(0, tk.END))
-            cfg["paths"]["source_roots"] = roots
-            
-            drives_str = self.drive_letters_var.get()
-            drives = [d.strip().upper() for d in drives_str.split(",") if d.strip()]
-            cfg["network"]["drive_letters"] = drives
-            
-            try:
-                keep = int(self.excel_keep_var.get())
-                cfg["backup"]["excel_keep"] = keep
-            except (ValueError, tk.TclError):
-                messagebox.showerror("Ошибка сохранения", "Количество бэкапов должно быть целым числом!")
-                return
-                
-            try:
-                self.config_controller.save_config()
-                self._refresh_settings()
-                messagebox.showinfo("Успех", "Настройки успешно сохранены!")
-            except Exception as e:
-                messagebox.showerror("Ошибка сохранения", f"Не удалось сохранить настройки:\n{e}")
-
-    def _toggle_settings_mode(self) -> None:
-        if self.settings_mode == "visual":
-            self.settings_mode = "yaml"
-            self.mode_btn.configure(text="Визуальный режим")
-            self.settings_visual_frame.pack_forget()
-            self._refresh_settings()
-            self.settings_yaml_frame.pack(fill=tk.BOTH, expand=True)
-        else:
-            self.settings_mode = "visual"
-            self.mode_btn.configure(text="Режим YAML-кода")
-            self.settings_yaml_frame.pack_forget()
-            self._refresh_settings()
-            self.settings_visual_frame.pack(fill=tk.BOTH, expand=True)
-
-    def _browse_master_file(self) -> None:
-        path = filedialog.askopenfilename(
-            title="Выберите основной сводный отчет",
-            filetypes=[("Excel Files", "*.xlsx;*.xlsb"), ("All Files", "*.*")]
-        )
-        if path:
-            try:
-                rel_path = Path(path).relative_to(self.repo_root)
-                self.master_file_var.set(str(Path("..") / rel_path))
-            except ValueError:
-                self.master_file_var.set(path)
-
-    def _browse_archive_dir(self) -> None:
-        path = filedialog.askdirectory(title="Выберите папку для резервных копий")
-        if path:
-            try:
-                rel_path = Path(path).relative_to(self.repo_root)
-                self.archive_dir_var.set(str(Path("..") / rel_path))
-            except ValueError:
-                self.archive_dir_var.set(path)
-
-    def _add_source_root(self) -> None:
-        path = filedialog.askdirectory(title="Выберите папку с отчетами кураторов")
-        if path:
-            self.sources_listbox.insert(tk.END, path)
-
-    def _remove_source_root(self) -> None:
-        selected = self.sources_listbox.curselection()
-        if selected:
-            self.sources_listbox.delete(selected[0])
 
     def _selected_report_path(self) -> Path | None:
         selected = self.reports_tree.selection()

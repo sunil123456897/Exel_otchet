@@ -78,6 +78,10 @@ class GuiMaster(GuiMasterSettingsMixin):
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         self.root.geometry(_resolve_initial_geometry((1100, 840), sw, sh))
         self.root.minsize(max(640, int(sw * 0.5)), max(420, int(sh * 0.5)))
+
+        # Load persisted theme/scale/density BEFORE creating any widgets
+        # so they are born with the correct palette (e.g. dark mode).
+        self._load_theme_early(config_controller)
         self.root.configure(bg=ThemeManager.COLORS["bg_main"])
 
         # Persist the geometry on close. The protocol is set by main.py
@@ -92,7 +96,9 @@ class GuiMaster(GuiMasterSettingsMixin):
 
         self.employee_vm.set_update_callback(self._on_employee_vm_update)
         self.consolidation_vm.set_callbacks(
-            self._on_consolidation_progress, self._on_consolidation_complete
+            self._on_consolidation_progress,
+            self._on_consolidation_complete,
+            on_current_file=self._on_current_file,
         )
 
         ThemeManager.apply_styles()
@@ -160,6 +166,44 @@ class GuiMaster(GuiMasterSettingsMixin):
         # an app restart. No-op when the user has chosen light/dark.
         self.start_theme_polling()
         self._init_settings(config_controller)
+        # UX-006: global keyboard shortcuts for common operations.
+        self._bind_shortcuts()
+
+    def _bind_shortcuts(self) -> None:
+        """Bind global keyboard shortcuts (UX-006).
+
+        Ctrl+D  → consolidate day
+        Ctrl+Shift+D → consolidate all dates
+        Ctrl+M  → consolidate month (period)
+        Ctrl+R  → RSCH day
+        Ctrl+Shift+R → RSCH month (period)
+        Ctrl+E  → reconcile
+        F5      → refresh status
+        Esc     → cancel running operation
+        """
+        root = self.root
+        # Guard: if a text entry has focus, let it handle Ctrl+* keys.
+        def _guard(fn):
+            def wrapped(event=None):
+                w = event.widget if event else None
+                if w is not None and hasattr(w, "winfo_class"):
+                    try:
+                        cls = w.winfo_class()
+                        if cls in ("Entry", "Text", "TEntry", "TCombobox"):
+                            return  # don't hijack text input
+                    except tk.TclError:
+                        pass
+                fn()
+            return wrapped
+
+        root.bind("<Control-d>", _guard(self.run_consolidation))
+        root.bind("<Control-D>", _guard(self.run_consolidation_all_dates))
+        root.bind("<Control-m>", _guard(self.run_consolidation_month))
+        root.bind("<Control-r>", _guard(self.run_rsch_report))
+        root.bind("<Control-R>", _guard(self.run_rsch_report_month))
+        root.bind("<Control-e>", _guard(self.run_reconciliation_report))
+        root.bind("<F5>", _guard(self.refresh_status))
+        root.bind("<Escape>", _guard(self._request_cancel))
 
     def setup_ui(self):
         self.sidebar = Sidebar(self.root, self)
@@ -218,14 +262,34 @@ class GuiMaster(GuiMasterSettingsMixin):
         self.operation_state.set_progress(progress)
         self.root.after(0, lambda: self.root.event_generate("<<TitleUpdate>>"))
 
+    def _on_current_file(self, file_label: str, done: int, total: int) -> None:
+        """FIX-009: Called from the worker thread when a file is processed.
+
+        Updates ``OperationState.current_file`` so the status bar can
+        show ``"Обработка: ivan_petrov.xlsx (3/5)"`` instead of just a
+        bare percentage. Thread-safe via OperationState's lock.
+        """
+        self.operation_state.set_current_file(file_label)
+
     def _update_title_from_state(self, _event=None) -> None:
         """Refresh window title from OperationState — always runs on GUI thread."""
         snap = self.operation_state.snapshot()
+        # UX-019: include the selected date in the title so the user
+        # always knows which date they're working with.
+        try:
+            date_str = self.sidebar.get_date()
+            if hasattr(date_str, "strftime"):
+                date_str = date_str.strftime("%d.%m.%Y")
+            date_part = f" — {date_str}" if date_str else ""
+        except Exception:
+            date_part = ""
         if snap.current:
             label = OPERATION_LABELS.get(snap.current, "")
-            self.root.title(f"{self._base_title} — {label} {snap.progress:.0f}%")
+            self.root.title(
+                f"{self._base_title}{date_part} — {label} {snap.progress:.0f}%"
+            )
         else:
-            self.root.title(self._base_title)
+            self.root.title(f"{self._base_title}{date_part}")
 
     def _on_operation_snapshot(self, snap) -> None:
         """Forward the operation progress to the StatsPanel bar."""
@@ -252,7 +316,17 @@ class GuiMaster(GuiMasterSettingsMixin):
             else:
                 logging.error(f"Ошибка: {msg}")
                 self.dashboard_tabs.record_result("Master", ok, msg, path)
-                self.toasts.error("Master-отчет: ошибка", msg, duration_ms=6000)
+                # FIX-006: if the message is long, show a short title in
+                # the toast body and the full text in the expandable
+                # detail section so the toast stays compact.
+                short_msg = msg if len(msg) <= 120 else msg[:117] + "..."
+                detail_text = msg if len(msg) > 120 else ""
+                self.toasts.error(
+                    "Master-отчет: ошибка",
+                    short_msg,
+                    duration_ms=6000,
+                    detail=detail_text,
+                )
 
         self.root.after(0, fin)
 

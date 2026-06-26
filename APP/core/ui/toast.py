@@ -43,7 +43,11 @@ _LEVEL_ICONS = {
 _LEVEL_THEME_KEYS = {
     ToastLevel.INFO: ("info", "text_inverse"),
     ToastLevel.SUCCESS: ("success", "text_inverse"),
-    ToastLevel.WARNING: ("warning", "text"),
+    # UX-020: use text_inverse (not text) for WARNING so the foreground
+    # is dark on the yellow warning background in both light and dark
+    # themes. Previously "text" gave light-on-yellow in dark theme =
+    # WCAG AA fail.
+    ToastLevel.WARNING: ("warning", "text_inverse"),
     ToastLevel.ERROR: ("danger", "text_inverse"),
 }
 
@@ -80,6 +84,8 @@ class _Toast:
     fade_step: int = 0
     alpha_supported: bool = True
     pending_fade: bool = True                # False once _tick_fade has run
+    detail_frame: Optional[tk.Frame] = None  # FIX-006: expandable detail section
+    detail_visible: bool = False
 
 
 class ToastManager:
@@ -104,8 +110,15 @@ class ToastManager:
         title: str,
         message: str,
         duration_ms: int = 4000,
+        detail: str = "",
     ) -> None:
-        """Show a toast. Older toasts above ``max_stack`` are dismissed early."""
+        """Show a toast. Older toasts above ``max_stack`` are dismissed early.
+
+        FIX-006: When ``detail`` is a non-empty string, an expandable
+        "Подробнее ▼" link is rendered below the message. Clicking it
+        toggles a smaller-font block showing the detail text (e.g. the
+        underlying exception message, file path, or recovery hint).
+        """
         try:
             from core.ui.theme import ThemeManager
 
@@ -191,6 +204,58 @@ class ToastManager:
             alpha_supported=alpha_supported,
         )
 
+        # FIX-006: expandable detail section for error/warning toasts.
+        # When ``detail`` is non-empty, render a "Подробнее ▼" link that
+        # toggles a smaller-font block showing the detail text. This lets
+        # the user see the underlying cause (exception message, file path,
+        # recovery hint) without flooding the toast for all viewers.
+        if detail:
+            detail_bg = _darken(bg, 0.94)
+            toggle_label = tk.Label(
+                inner,
+                text="Подробнее ▼",
+                bg=bg,
+                fg=fg,
+                font=("Segoe UI", 8, "underline"),
+                anchor="w",
+                cursor="hand2",
+            )
+            toggle_label.pack(fill="x", pady=(4, 0))
+
+            detail_frame = tk.Frame(
+                inner,
+                bg=detail_bg,
+                padx=8,
+                pady=6,
+            )
+            # Hidden initially; shown when toggle is clicked.
+            detail_label = tk.Label(
+                detail_frame,
+                text=detail,
+                bg=detail_bg,
+                fg=fg,
+                font=("Segoe UI", 8),
+                anchor="w",
+                wraplength=340,
+                justify="left",
+            )
+            detail_label.pack(fill="x")
+
+            def _toggle_detail(_event=None, t=toast, lbl=toggle_label):
+                if t.detail_visible:
+                    t.detail_frame.pack_forget()
+                    lbl.configure(text="Подробнее ▼")
+                    t.detail_visible = False
+                else:
+                    t.detail_frame.pack(fill="x", pady=(4, 0))
+                    lbl.configure(text="Скрыть ▲")
+                    t.detail_visible = True
+                # Repack to reposition all toasts (height changed).
+                self._repack()
+
+            toggle_label.bind("<Button-1>", _toggle_detail)
+            toast.detail_frame = detail_frame
+
         # Close button (×), top-right corner. Clicking it dismisses early
         # via the same fade-out path as the auto-dismiss timer.
         close_bg_hover = _darken(bg, 0.88)
@@ -226,17 +291,17 @@ class ToastManager:
             duration_ms, lambda t=toast: self._dismiss(t)
         )
 
-    def info(self, title: str, message: str = "", **kwargs) -> None:
-        self.show(ToastLevel.INFO, title, message, **kwargs)
+    def info(self, title: str, message: str = "", *, detail: str = "", **kwargs) -> None:
+        self.show(ToastLevel.INFO, title, message, detail=detail, **kwargs)
 
-    def success(self, title: str, message: str = "", **kwargs) -> None:
-        self.show(ToastLevel.SUCCESS, title, message, **kwargs)
+    def success(self, title: str, message: str = "", *, detail: str = "", **kwargs) -> None:
+        self.show(ToastLevel.SUCCESS, title, message, detail=detail, **kwargs)
 
-    def warning(self, title: str, message: str = "", **kwargs) -> None:
-        self.show(ToastLevel.WARNING, title, message, **kwargs)
+    def warning(self, title: str, message: str = "", *, detail: str = "", **kwargs) -> None:
+        self.show(ToastLevel.WARNING, title, message, detail=detail, **kwargs)
 
-    def error(self, title: str, message: str = "", **kwargs) -> None:
-        self.show(ToastLevel.ERROR, title, message, **kwargs)
+    def error(self, title: str, message: str = "", *, detail: str = "", **kwargs) -> None:
+        self.show(ToastLevel.ERROR, title, message, detail=detail, **kwargs)
 
     # ------------------------------------------------------------------- internals
 

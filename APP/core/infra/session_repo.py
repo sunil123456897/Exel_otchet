@@ -174,6 +174,45 @@ class SessionRepository(IPersistence):
         finally:
             conn.close()
 
+    def list_recent_sessions(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Return recent sessions for the history tab (UX-008).
+
+        Each row includes session_id, created_at, status, and parsed
+        metadata (session_type, target_date, etc.). Joined with
+        source_files counts so the user can see how many files were
+        processed per session.
+        """
+        conn = self._get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT s.session_id, s.created_at, s.status, s.metadata, "
+                "(SELECT COUNT(*) FROM source_files sf WHERE sf.session_id = s.session_id) AS file_count "
+                "FROM sessions s "
+                "ORDER BY s.created_at DESC "
+                "LIMIT ?",
+                (limit,),
+            ).fetchall()
+            result = []
+            for row in rows:
+                meta = {}
+                try:
+                    meta = json.loads(row["metadata"]) if row["metadata"] else {}
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                result.append({
+                    "session_id": row["session_id"],
+                    "created_at": row["created_at"],
+                    "status": row["status"],
+                    "session_type": meta.get("session_type", ""),
+                    "target_date": meta.get("target_date", ""),
+                    "start_date": meta.get("start_date", ""),
+                    "end_date": meta.get("end_date", ""),
+                    "file_count": row["file_count"],
+                })
+            return result
+        finally:
+            conn.close()
+
     def update_session_status(self, session_id: str, status: str) -> None:
         def _update():
             conn = self._get_connection()
@@ -285,6 +324,46 @@ class SessionRepository(IPersistence):
 
     def save_discovery_cache(self, roots_key: str, files: List[Dict[str, Any]]) -> None:
         self.source_file_repo.save_discovery_cache(roots_key, files)
+
+    def purge_old_sessions(self, max_age_days: int = 30) -> int:
+        """Delete sessions older than ``max_age_days`` and their dependent rows.
+
+        Cascades to ``source_files`` and ``staging_data`` via the
+        ``ON DELETE CASCADE`` foreign key declared in the schema. Returns
+        the number of sessions deleted. Called automatically on startup
+        (see ``AppController.__init__``) so the cache.db does not grow
+        unboundedly across months of daily use (TD-019).
+        """
+        if max_age_days <= 0:
+            return 0
+
+        def _purge():
+            conn = self._get_connection()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                cursor = conn.execute(
+                    "DELETE FROM sessions "
+                    "WHERE created_at < datetime('now', ?) "
+                    "AND status IN ('completed', 'failed', 'cancelled')",
+                    (f"-{int(max_age_days)} days",),
+                )
+                deleted = cursor.rowcount
+                conn.commit()
+                if deleted > 0:
+                    self.logger.info(
+                        "Purged %d old sessions (older than %d days)",
+                        deleted,
+                        max_age_days,
+                    )
+                return deleted
+            except Exception:
+                conn.rollback()
+                self.logger.warning("purge_old_sessions failed", exc_info=True)
+                return 0
+            finally:
+                conn.close()
+
+        return self._execute_with_retry(_purge)
 
 
 SQLiteManager = SessionRepository

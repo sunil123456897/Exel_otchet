@@ -107,6 +107,19 @@ class EmployeeCommandsMixin:
             on_attach,
         )
 
+    def attach_files_to_employee(self, name: str, paths: List[str]) -> None:
+        """UX-010: Attach dropped files to an employee (drag-and-drop)."""
+        self.ctx.employee_vm.attach_files(
+            self.ctx.config_controller, name, paths, append=True
+        )
+        self.refresh_status()
+        if self.ctx.toasts:
+            self.ctx.toasts.success(
+                "Файл привязан",
+                f"{'.'.join(Path(p).name for p in paths)} → {name}",
+                duration_ms=2500,
+            )
+
     def open_master_folder(self) -> None:
         p = self.ctx.employee_vm.get_master_path(self.ctx.config_controller)
         if p and p.parent.exists():
@@ -182,9 +195,23 @@ class EmployeeCommandsMixin:
         self.open_employee_folder()
 
     def delete_employee(self) -> None:
-        name = self.ctx.employee_table.get_selected_employee()
-        if name and messagebox.askyesno(
-            "Удалить", f"Удалить сотрудника '{name}'?"
-        ):
+        # UX-015: support batch deletion of multiple selected employees.
+        names = self.ctx.employee_table.get_selected_employees()
+        if not names:
+            # Fallback to single selection for backward compat
+            name = self.ctx.employee_table.get_selected_employee()
+            if not name:
+                return
+            names = [name]
+        count = len(names)
+        if count == 1:
+            msg = f"Удалить сотрудника '{names[0]}'?"
+        else:
+            msg = f"Удалить {count} сотрудников?\n\n" + "\n".join(f"• {n}" for n in names[:10])
+            if count > 10:
+                msg += f"\n... и ещё {count - 10}"
+        if not messagebox.askyesno("Удалить", msg):
+            return
+        for name in names:
             self.ctx.employee_vm.delete_employee(self.ctx.config_controller, name)
-            self.refresh_status()
+        self.refresh_status()

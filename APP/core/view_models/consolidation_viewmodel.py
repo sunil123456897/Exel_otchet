@@ -18,14 +18,17 @@ class ConsolidationViewModel:
         self._progress = 0.0
         self._on_progress: Callable[[float], None] | None = None
         self._on_complete: Callable[[bool, str, Path | None], None] | None = None
+        self._on_current_file: Callable[[str, int, int], None] | None = None  # FIX-009
 
     def set_callbacks(
         self,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Path | None], None],
+        on_current_file: Callable[[str, int, int], None] | None = None,
     ) -> None:
         self._on_progress = on_progress
         self._on_complete = on_complete
+        self._on_current_file = on_current_file
 
     def _execute(self, action_fn) -> None:
         with self._lock:
@@ -69,9 +72,11 @@ class ConsolidationViewModel:
         cancel_event = (
             self._operation_state.cancel_event if self._operation_state else None
         )
+        ocf = self._on_current_file
         self._execute(
             lambda p, c: ctl.run_consolidation(
                 selected_date, p, c, curator=curator, cancel_event=cancel_event,
+                on_current_file=ocf,
             )
         )
 
@@ -82,9 +87,11 @@ class ConsolidationViewModel:
         cancel_event = (
             self._operation_state.cancel_event if self._operation_state else None
         )
+        ocf = self._on_current_file
         self._execute(
             lambda p, c: ctl.run_consolidation_all_dates(
                 p, c, curator=curator, cancel_event=cancel_event,
+                on_current_file=ocf,
             )
         )
 
@@ -99,9 +106,11 @@ class ConsolidationViewModel:
         cancel_event = (
             self._operation_state.cancel_event if self._operation_state else None
         )
+        ocf = self._on_current_file
         self._execute(
             lambda p, c: ctl.run_consolidation_month(
                 start_date, end_date, p, c, curator=curator, cancel_event=cancel_event,
+                on_current_file=ocf,
             )
         )
 

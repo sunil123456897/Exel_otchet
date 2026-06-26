@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
 from datetime import datetime, timedelta
+from typing import Optional
 from core.ui.theme import ThemeManager
 from core.ui.debounce import Debouncer
 
@@ -47,8 +48,9 @@ class Sidebar(ttk.Frame):
             background=ThemeManager.COLORS["bg_sidebar"],
         )
         # Canvas uses explicit colours (not a ttk style), so register
-        # it to be re-themed on ThemeManager.set_theme().
-        ThemeManager.register(self.canvas, bg_key="bg_sidebar")
+        # it to be re-themed on ThemeManager.set_theme().  Canvas has
+        # no foreground option, so pass fg_key=None.
+        ThemeManager.register(self.canvas, bg_key="bg_sidebar", fg_key=None)
         self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
         self.content = ttk.Frame(self.canvas, style="Sidebar.TFrame")
         self._content_window = self.canvas.create_window((0, 0), window=self.content, anchor=tk.NW)
@@ -108,6 +110,23 @@ class Sidebar(ttk.Frame):
             background=ThemeManager.COLORS["bg_sidebar"],
         ).pack(pady=(0, 4), anchor=tk.W)
 
+        # UX-017: network drive indicator — shows a green/red dot
+        # indicating whether the configured network drives are reachable.
+        # Updated every 30s by ``_poll_network_drives``.
+        self._net_indicator = tk.Label(
+            self.content,
+            text="🔴 Сеть: проверка...",
+            background=ThemeManager.COLORS["bg_sidebar"],
+            foreground=ThemeManager.COLORS.get("text_muted", "#888"),
+            font=("Segoe UI", 8),
+            anchor=tk.W,
+        )
+        # Register for re-theming on dark/light switch.
+        ThemeManager.register(self._net_indicator, bg_key="bg_sidebar", fg_key="text_muted")
+        self._net_indicator.pack(pady=(0, 4), anchor=tk.W)
+        self._net_poll_after_id: Optional[str] = None
+        self.after(2000, self._poll_network_drives)
+
         # Date Selection
         date_frame = ttk.LabelFrame(self.content, text="📅 ВЫБОР ДАТЫ", padding=2)
         date_frame.pack(fill=tk.X, pady=(1, 2))
@@ -117,7 +136,7 @@ class Sidebar(ttk.Frame):
 
         self.date_entry = DateEntry(
             date_row,
-            width=8,
+            width=12,
             background=ThemeManager.COLORS["primary"],
             foreground="white",
             borderwidth=2,
@@ -133,6 +152,19 @@ class Sidebar(ttk.Frame):
         self.bind("<Destroy>", self._on_destroy, add="+")
 
         from core.ui.tooltip import Tooltip
+
+        # UX-014: show weekday abbreviation as a tooltip on the date
+        # entry — tkcalendar doesn't support custom date patterns with
+        # weekday, so we use a dynamic tooltip instead.
+        self._date_tooltip = Tooltip(
+            self.date_entry,
+            self._weekday_tooltip_text,
+        )
+        self.date_entry.bind(
+            "<<DateEntrySelected>>",
+            lambda e: self._date_tooltip.set_text(self._weekday_tooltip_text()),
+            add="+",
+        )
 
         self.refresh_btn = ttk.Button(
             date_row,
@@ -286,8 +318,7 @@ class Sidebar(ttk.Frame):
         self.rsch_month_btn.pack(fill=tk.X)
 
         # Theme switcher: 3 options (light/dark/system). The "system"
-        # option is auto-disabled on Windows 8 where the registry key
-        # we read is not present — there's nothing to follow.
+        # option follows the OS dark/light setting (polled every 5s).
         theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=2)
         theme_frame.pack(fill=tk.X, pady=(0, 2))
         self.theme_var = tk.StringVar(value="light")
@@ -296,6 +327,7 @@ class Sidebar(ttk.Frame):
         for value, label in (
             ("light", "☀️ Светлая"),
             ("dark", "🌙 Тёмная"),
+            ("system", "💻 Системная"),
         ):
             ttk.Radiobutton(
                 theme_row,
@@ -312,6 +344,11 @@ class Sidebar(ttk.Frame):
             command=self._open_settings_fallback,
         )
         self.settings_btn.pack(fill=tk.X, pady=(2, 0))
+        from core.ui.tooltip import Tooltip
+        Tooltip(
+            self.settings_btn,
+            "Открыть диалог настроек: пути, сеть, бэкапы, логика, БД, тема",
+        )
 
         # Subscribe to scale changes for adaptive width
         self._scale_cb = lambda _s, _mode: self.after(0, self._recompute_width)
@@ -423,6 +460,14 @@ class Sidebar(ttk.Frame):
                 self._range_warning_tooltip.set_text(
                     "Дата окончания раньше даты начала. Поменяйте одну из дат."
                 )
+            # FIX-003: disable period buttons when range is invalid
+            # to prevent the user from clicking "СОБРАТЬ ЗА ПЕРИОД" only
+            # to receive a messagebox.showerror after the fact.
+            try:
+                self.consolidate_month_btn.config(state=tk.DISABLED)
+                self.rsch_month_btn.config(state=tk.DISABLED)
+            except (tk.TclError, AttributeError):
+                pass
         else:
             self.month_start_entry.configure(foreground="white")
             self.month_end_entry.configure(foreground="white")
@@ -430,9 +475,81 @@ class Sidebar(ttk.Frame):
 
             if self._range_warning_tooltip is not None:
                 self._range_warning_tooltip.set_text("")
+            # FIX-003: re-enable period buttons when range becomes valid.
+            # Respect the global busy-state: only re-enable if the
+            # operation state is not currently busy (the controller
+            # disables buttons during runs and re-enables them on end).
+            try:
+                if not getattr(self, "_period_buttons_locked", False):
+                    self.consolidate_month_btn.config(state=tk.NORMAL)
+                    self.rsch_month_btn.config(state=tk.NORMAL)
+            except (tk.TclError, AttributeError):
+                pass
 
     def get_date(self):
         return self.date_entry.get_date()
+
+    # ── UX-014: weekday tooltip ─────────────────────────────────
+
+    def _weekday_tooltip_text(self) -> str:
+        """Return a tooltip string with the weekday for the selected date."""
+        try:
+            d = self.date_entry.get_date()
+            weekdays = ["понедельник", "вторник", "среда", "четверг",
+                        "пятница", "суббота", "воскресенье"]
+            wd = weekdays[d.weekday()]
+            return f"{d.strftime('%d.%m.%Y')} — {wd}"
+        except Exception:
+            return ""
+
+    # ── UX-017: network drive indicator ─────────────────────────
+
+    def _poll_network_drives(self) -> None:
+        """Check if configured network drives are reachable; update indicator.
+
+        Runs on the GUI thread every 30 seconds. Uses a lightweight
+        ``os.path.exists`` check on each configured drive letter.
+        """
+        import os
+        try:
+            cfg = getattr(self.controller, 'config_controller', None)
+            if cfg is None:
+                self._net_indicator.config(text="🟡 Сеть: нет конфиг")
+                return
+            config = getattr(cfg, 'config', {})
+            network_cfg = config.get("network", {}) if isinstance(config, dict) else {}
+            drive_letters = network_cfg.get("drive_letters", ["Q"])
+            if not isinstance(drive_letters, list):
+                drive_letters = [drive_letters]
+            reachable = 0
+            total = 0
+            for letter in drive_letters:
+                drive_path = f"{str(letter)}:\\"
+                total += 1
+                if os.path.exists(drive_path):
+                    reachable += 1
+            if total == 0:
+                self._net_indicator.config(text="🟡 Сеть: нет дисков")
+            elif reachable == total:
+                self._net_indicator.config(
+                    text=f"🟢 Сеть: {reachable}/{total} дисков доступны"
+                )
+            elif reachable > 0:
+                self._net_indicator.config(
+                    text=f"🟡 Сеть: {reachable}/{total} дисков доступны"
+                )
+            else:
+                self._net_indicator.config(
+                    text=f"🔴 Сеть: {reachable}/{total} дисков доступны"
+                )
+        except Exception:
+            self._net_indicator.config(text="🟡 Сеть: ошибка проверки")
+        finally:
+            # Schedule next poll in 30s
+            try:
+                self._net_poll_after_id = self.after(30000, self._poll_network_drives)
+            except tk.TclError:
+                pass
 
     def get_curator(self):
         value = self.curator_var.get()

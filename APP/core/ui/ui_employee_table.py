@@ -4,6 +4,16 @@ from tkinter import ttk
 from core.ui.debounce import Debouncer
 from core.ui.theme import ThemeManager
 
+# UX-010: Optional drag-and-drop support via tkinterdnd2.
+# If the package is not installed, drag-drop is silently disabled
+# and the user attaches files via the "Привязать" button as before.
+try:
+    import tkinterdnd2  # type: ignore
+    _DND_AVAILABLE = True
+except ImportError:
+    tkinterdnd2 = None
+    _DND_AVAILABLE = False
+
 
 def _c(key, fallback):
     """Safe theme-color lookup with fallback for keys POLISH-1 may add."""
@@ -26,6 +36,11 @@ class EmployeeTable(ttk.Frame):
         # the current hovered item id for hover-row highlight.
         self._row_index = 0
         self._hover_row = None
+        # UX-012: sort state — (column, reverse). None = no sort.
+        self._sort_column: str | None = None
+        self._sort_reverse: bool = False
+        # UX-013: status filter — None = show all.
+        self._status_filter: str | None = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -48,7 +63,7 @@ class EmployeeTable(ttk.Frame):
             btn_frame, text="📋 Должники", command=self.controller.copy_missing_to_clipboard
         ).pack(side=tk.LEFT)
 
-        # Search
+        # Search + status filter (UX-013)
         search_frame = ttk.Frame(self, style="Main.TFrame")
         search_frame.pack(fill=tk.X, pady=(0, 5))
 
@@ -59,6 +74,18 @@ class EmployeeTable(ttk.Frame):
             side=tk.LEFT, fill=tk.X, expand=True
         )
 
+        # UX-013: status filter dropdown
+        self._status_filter_var = tk.StringVar(value="Все")
+        filter_cb = ttk.Combobox(
+            search_frame,
+            textvariable=self._status_filter_var,
+            values=["Все", "Готово", "Нет файла", "Должники"],
+            state="readonly",
+            width=12,
+        )
+        filter_cb.pack(side=tk.RIGHT, padx=(4, 0))
+        filter_cb.bind("<<ComboboxSelected>>", lambda e: self._on_status_filter_change())
+
         # Treeview
         self.tree_frame = ttk.Frame(self)
         self.tree_frame.pack(fill=tk.BOTH, expand=True)
@@ -67,11 +94,17 @@ class EmployeeTable(ttk.Frame):
             self.tree_frame,
             columns=("Employee", "Status", "Path"),
             show="headings",
-            selectmode="browse",
+            # UX-015: extended selectmode allows multi-select (Ctrl+click,
+            # Shift+click) for batch operations (delete multiple, etc.).
+            selectmode="extended",
         )
-        self.tree.heading("Employee", text="Сотрудник")
-        self.tree.heading("Status", text="Статус")
-        self.tree.heading("Path", text="Файл отчета")
+        # UX-012: clickable headings for sort. Clicking toggles asc/desc.
+        self.tree.heading("Employee", text="Сотрудник ▲▼",
+                          command=lambda: self._sort_by("Employee"))
+        self.tree.heading("Status", text="Статус ▲▼",
+                          command=lambda: self._sort_by("Status"))
+        self.tree.heading("Path", text="Файл отчета ▲▼",
+                          command=lambda: self._sort_by("Path"))
 
         # All columns stretch proportionally to window width
         self.tree.column("Employee", width=180, stretch=True)
@@ -96,12 +129,21 @@ class EmployeeTable(ttk.Frame):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         # Context Menu
-        self.menu = tk.Menu(self.tree, tearoff=0)
+        self.menu = tk.Menu(
+            self.tree,
+            tearoff=0,
+            bg=ThemeManager.COLORS.get("bg_sidebar", "#ffffff"),
+            fg=ThemeManager.COLORS.get("text", "#334155"),
+            activebackground=ThemeManager.COLORS.get("primary", "#2563eb"),
+            activeforeground=ThemeManager.COLORS.get("text_inverse", "#ffffff"),
+            borderwidth=0,
+        )
         self.menu.add_command(
             label="📁 Открыть папку", command=self.controller.open_employee_folder
         )
         self.menu.add_command(label="📊 Открыть файл", command=self.controller.open_employee_file)
         self.menu.add_separator()
+        # UX-015: batch delete — label changes based on selection count
         self.menu.add_command(
             label="❌ Удалить сотрудника", command=self.controller.delete_employee
         )
@@ -109,6 +151,45 @@ class EmployeeTable(ttk.Frame):
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<Double-1>", lambda e: self.controller.open_employee_file())
         self.bind("<Destroy>", self._on_destroy, add="+")
+
+        # UX-010: drag-and-drop file attachment. If tkinterdnd2 is
+        # available, register the tree as a drop target — dropping an
+        # .xlsx file onto a row attaches it to that employee.
+        if _DND_AVAILABLE:
+            try:
+                self.tree.drop_target_register(tkinterdnd2.DND_FILES)
+                self.tree.dnd_bind("<<Drop>>", self._on_file_drop)
+            except (tk.TclError, AttributeError):
+                pass  # DnD not supported on this platform/config
+
+    def _on_file_drop(self, event) -> None:
+        """UX-010: Handle a dropped file — attach to the selected employee."""
+        # event.data contains the dropped file path(s), possibly wrapped in {}.
+        raw = event.data.strip()
+        # Parse: Tk DnD may give "{C:/path/to/file.xlsx}" or "C:/path/to/file.xlsx"
+        paths = []
+        for token in raw.split():
+            token = token.strip("{}")
+            if token:
+                paths.append(token)
+        if not paths:
+            return
+        # Find which employee row the drop landed on
+        row = self.tree.identify_row(event.y)
+        if not row:
+            return
+        values = self.tree.item(row, "values")
+        if not values:
+            return
+        employee_name = str(values[0])
+        # Only accept .xlsx files
+        xlsx_paths = [p for p in paths if p.lower().endswith((".xlsx", ".xls"))]
+        if not xlsx_paths:
+            return
+        # Delegate to the controller's attach logic
+        attach = getattr(self.controller, "attach_files_to_employee", None)
+        if callable(attach):
+            attach(employee_name, xlsx_paths)
 
     def _configure_tags(self) -> None:
         """Apply current theme colours to Treeview row tags.
@@ -121,6 +202,8 @@ class EmployeeTable(ttk.Frame):
         self.tree.tag_configure("hover", background=_c("border_subtle", _c("trough", "#e5e7eb")))
         self.tree.tag_configure("ready", foreground=_c("success", "#28a745"))
         self.tree.tag_configure("missing", foreground=_c("danger", "#dc3545"))
+        # UX-021: empty-state placeholder — italic, muted colour
+        self.tree.tag_configure("empty_state", foreground=_c("text_secondary", "#888"))
 
     def refresh_theme(self) -> None:
         """Re-apply theme-dependent tag colours after a palette switch."""
@@ -167,6 +250,10 @@ class EmployeeTable(ttk.Frame):
             self.tree.delete(item)
 
     def insert_row(self, values, tag):
+        # Remove empty-state placeholder if present
+        children = self.tree.get_children()
+        if children and self.tree.item(children[0], "tags") == ("empty_state",):
+            self.tree.delete(children[0])
         # Alternate stripe tag (odd/even) is merged with the caller's
         # status tag so both the row background AND the status text
         # colour apply — tags are additive in ttk.Treeview.
@@ -176,6 +263,15 @@ class EmployeeTable(ttk.Frame):
         if tag:
             tags.append(tag)
         self.tree.insert("", tk.END, values=values, tags=tuple(tags))
+
+    def show_empty_state(self, message: str = "Добавьте сотрудников, чтобы начать") -> None:
+        """UX-021: Show a placeholder row when the table has no data."""
+        self.clear_tree()
+        self.tree.insert(
+            "", tk.END,
+            values=(message, "", ""),
+            tags=("empty_state",),
+        )
 
     def _on_tree_motion(self, event):
         """Highlight the row under the cursor for visual scanning."""
@@ -204,3 +300,56 @@ class EmployeeTable(ttk.Frame):
         if not sel:
             return None
         return self.tree.item(sel[0])["values"][0]
+
+    def get_selected_employees(self) -> list[str]:
+        """UX-015: Return all selected employee names (multi-select)."""
+        sel = self.tree.selection()
+        if not sel:
+            return []
+        names = []
+        for item in sel:
+            values = self.tree.item(item)["values"]
+            if values:
+                names.append(str(values[0]))
+        return names
+
+    # ── UX-012: column sorting ──────────────────────────────────
+
+    def _sort_by(self, column: str) -> None:
+        """Sort the tree by ``column``. Toggle ascending/descending."""
+        if self._sort_column == column:
+            self._sort_reverse = not self._sort_reverse
+        else:
+            self._sort_column = column
+            self._sort_reverse = False
+        self._apply_sort()
+
+    def _apply_sort(self) -> None:
+        """Re-sort the existing tree items by the current sort column."""
+        if self._sort_column is None:
+            return
+        items = list(self.tree.get_children(""))
+        col_idx = {"Employee": 0, "Status": 1, "Path": 2}.get(self._sort_column, 0)
+        try:
+            items.sort(
+                key=lambda iid: str(self.tree.item(iid)["values"][col_idx]).lower(),
+                reverse=self._sort_reverse,
+            )
+        except (IndexError, tk.TclError):
+            return
+        for i, iid in enumerate(items):
+            self.tree.move(iid, "", i)
+
+    # ── UX-013: status filter ────────────────────────────────────
+
+    def _on_status_filter_change(self) -> None:
+        """Apply the selected status filter by re-running filter_tree."""
+        value = self._status_filter_var.get()
+        self._status_filter = None if value == "Все" else value
+        # Trigger a re-filter via the controller
+        if hasattr(self.controller, "filter_tree"):
+            self.controller.filter_tree()
+
+    def get_status_filter(self) -> str | None:
+        """Return the active status filter, or None for 'show all'."""
+        return self._status_filter

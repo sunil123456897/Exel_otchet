@@ -205,8 +205,12 @@ class ThemeManager:
     # ── public: registration ──────────────────────────────────
 
     @classmethod
-    def register(cls, widget, *, bg_key: str = "bg_panel", fg_key: str = "text") -> None:
-        """Track a non-ttk widget so its colours follow theme switches."""
+    def register(cls, widget, *, bg_key: str = "bg_panel", fg_key: str | None = "text") -> None:
+        """Track a non-ttk widget so its colours follow theme switches.
+
+        Pass ``fg_key=None`` for widgets that have no ``foreground``
+        option (e.g. ``tk.Canvas``).
+        """
         cls._themed_widgets.append((widget, bg_key, fg_key))
 
     # ── public: scaling ───────────────────────────────────────
@@ -415,7 +419,22 @@ class ThemeManager:
         for entry in list(cls._themed_widgets):
             try:
                 widget, bg_key, fg_key = entry
-                widget.configure(background=cls.COLORS[bg_key], foreground=cls.COLORS[fg_key])
+                # Update background and foreground separately so that a
+                # widget lacking one option (e.g. Canvas has no
+                # foreground) still gets the other updated.  Without
+                # this, a single configure() call with both options
+                # would fail atomically and the widget would be removed
+                # from the list without any colour change — leaving a
+                # white patch in dark mode.
+                try:
+                    widget.configure(background=cls.COLORS[bg_key])
+                except Exception:
+                    pass
+                if fg_key:
+                    try:
+                        widget.configure(foreground=cls.COLORS[fg_key])
+                    except Exception:
+                        pass
             except Exception:
                 try:
                     cls._themed_widgets.remove(entry)
@@ -492,6 +511,10 @@ class ThemeManager:
             pass
 
         # --- Frames ---
+        # Base TFrame — widgets without an explicit style inherit this.
+        # Without it, ttk defaults to the clam theme's built-in colour
+        # (light grey) which shows up as a white patch in dark mode.
+        style.configure("TFrame", background=c["bg_main"])
         style.configure("Main.TFrame", background=c["bg_main"])
         style.configure("Sidebar.TFrame", background=c["bg_sidebar"], relief="flat")
 
@@ -612,6 +635,7 @@ class ThemeManager:
         )
 
         # --- LabelFrame / Card ---
+        # Base TLabelframe uses bg_sidebar (for sidebar context).
         style.configure(
             "TLabelframe",
             background=c["bg_sidebar"],
@@ -622,6 +646,21 @@ class ThemeManager:
         style.configure(
             "TLabelframe.Label",
             background=c["bg_sidebar"],
+            foreground=c["text_muted"],
+            font=f["heading"],
+        )
+        # Main-area LabelFrame — matches bg_main so it blends with the
+        # dashboard tabs instead of showing a white sidebar-coloured patch.
+        style.configure(
+            "Main.TLabelframe",
+            background=c["bg_main"],
+            relief="flat",
+            borderwidth=1,
+            bordercolor=c["border_subtle"],
+        )
+        style.configure(
+            "Main.TLabelframe.Label",
+            background=c["bg_main"],
             foreground=c["text_muted"],
             font=f["heading"],
         )
@@ -728,8 +767,19 @@ class ThemeManager:
             )
 
         # --- Notebook ---
+        # The clam Notebook.client element has bordercolor/lightcolor/
+        # darkcolor that default to white — these show as a thin white
+        # frame around the tab content in dark mode.  Set them all to
+        # the main background so the frame is invisible.
         style.configure(
-            "TNotebook", background=c["bg_main"], borderwidth=0, tabmargins=(0, 4, 0, 0)
+            "TNotebook",
+            background=c["bg_main"],
+            borderwidth=0,
+            tabmargins=(0, 4, 0, 0),
+            padding=0,
+            bordercolor=c["bg_main"],
+            lightcolor=c["bg_main"],
+            darkcolor=c["bg_main"],
         )
         style.configure(
             "TNotebook.Tab",
@@ -738,11 +788,17 @@ class ThemeManager:
             foreground=c["text_muted"],
             padding=(ctrl["tab_pad_x"], ctrl["tab_pad_y"]),
             borderwidth=0,
+            bordercolor=c["bg_main"],
+            lightcolor=c["bg_main"],
+            darkcolor=c["bg_main"],
         )
         style.map(
             "TNotebook.Tab",
             background=[("selected", c["bg_sidebar"]), ("active", c["bg_panel"])],
             foreground=[("selected", c["primary"]), ("active", c["text"])],
+            bordercolor=[("selected", c["bg_sidebar"])],
+            lightcolor=[("selected", c["bg_sidebar"])],
+            darkcolor=[("selected", c["bg_sidebar"])],
         )
 
         # --- Checkbutton / Radiobutton ---
@@ -790,11 +846,20 @@ class ThemeManager:
             background=c["bg_sidebar"],
             foreground=c["text"],
             arrowcolor=c["text_muted"],
+            bordercolor=c["border_default"],
+            lightcolor=c["border_default"],
+            darkcolor=c["border_default"],
+            insertcolor=c["primary"],
+            selectbackground=c["primary"],
+            selectforeground=c["text_inverse"],
         )
         style.map(
             "TSpinbox",
             fieldbackground=[("focus", c["bg_sidebar"])],
             arrowcolor=[("active", c["primary"])],
+            bordercolor=[("focus", c["primary"])],
+            lightcolor=[("focus", c["primary"])],
+            darkcolor=[("focus", c["primary"])],
         )
 
 

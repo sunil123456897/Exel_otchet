@@ -421,11 +421,10 @@ def _is_total_row(value: Any) -> bool:
 
 
 def _excel_safe_text(value: Any) -> Any:
-    if isinstance(value, str):
-        stripped = value.lstrip()
-        if stripped and stripped[0] in ("=", "+", "-", "@"):
-            return "'" + value
-    return value
+    # TD-012: delegate to the canonical implementation in
+    # core.infra.excel_safety to prevent the two copies from drifting.
+    from core.infra.excel_safety import excel_safe_text
+    return excel_safe_text(value)
 
 
 def _row_id(row: ReconciliationRow) -> str:

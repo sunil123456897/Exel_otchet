@@ -45,7 +45,7 @@ def _scrollable(parent: tk.Widget) -> tuple[tk.Canvas, ttk.Frame]:
         highlightthickness=0,
         background=ThemeManager.COLORS.get("bg_sidebar", "#ffffff"),
     )
-    ThemeManager.register(canvas, bg_key="bg_sidebar")
+    ThemeManager.register(canvas, bg_key="bg_sidebar", fg_key=None)
     scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
     frame = ttk.Frame(canvas)
     canvas.configure(yscrollcommand=scrollbar.set)
@@ -114,6 +114,14 @@ class _ListEditor(ttk.Frame):
         self._items: list[str] = list(initial or [])
 
         self._listbox = tk.Listbox(self, height=6, exportselection=False)
+        # Theme the Listbox — tk widgets don't follow ttk styles.
+        ThemeManager.register(self._listbox, bg_key="bg_sidebar", fg_key="text")
+        self._listbox.configure(
+            selectbackground=ThemeManager.COLORS["primary"],
+            selectforeground=ThemeManager.COLORS["text_inverse"],
+            highlightthickness=0,
+            borderwidth=0,
+        )
         self._listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self._listbox.yview)
         self._listbox.configure(yscrollcommand=scroll.set)
@@ -198,6 +206,10 @@ class SettingsDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
 
+        # Theme the Toplevel background to match the active palette.
+        # Without this, the dialog body is white in dark mode.
+        self.configure(background=ThemeManager.COLORS.get("bg_main", "#f3f4f6"))
+
         self._cc = config_controller
         self._store = settings_store
         self._gui = gui
@@ -249,6 +261,11 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="Применить", command=self._apply).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
+        # UX-016: Reset to defaults button — restores factory defaults
+        # for UI preferences (theme, scale, geometry) with a confirm.
+        ttk.Button(btn_frame, text="↺ Сброс", command=self._reset_defaults).pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
 
         # Centre on parent
         self.update_idletasks()
@@ -295,26 +312,38 @@ class SettingsDialog(tk.Toplevel):
             command=self._preview_appearance,
         ).pack(side=tk.LEFT, padx=(4, 0))
 
-        # User scale slider
+        # User scale — Spinbox with fine step + preset buttons.
+        # Previously a ttk.Scale was used, but its 0.70 range combined
+        # with _preview_appearance() on every pixel move made the slider
+        # freeze and jump to min/max. Spinbox gives precise control.
         row = ttk.Frame(tab)
         row.pack(fill=tk.X, pady=4)
         ttk.Label(row, text="× множитель:").pack(side=tk.LEFT)
         self._scale_var = tk.DoubleVar(value=self._current_prefs.user_scale)
-        scale_widget = ttk.Scale(
+        scale_spin = ttk.Spinbox(
             row,
             from_=0.80,
             to=1.50,
-            variable=self._scale_var,
-            command=lambda _: self._preview_appearance(),
+            increment=0.05,
+            textvariable=self._scale_var,
+            width=6,
+            format="%.2f",
         )
-        scale_widget.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 4))
-        self._scale_label = ttk.Label(row, text=f"{self._current_prefs.user_scale:.2f}")
-        self._scale_label.pack(side=tk.LEFT)
+        scale_spin.pack(side=tk.LEFT, padx=(4, 8))
+        # Live preview on any value change (spin buttons, typing, presets)
+        self._scale_var.trace_add("write", lambda *_: self._preview_appearance())
 
-        def _on_scale_change(*_args: Any) -> None:
-            self._scale_label.configure(text=f"{self._scale_var.get():.2f}")
-
-        self._scale_var.trace_add("write", _on_scale_change)
+        # Preset buttons for quick selection
+        preset_row = ttk.Frame(tab)
+        preset_row.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(preset_row, text="Пресеты:").pack(side=tk.LEFT)
+        for val, lbl in ((0.85, "Мелкий"), (1.0, "Норма"), (1.15, "Крупный"), (1.30, "Большой")):
+            btn = ttk.Button(
+                preset_row,
+                text=f"{lbl} ({val:.2f})",
+                command=lambda v=val: self._set_scale_preset(v),
+            )
+            btn.pack(side=tk.LEFT, padx=(2, 0))
 
         # Density
         row = ttk.Frame(tab)
@@ -521,13 +550,54 @@ class SettingsDialog(tk.Toplevel):
                 row, text=value, foreground=ThemeManager.COLORS.get("text_muted", "#888")
             ).pack(side=tk.LEFT)
 
+        # External editor buttons
+        ext_frame = ttk.LabelFrame(tab, text="Внешние редакторы", padding=8)
+        ext_frame.pack(fill=tk.X, pady=(16, 4))
+        ttk.Button(
+            ext_frame,
+            text="📝 Открыть config.yaml в Блокноте",
+            command=self._open_config_external,
+        ).pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(
+            ext_frame,
+            text="👥 Открыть employees.yaml в Блокноте",
+            command=self._open_employees_external,
+        ).pack(fill=tk.X)
+
         ttk.Button(
             tab,
-            text="Сбросить настройки интерфейса к умолчаниям",
-            command=self._reset_ui_defaults,
+            text="↺ Сбросить настройки интерфейса к умолчаниям",
+            command=self._reset_defaults,
         ).pack(pady=(16, 4))
 
     # ── actions ───────────────────────────────────────────────
+
+    def _open_config_external(self) -> None:
+        """Open config.yaml in the system's default text editor."""
+        import os
+        path = getattr(self._cc, "config_path", "")
+        if path and os.path.exists(path):
+            try:
+                os.startfile(path)  # Windows: opens with default .yaml editor
+            except (OSError, AttributeError):
+                # Fallback: notepad
+                try:
+                    os.system(f'notepad "{path}"')
+                except OSError:
+                    pass
+
+    def _open_employees_external(self) -> None:
+        """Open employees.yaml in the system's default text editor."""
+        import os
+        path = getattr(self._cc, "employees_path", "")
+        if path and os.path.exists(path):
+            try:
+                os.startfile(path)
+            except (OSError, AttributeError):
+                try:
+                    os.system(f'notepad "{path}"')
+                except OSError:
+                    pass
 
     def _preview_appearance(self) -> None:
         """Live preview of theme/scale/density changes (Cancel will revert)."""
@@ -541,6 +611,10 @@ class SettingsDialog(tk.Toplevel):
             ThemeManager.set_theme(effective)
         except Exception:
             pass
+
+    def _set_scale_preset(self, value: float) -> None:
+        """Set the scale spinbox to a preset value and trigger preview."""
+        self._scale_var.set(round(value, 2))
 
     def _collect_prefs(self) -> UIPreferences:
         return UIPreferences(
@@ -568,8 +642,12 @@ class SettingsDialog(tk.Toplevel):
 
     def _apply(self) -> None:
         """Apply UI prefs + write back business config."""
+        # UX-009: compute a diff of UI prefs before applying so we can
+        # show the user what changed (toast on apply).
+        old_prefs = self._original_prefs
         # 1. UI prefs
         prefs = self._collect_prefs()
+        changes = self._compute_prefs_diff(old_prefs, prefs)
         self._store.save_preferences(prefs)
         if hasattr(self._gui, "apply_ui_preferences"):
             self._gui.apply_ui_preferences(prefs)
@@ -640,6 +718,35 @@ class SettingsDialog(tk.Toplevel):
 
         self._writeback_config()
 
+        # UX-009: show a toast summarising what UI prefs changed
+        if changes and hasattr(self._gui, "toasts"):
+            try:
+                summary = "; ".join(changes[:5])
+                if len(changes) > 5:
+                    summary += f" (+{len(changes) - 5} ещё)"
+                self._gui.toasts.info("Настройки применены", summary, duration_ms=3000)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _compute_prefs_diff(old, new) -> list[str]:
+        """UX-009: Return a list of human-readable change descriptions."""
+        changes = []
+        labels = {
+            "theme": "Тема",
+            "scale_mode": "Масштаб",
+            "user_scale": "Размер",
+            "density": "Плотность",
+            "window_geometry": "Геометрия",
+        }
+        for field in ("theme", "scale_mode", "user_scale", "density", "window_geometry"):
+            old_val = getattr(old, field, None)
+            new_val = getattr(new, field, None)
+            if old_val != new_val:
+                label = labels.get(field, field)
+                changes.append(f"{label}: {old_val} → {new_val}")
+        return changes
+
     def _cancel(self) -> None:
         """Revert any live preview changes and close."""
         # Restore ThemeManager to original prefs
@@ -654,6 +761,17 @@ class SettingsDialog(tk.Toplevel):
         except Exception:
             pass
         self.destroy()
+
+    def _reset_defaults(self) -> None:
+        """UX-016: Reset to defaults with confirmation."""
+        from tkinter import messagebox
+        if not messagebox.askyesno(
+            "Сброс настроек",
+            "Сбросить настройки интерфейса к значениям по умолчанию?\n"
+            "(тема, масштаб, плотность, геометрия окна)",
+        ):
+            return
+        self._reset_ui_defaults()
 
     def _reset_ui_defaults(self) -> None:
         """Reset UI settings to factory defaults."""
