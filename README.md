@@ -90,6 +90,7 @@ APP/core/app_controller.py
                          основной координатор пользовательских действий
 APP/core/domain/         бизнес-правила и схемы данных
 APP/core/infra/          чтение Excel, запись Excel, SQLite, поиск файлов
+APP/core/shared/         общие утилиты (path_scrub) — без зависимостей от infra
 APP/core/ui/             Tkinter-интерфейс
 ```
 
@@ -112,6 +113,10 @@ APP/core/ui/             Tkinter-интерфейс
 - Сверить готовые отчеты `Master_Report.xlsx`, Бориса и Ивана с готовым РСЧ и получить один отчет расхождений с листами `Общий`, `Борис`, `Иван`.
 - Проверить статус готовности файлов сотрудников.
 - Открыть папку с мастер-файлом или скопировать список должников.
+- Переключить тему интерфейса (светлая/тёмная/системная) — сохраняется между запусками.
+- Открыть историю последних операций (вкладка «📜 История»).
+- Массовое удаление сотрудников (Ctrl+клик для выбора нескольких).
+- Горячие клавиши: Ctrl+D (день), Ctrl+M (месяц), Ctrl+R (РСЧ), Ctrl+E (сверка), F5 (обновить статус), Esc (отмена).
 
 ## Важные Правила Поведения
 
@@ -156,6 +161,7 @@ rsch:
 
 - Python 3.12+
 - Tkinter и tkcalendar для интерфейса
+- tkinterdnd2 (опционально) для drag-and-drop файлов
 - openpyxl для записи Excel
 - python-calamine и pyxlsb для чтения Excel
 - SQLite для кэша
@@ -190,7 +196,7 @@ APP/core/infra/
 ├── reconciliation/    # сверка (6 модулей, ~1500 строк)
 │   ├── __init__.py    # build_reconciliation_report, build_combined
 │   ├── _types.py      # MasterReconciliationRow, ...
-│   ├── _utils.py      # _to_decimal, _excel_safe_text, константы
+│   ├── _utils.py      # _to_decimal, константы
 │   ├── _resolve.py    # поиск дат, executor/customer matching
 │   ├── _collect.py    # чтение из Excel
 │   └── _build.py      # запись в Excel
@@ -200,10 +206,15 @@ APP/core/infra/
 │   ├── _collect.py    # чтение Calamine/openpyxl
 │   ├── _template.py   # шаблоны, стили
 │   └── _build.py      # запись, build_rsch_report
-└── ...                 # ingestion, config, discovery, etc.
+├── excel_safety.py    # _excel_safe_text — защита от formula injection
+└── ...                 # ingestion, config, discovery, session_repo, etc.
+
+APP/core/shared/
+├── __init__.py         # реэкспорт scrub_path
+└── path_scrub.py       # scrub_path — очистка путей (без зависимостей от infra)
 ```
 
-Подробнее — см. [ARCHITECTURE.md](./ARCHITECTURE.md).
+Подробнее — см. документацию в ветке `experiments`.
 
 ## Качество кода
 
@@ -223,5 +234,6 @@ Pre-commit хук запускается автоматически перед �
 
 - **Phase 0 (стабильность):** Tk-колбэки прогресса маршалируются в GUI-поток; все openpyxl workbook'и закрываются в `try/finally` (нет «файл занят в Excel» при повторе); грязная ячейка суммы в сверке логируется и пропускается, не роняя лист.
 - **Phase 1 (финансы):** `Decimal` из `LogicService` идёт в Excel напрямую (без `float`-приведения); валидатор `FinancialRowSchema` больше не течёт сырыми строками в Decimal-поля.
-- **Phase 3 (надёжность):** `EventBus.get()` под double-checked locking; миграции применяются атомарно (DDL + запись в `_migrations` в одной транзакции); `SourceFileRepository` surfaced writer-thread ошибки через `write_error`; `sqlite3` adapter'ы регистрируются один раз на уровне модуля.
+- **Phase 3 (надёжность):** миграции применяются атомарно (DDL + запись в `_migrations` в одной транзакции); `SourceFileRepository` surfaced writer-thread ошибки через `write_error`; `sqlite3` adapter'ы регистрируются один раз на уровне модуля.
 - **Phase 5 (перфоманс):** прекомпиляция trash-row regex дала ~×3.5 ускорение чтения Excel (7.0s → 2.0s на пакете из 10 файлов / 11680 строк).
+- **QA Audit (UX + dark mode):** 23 UX-улучшения (горячие клавиши, история операций, batch-удаление, сортировка колонок, фильтр статусов, drag-and-drop, тёмная тема); Master-report: per-curator headers (BORIS/IVAN) — убрана лишняя колонка; `scrub_path` вынесен в `core/shared/` (исправлен domain→infra violation); `_excel_safe_text` унифицирован в `excel_safety.py`; `purge_old_sessions(30d)` — автоочистка cache.db; удалён мёртвый код (`event_bus.py`, `metrics.py`); тесты ускорены ~×4 (92s → 22s).
