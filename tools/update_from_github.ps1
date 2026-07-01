@@ -259,9 +259,21 @@ function Expand-GitArchive {
         throw "git archive завершился с кодом $LASTEXITCODE"
     }
 
-    tar -xf $archivePath -C $Destination
-    if ($LASTEXITCODE -ne 0) {
-        throw "tar завершился с кодом $LASTEXITCODE"
+    # Распаковка tar-архива в $Destination. На Windows GNU tar (из Git Bash)
+    # ломается на путях вида C:\...\update.tar: воспринимает «C:» как
+    # удалённый хост («Cannot connect to C: resolve failed»). Обходим через
+    # Push-Location в целевую папку и передачу архиву относительного пути,
+    # а затем используем системный tar.exe (есть в Windows 10+), который
+    # корректно обрабатывает локальные пути.
+    Push-Location $Destination
+    try {
+        $relArchive = ".\update.tar"
+        & tar.exe -xf $relArchive -C $Destination
+        if ($LASTEXITCODE -ne 0) {
+            throw "tar завершился с кодом $LASTEXITCODE"
+        }
+    } finally {
+        Pop-Location
     }
 }
 
