@@ -78,6 +78,22 @@ class DashboardTabs:
         summary_frame.pack(fill=tk.X, pady=self._btn_gap)
         self.state_label = ttk.Label(summary_frame, text="", justify=tk.LEFT, wraplength=600)
         self.state_label.pack(fill=tk.X)
+        # Adaptive wraplength: the 600px default is a placeholder that is
+        # replaced on the first <Configure> and every subsequent resize so
+        # the multi-line state summary wraps to the actual tab width instead
+        # of overflowing on narrow windows or staying pinched on wide ones.
+        def _reflow_state_label(event: tk.Event) -> None:
+            try:
+                # Available text width = tab width minus outer tab padding
+                # (both sides) minus the LabelFrame's own inner padding.
+                usable = event.width - 2 * self._tab_pad - 2 * self._section_pad
+                # Clamp to a sane range so the label never collapses to a
+                # single-word column or runs wider than the tab.
+                self.state_label.configure(wraplength=max(200, min(usable, 1200)))
+            except (tk.TclError, AttributeError):
+                pass
+
+        self.home_tab.bind("<Configure>", _reflow_state_label, add="+")
 
         quick_frame = ttk.LabelFrame(self.home_tab, text="Быстрые действия", padding=self._section_pad, style="Main.TLabelframe")
         quick_frame.pack(fill=tk.X, pady=self._btn_gap)
@@ -197,7 +213,11 @@ class DashboardTabs:
         self.history_tree.column("Type", width=120, anchor=tk.W)
         self.history_tree.column("Status", width=100, anchor=tk.W)
         self.history_tree.column("Files", width=60, anchor=tk.W)
-        self.history_tree.column("Target", width=100, anchor=tk.W)
+        # Target stretches to fill remaining width — consistent with the
+        # results/reports/diagnostics trees which each give one text
+        # column stretch=True so the table fills the tab without a gap
+        # on wide windows or an unnecessary scrollbar on narrow ones.
+        self.history_tree.column("Target", width=100, anchor=tk.W, stretch=True)
 
         # Status colours
         self.history_tree.tag_configure(
