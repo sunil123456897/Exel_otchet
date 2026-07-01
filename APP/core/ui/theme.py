@@ -523,12 +523,32 @@ class ThemeManager:
         style.configure("Sidebar.TFrame", background=c["bg_sidebar"], relief="flat")
 
         # --- Labels ---
+        # Typography hierarchy:
+        #   Header.TLabel  → display  (section titles, primary colour)
+        #   TLabelframe.Label → heading (group titles, muted)
+        #   *.TLabel (body)   → body    (default text)
+        #   Muted.TLabel   → caption (secondary/hint text, muted)
         style.configure("TLabel", background=c["bg_main"], foreground=c["text"], font=f["body"])
         style.configure(
             "Sidebar.TLabel", background=c["bg_sidebar"], foreground=c["text"], font=f["body"]
         )
         style.configure(
             "Header.TLabel", font=f["display"], foreground=c["primary"], background=c["bg_main"]
+        )
+        # Main-area label — explicit bg_main so the label blends with the
+        # dashboard content area rather than inheriting a sidebar-coloured
+        # fallback. Previously missing; code referenced it but ttk silently
+        # fell back to the base TLabel (which happened to match by luck).
+        style.configure(
+            "Main.TLabel", font=f["body"], foreground=c["text"], background=c["bg_main"]
+        )
+        # Secondary/hint text — caption size, muted colour. Used for
+        # helper lines under headings (e.g. aliases tab subtitle, "double-
+        # click to edit" hints). Previously missing; ttk fell back to the
+        # full-size body label, so the helper text read as loud as the
+        # heading instead of receding.
+        style.configure(
+            "Muted.TLabel", font=f["caption"], foreground=c["text_muted"], background=c["bg_main"]
         )
 
         # --- Buttons (all use control tokens for padding) ---

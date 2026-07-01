@@ -44,12 +44,14 @@ class AliasesTab:
         ).pack(side=tk.LEFT, padx=(12, 0))
 
         # Toolbar
+        from core.ui.theme import ThemeManager
+        _gap = ThemeManager.SPACING["xs"]
         toolbar = ttk.Frame(self.parent, style="Main.TFrame")
-        toolbar.pack(fill=tk.X, pady=(0, 6))
-        ttk.Button(toolbar, text="➕ Добавить", command=self._on_add).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(toolbar, text="✏️ Изменить", command=self._on_edit).pack(side=tk.LEFT, padx=4)
-        ttk.Button(toolbar, text="🗑️ Удалить", command=self._on_delete).pack(side=tk.LEFT, padx=4)
-        ttk.Button(toolbar, text="🔄 Обновить", command=self.refresh).pack(side=tk.LEFT, padx=4)
+        toolbar.pack(fill=tk.X, pady=(0, ThemeManager.SPACING["sm"]))
+        ttk.Button(toolbar, text="➕ Добавить", command=self._on_add).pack(side=tk.LEFT, padx=(_gap, 0))
+        ttk.Button(toolbar, text="✏️ Изменить", command=self._on_edit).pack(side=tk.LEFT, padx=_gap)
+        ttk.Button(toolbar, text="🗑️ Удалить", command=self._on_delete).pack(side=tk.LEFT, padx=_gap)
+        ttk.Button(toolbar, text="🔄 Обновить", command=self.refresh).pack(side=tk.LEFT, padx=_gap)
         ttk.Label(
             toolbar,
             text="Двойной клик по строке — изменить",
