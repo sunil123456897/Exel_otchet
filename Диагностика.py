@@ -119,7 +119,11 @@ def check_version(rep: dict) -> None:
     if not sha:
         state_file = ROOT / ".update_state" / "last_sha.txt"
         if state_file.exists():
-            sha = state_file.read_text(encoding="utf-8", errors="ignore").strip()[:12]
+            raw = state_file.read_text(encoding="utf-8", errors="ignore")
+            # PS 5.1 мог записать файл с UTF-8 BOM — убираем.
+            if raw.startswith("\ufeff"):
+                raw = raw.lstrip("\ufeff")
+            sha = raw.strip()[:12]
             src = ".update_state/last_sha.txt"
     ok("commit SHA", sha or "НЕ НАЙДЕН", good=bool(sha))
     ok("источник", src or "—")
@@ -151,8 +155,14 @@ def check_paths(rep: dict) -> None:
 
 # ── 4-5. Config + данные ────────────────────────────────────────────
 
+# Кэш источников РСЧ, собранных как настоящее приложение: из
+# config.yaml → rsch.recent_sources (с фильтром существующих) плюс
+# fallback на папку «рсч всех/». Используется секциями 9 и 10.
+RSCH_SOURCES: list[Path] = []
+
 
 def check_config_and_data(rep: dict) -> None:
+    global RSCH_SOURCES
     section("4. CONFIG И ДАННЫЕ")
     rep["config"] = {}
     rep["data"] = {}
@@ -177,14 +187,49 @@ def check_config_and_data(rep: dict) -> None:
     ok("rsch.recent_sources", f"{len(rsch_cfg.get('recent_sources') or [])} шт.")
     ok("network.drive_letters", net_cfg.get("drive_letters"))
 
-    # Источники РСЧ.
+    # Источники РСЧ. Берём из config.yaml → rsch.recent_sources — точно так
+    # же, как настоящее приложение (см. _rsch.py:_get_saved_rsch_sources):
+    # абсолютные пути как есть, относительные — от папки APP/. Фильтруем
+    # существующие. Дополнительно показываем папку «рсч всех/» как
+    # ориентир, но работаем именно с configured-источниками.
     section("5. ИСТОЧНИКИ ДАННЫХ")
+    raw_sources = rsch_cfg.get("recent_sources") or []
+    if isinstance(raw_sources, str):
+        raw_sources = [raw_sources]
+    configured: list[Path] = []
+    for raw in raw_sources:
+        if not raw:
+            continue
+        p = Path(str(raw))
+        if not p.is_absolute():
+            p = (APP / p).resolve()
+        configured.append(p)
+
+    existing_cfg = [p for p in configured if p.exists()]
+    rep["data"]["rsch_configured_count"] = len(configured)
+    rep["data"]["rsch_configured_existing"] = len(existing_cfg)
+    ok("РСЧ в config (всего)", len(configured))
+    ok("РСЧ в config (существуют)", len(existing_cfg),
+       good=bool(existing_cfg))
+    for p in configured:
+        mark = "✓" if p.exists() else "✗"
+        out(f"      {mark} {p}")
+    # Папка «рсч всех» — только ориентир.
     rsch_dir = ROOT / "рсч всех"
     rsch_files = sorted(rsch_dir.glob("*.xlsx")) if rsch_dir.exists() else []
-    rep["data"]["rsch_sources"] = [f.name for f in rsch_files]
-    ok("папка «рсч всех»", f"{len(rsch_files)} файлов", good=bool(rsch_files))
-    for f in rsch_files:
-        out(f"      • {f.name}")
+    rep["data"]["rsch_dir_count"] = len(rsch_files)
+    ok("папка «рсч всех»", f"{len(rsch_files)} файлов (ориентир)",
+       good=None)
+
+    # Источники для smoke-тестов: сначала configured+existing, иначе папка.
+    if existing_cfg:
+        RSCH_SOURCES = existing_cfg
+    elif rsch_files:
+        RSCH_SOURCES = rsch_files
+    else:
+        RSCH_SOURCES = []
+    rep["data"]["rsch_sources_for_smoke"] = [str(p) for p in RSCH_SOURCES]
+
     # Master + шаблон.
     master = ROOT / "Master_Report.xlsx"
     ok("Master_Report.xlsx", "есть" if master.exists() else "НЕТ", good=master.exists())
@@ -319,16 +364,14 @@ def check_db(rep: dict, do_clean: bool) -> None:
 def smoke_read_one_rsch(rep: dict) -> None:
     section("9. ЧТЕНИЕ ОДНОГО РСЧ-ФАЙЛА (тайминг сети/парсинга)")
     rep["smoke_read"] = {}
-    rsch_dir = ROOT / "рсч всех"
-    files = sorted(rsch_dir.glob("*.xlsx")) if rsch_dir.exists() else []
-    if not files:
+    if not RSCH_SOURCES:
         ok("источники РСЧ", "НЕТ — пропускаю", good=False)
         return
     sys.path.insert(0, str(APP))
     try:
         from core.infra.rsch._collect import _collect_rows_from_workbook
 
-        f = files[0]
+        f = RSCH_SOURCES[0]
         t0 = time.monotonic()
         rows = _collect_rows_from_workbook(f, None)
         elapsed = time.monotonic() - t0
@@ -351,7 +394,7 @@ def smoke_rsch_period(rep: dict, do_period: bool) -> None:
         from core.bootstrap import Bootstrap
 
         cfg_ctl, app_ctl, db = Bootstrap.setup(APP, APP / "config.yaml")
-        rsch_sources = sorted((ROOT / "рсч всех").glob("*.xlsx"))
+        rsch_sources = list(RSCH_SOURCES)
         out_path = ROOT / "ДИАГ_РСЧ_период.xlsx"
         start = date(2026, 6, 1)
         end = date(2026, 6, 30)
