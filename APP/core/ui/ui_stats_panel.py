@@ -17,7 +17,9 @@ class StatsPanel(ttk.LabelFrame):
     """
 
     def __init__(self, parent, controller):
-        super().__init__(parent, text="📈 СТАТИСТИКА ДНЯ", padding=10)
+        from core.ui.theme import ThemeManager
+
+        super().__init__(parent, text="📈 СТАТИСТИКА ДНЯ", padding=ThemeManager.SPACING["sm"])
         self.controller = controller
         self._setup_ui()
 

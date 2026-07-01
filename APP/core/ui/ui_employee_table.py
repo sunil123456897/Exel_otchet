@@ -15,8 +15,13 @@ except ImportError:
     _DND_AVAILABLE = False
 
 
-def _c(key, fallback):
-    """Safe theme-color lookup with fallback for keys POLISH-1 may add."""
+def _c(key, fallback=None):
+    """Safe theme-color lookup with optional fallback.
+
+    ``fallback`` defaults to None for keys that are part of the canonical
+    token set (success, danger, bg_panel, …) — those always exist, so a
+    stale hex fallback would only drift from the real palette.
+    """
     return ThemeManager.COLORS.get(key, fallback)
 
 
@@ -132,10 +137,10 @@ class EmployeeTable(ttk.Frame):
         self.menu = tk.Menu(
             self.tree,
             tearoff=0,
-            bg=ThemeManager.COLORS.get("bg_sidebar", "#ffffff"),
-            fg=ThemeManager.COLORS.get("text", "#334155"),
-            activebackground=ThemeManager.COLORS.get("primary", "#2563eb"),
-            activeforeground=ThemeManager.COLORS.get("text_inverse", "#ffffff"),
+            bg=_c("bg_sidebar"),
+            fg=_c("text"),
+            activebackground=_c("primary"),
+            activeforeground=_c("text_inverse"),
             borderwidth=0,
         )
         self.menu.add_command(
@@ -197,13 +202,13 @@ class EmployeeTable(ttk.Frame):
         Called at init and again on every ``refresh_theme()`` so the
         stripes/status colours follow light↔dark switches.
         """
-        self.tree.tag_configure("odd", background=_c("bg_panel", "#f3f4f6"))
-        self.tree.tag_configure("even", background=_c("bg_sidebar", "#ffffff"))
-        self.tree.tag_configure("hover", background=_c("border_subtle", _c("trough", "#e5e7eb")))
-        self.tree.tag_configure("ready", foreground=_c("success", "#28a745"))
-        self.tree.tag_configure("missing", foreground=_c("danger", "#dc3545"))
+        self.tree.tag_configure("odd", background=_c("bg_panel"))
+        self.tree.tag_configure("even", background=_c("bg_sidebar"))
+        self.tree.tag_configure("hover", background=_c("border_subtle"))
+        self.tree.tag_configure("ready", foreground=_c("success"))
+        self.tree.tag_configure("missing", foreground=_c("danger"))
         # UX-021: empty-state placeholder — italic, muted colour
-        self.tree.tag_configure("empty_state", foreground=_c("text_secondary", "#888"))
+        self.tree.tag_configure("empty_state", foreground=_c("text_secondary"))
 
     def refresh_theme(self) -> None:
         """Re-apply theme-dependent tag colours after a palette switch."""

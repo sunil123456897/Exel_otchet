@@ -17,6 +17,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
 
+from core.ui.theme import ThemeManager
 from core.ui.operation_state import (
     OPERATION_LABELS,
     OperationState,
@@ -58,7 +59,7 @@ class OperationStatusBar(ttk.Frame):
             self,
             textvariable=self._label_var,
             style="StatusBar.TLabel",
-            font=("Segoe UI", 9, "bold"),
+            font=ThemeManager.FONTS["caption_bold"],
             anchor=tk.W,
         )
         self._title_label.pack(fill=tk.X, anchor=tk.W)
@@ -69,7 +70,7 @@ class OperationStatusBar(ttk.Frame):
             self,
             textvariable=self._file_var,
             style="StatusBar.TLabel",
-            font=("Segoe UI", 8),
+            font=ThemeManager.FONTS["micro"],
             anchor=tk.W,
         )
         self._file_label.pack(fill=tk.X, anchor=tk.W)
@@ -102,7 +103,7 @@ class OperationStatusBar(ttk.Frame):
             timings,
             textvariable=self._elapsed_var,
             style="StatusBar.TLabel",
-            font=("Consolas", 9),
+            font=ThemeManager.FONTS["mono"],
         )
         self._elapsed_label.pack(side=tk.LEFT)
 
@@ -110,7 +111,7 @@ class OperationStatusBar(ttk.Frame):
             timings,
             textvariable=self._eta_var,
             style="StatusBar.TLabel",
-            font=("Segoe UI", 8),
+            font=ThemeManager.FONTS["micro"],
         )
         self._eta_label.pack(side=tk.RIGHT)
 

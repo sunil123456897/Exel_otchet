@@ -118,8 +118,8 @@ class Sidebar(ttk.Frame):
             self.content,
             text="🔴 Сеть: проверка...",
             background=ThemeManager.COLORS["bg_sidebar"],
-            foreground=ThemeManager.COLORS.get("text_muted", "#888"),
-            font=("Segoe UI", 8),
+            foreground=ThemeManager.COLORS.get("text_muted", "#64748b"),
+            font=ThemeManager.FONTS["micro"],
             anchor=tk.W,
         )
         # Register for re-theming on dark/light switch.

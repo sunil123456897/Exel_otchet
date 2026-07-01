@@ -123,6 +123,7 @@ class ToastManager:
             from core.ui.theme import ThemeManager
 
             colors = ThemeManager.COLORS
+            fonts = ThemeManager.FONTS
             bg_key, fg_key = _LEVEL_THEME_KEYS[level]
             bg = colors[bg_key]
             fg = colors[fg_key]
@@ -178,7 +179,7 @@ class ToastManager:
             text=f"{icon}  {title}",
             bg=bg,
             fg=fg,
-            font=("Segoe UI", 10, "bold"),
+            font=fonts["body_bold"],
             anchor="w",
         )
         title_label.pack(fill="x")
@@ -189,7 +190,7 @@ class ToastManager:
                 text=message,
                 bg=bg,
                 fg=fg,
-                font=("Segoe UI", 9),
+                font=fonts["caption"],
                 anchor="w",
                 wraplength=360,
                 justify="left",
@@ -216,7 +217,9 @@ class ToastManager:
                 text="Подробнее ▼",
                 bg=bg,
                 fg=fg,
-                font=("Segoe UI", 8, "underline"),
+                # Build on the micro token but keep the underline treatment
+                # that signals this label is an interactive link.
+                font=(*fonts["micro"][:2], "underline"),
                 anchor="w",
                 cursor="hand2",
             )
@@ -234,7 +237,7 @@ class ToastManager:
                 text=detail,
                 bg=detail_bg,
                 fg=fg,
-                font=("Segoe UI", 8),
+                font=fonts["micro"],
                 anchor="w",
                 wraplength=340,
                 justify="left",
@@ -264,7 +267,8 @@ class ToastManager:
             text="×",
             bg=bg,
             fg=fg,
-            font=("Segoe UI", 11, "bold"),
+            # Slightly larger than body so the × reads as a clear target.
+            font=("Segoe UI", max(11, fonts["body_bold"][1] + 1), "bold"),
             cursor="hand2",
         )
         close_label.place(relx=1.0, x=-8, y=4, anchor="ne")

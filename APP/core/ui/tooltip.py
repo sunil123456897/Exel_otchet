@@ -125,11 +125,13 @@ class Tooltip:
             from core.ui.theme import ThemeManager
 
             colors = ThemeManager.COLORS
+            fonts = ThemeManager.FONTS
             bg = colors["tooltip_bg"]
             fg = colors["tooltip_fg"]
             border = colors.get("border_subtle", colors.get("trough", "#ced4da"))
         except (KeyError, tk.TclError):
             bg, fg, border = "#ffffe0", "#212529", "#ced4da"
+            fonts = {"caption": ("Segoe UI", 9)}
 
         try:
             tip = tk.Toplevel(self.widget)
@@ -158,7 +160,7 @@ class Tooltip:
                 text=self._resolved_text(),
                 bg=bg,
                 fg=fg,
-                font=("Segoe UI", 9),
+                font=fonts["caption"],
                 wraplength=280,
                 justify="left",
             )

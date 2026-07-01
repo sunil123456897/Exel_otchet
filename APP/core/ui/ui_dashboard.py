@@ -24,8 +24,12 @@ from core.ui.theme import ThemeManager
 _T = TypeVar("_T")
 
 
-def _c(key, fallback):
-    """Safe theme-color lookup with fallback for keys POLISH-1 may add."""
+def _c(key, fallback=None):
+    """Safe theme-color lookup with optional fallback.
+
+    Canonical token keys (success, danger, warning, text_muted, …) are
+    always present in both palettes, so no fallback is needed for them.
+    """
     return ThemeManager.COLORS.get(key, fallback)
 
 
@@ -113,7 +117,7 @@ class DashboardTabs:
         # Empty-state placeholder: when no results have been recorded
         # yet, show a muted hint instead of a blank tree.
         self.results_tree.tag_configure(
-            "empty", foreground=_c("text_muted", _c("text", "#6c757d"))
+            "empty", foreground=_c("text_muted")
         )
         self.results_tree.pack(fill=tk.BOTH, expand=True)
         self.results_tree.bind("<Double-1>", lambda _event: self._open_selected_result())
@@ -193,13 +197,13 @@ class DashboardTabs:
 
         # Status colours
         self.history_tree.tag_configure(
-            "completed", foreground=_c("success", "#28a745")
+            "completed", foreground=_c("success")
         )
         self.history_tree.tag_configure(
-            "failed", foreground=_c("danger", "#dc3545")
+            "failed", foreground=_c("danger")
         )
         self.history_tree.tag_configure(
-            "cancelled", foreground=_c("warning", "#ffc107")
+            "cancelled", foreground=_c("warning")
         )
 
         self.history_tree.pack(fill=tk.BOTH, expand=True)
@@ -456,7 +460,7 @@ class DashboardTabs:
     def refresh_theme(self) -> None:
         """Re-apply theme-dependent tag colours after a palette switch."""
         self.results_tree.tag_configure(
-            "empty", foreground=_c("text_muted", _c("text", "#6c757d"))
+            "empty", foreground=_c("text_muted")
         )
 
     def run_diagnostics(self) -> None:
