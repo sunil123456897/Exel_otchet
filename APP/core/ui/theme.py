@@ -58,10 +58,6 @@ _LIGHT = {
     "text_inverse": "#ffffff",
     "border_subtle": "#e2e8f0",
     "border_default": "#cbd5e1",
-    "success_subtle": "#dcfce7",
-    "danger_subtle": "#fee2e2",
-    "warning_subtle": "#fef3c7",
-    "info_subtle": "#e0f2fe",
     "tooltip_bg": "#0f172a",
     "tooltip_fg": "#e2e8f0",
 }
@@ -87,10 +83,6 @@ _DARK = {
     "text_inverse": "#0f172a",
     "border_subtle": "#334155",
     "border_default": "#475569",
-    "success_subtle": "#052e16",
-    "danger_subtle": "#450a0a",
-    "warning_subtle": "#422006",
-    "info_subtle": "#082f49",
     "tooltip_bg": "#020617",
     "tooltip_fg": "#e2e8f0",
 }
