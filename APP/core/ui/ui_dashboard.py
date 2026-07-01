@@ -193,11 +193,11 @@ class DashboardTabs:
         self.history_tree.heading("Status", text="Статус")
         self.history_tree.heading("Files", text="Файлов")
         self.history_tree.heading("Target", text="Дата сбора")
-        self.history_tree.column("Date", width=140)
-        self.history_tree.column("Type", width=120)
-        self.history_tree.column("Status", width=100)
-        self.history_tree.column("Files", width=60)
-        self.history_tree.column("Target", width=100)
+        self.history_tree.column("Date", width=140, anchor=tk.W)
+        self.history_tree.column("Type", width=120, anchor=tk.W)
+        self.history_tree.column("Status", width=100, anchor=tk.W)
+        self.history_tree.column("Files", width=60, anchor=tk.W)
+        self.history_tree.column("Target", width=100, anchor=tk.W)
 
         # Status colours
         self.history_tree.tag_configure(

@@ -51,10 +51,15 @@ _LEVEL_THEME_KEYS = {
     ToastLevel.ERROR: ("danger", "text_inverse"),
 }
 
-_FADE_IN_STEPS = 8       # ~150 ms total (8 × 18 ms)
-_FADE_OUT_STEPS = 10     # ~180 ms total (10 × 18 ms)
-_FADE_DELAY_MS = 18
-_SLIDE_PX = 30           # subtle slide-in from the right edge
+# Animation params sourced from the shared ANIMATION tokens in theme.py so
+# toasts and tooltips share one motion system (same frame interval). Kept
+# as module aliases so existing call sites need no change.
+from core.ui.theme import ANIMATION as _ANIM
+
+_FADE_IN_STEPS = _ANIM["toast_fade_in_steps"]    # ~128 ms total
+_FADE_OUT_STEPS = _ANIM["toast_fade_out_steps"]  # ~160 ms total
+_FADE_DELAY_MS = _ANIM["fade_delay_ms"]
+_SLIDE_PX = _ANIM["toast_slide_px"]              # subtle right-edge slide-in
 
 
 def _darken(hex_color: str, factor: float = 0.88) -> str:

@@ -913,4 +913,23 @@ def make_popup_frame(parent: tk.Misc, bg: str, *, pad_x: int, pad_y: int) -> tk.
     )
 
 
-__all__ = ["ThemeManager"]
+# ---------------------------------------------------------------------------
+# Animation tokens (shared by toast.py and tooltip.py)
+# ---------------------------------------------------------------------------
+# Both popup families animate via ``wm_attributes("-alpha", ...)``. The frame
+# interval (FADE_DELAY_MS) is shared so the two feel like one motion system;
+# the step counts stay per-component because the intent differs — tooltips
+# are transient and should appear near-instantly (~96 ms), toasts are
+# attention-seeking notifications and get a gentler entrance (~150 ms) plus
+# a slide and a fade-out. Centralising the delay avoids the drift that left
+# toast at 18 ms and tooltip at 16 ms for no reason.
+ANIMATION = {
+    "fade_delay_ms": 16,        # base frame interval for alpha fades
+    "tooltip_fade_steps": 6,    # 6 × 16 ms ≈ 96 ms  (transient → fast)
+    "toast_fade_in_steps": 8,   # 8 × 16 ms ≈ 128 ms (notification → gentle)
+    "toast_fade_out_steps": 10, # 10 × 16 ms ≈ 160 ms (dismiss → soft)
+    "toast_slide_px": 30,       # subtle right-edge slide-in for toasts
+}
+
+
+__all__ = ["ThemeManager", "ANIMATION"]

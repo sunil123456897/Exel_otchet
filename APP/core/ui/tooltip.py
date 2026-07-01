@@ -29,8 +29,14 @@ _logger = logging.getLogger(__name__)
 
 _DEFAULT_DELAY_MS = 300  # UX-011: reduced from 400ms for snappier feel
 _DEFAULT_OFFSET_PX = 12
-_FADE_STEPS = 6       # ~100 ms total (6 × 16 ms)
-_FADE_DELAY_MS = 16
+
+# Animation params sourced from the shared ANIMATION tokens in theme.py so
+# the tooltip's fade stays in lockstep with toasts (one motion system).
+# Kept as module aliases so existing call sites need no change.
+from core.ui.theme import ANIMATION as _ANIM
+
+_FADE_STEPS = _ANIM["tooltip_fade_steps"]      # ~96 ms total
+_FADE_DELAY_MS = _ANIM["fade_delay_ms"]
 
 
 class Tooltip:
