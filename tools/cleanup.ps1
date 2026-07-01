@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Cleans transient files left by launcher bat scripts and stale pycache.
 
