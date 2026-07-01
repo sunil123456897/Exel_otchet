@@ -16,7 +16,6 @@ from core.ui.geometry import (
     save_geometry,
 )
 from core.ui.operation_state import OPERATION_LABELS, OperationState
-from core.ui.operation_status_bar import OperationStatusBar
 from core.ui.toast import ToastManager
 from core.infra import ConfigController, setup_gui_logging, open_path
 from core.app_controller import AppController
@@ -218,15 +217,13 @@ class GuiMaster(GuiMasterSettingsMixin):
         self.log_panel = LogPanel(self.sidebar, self)
         self.log_panel.pack(fill=tk.BOTH, expand=True)
 
-        # Status bar lives at the bottom of the main window (not the
-        # sidebar) so the progress indicator is always visible
-        # regardless of which tab is open or how tall the window is.
-        self.status_bar = OperationStatusBar(
-            self.root,
-            self.operation_state,
-            on_cancel=self._request_cancel,
-        )
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        # NOTE: OperationStatusBar (a bottom-of-window progress strip) was
+        # removed per user request — it duplicated the operation progress
+        # already shown by StatsPanel in the sidebar and read as an empty
+        # red strip in the idle state. The class is retained for its tests
+        # and for callers that may re-enable it; it is simply no longer
+        # packed into the window. Operation progress is still visible via
+        # StatsPanel.operation_bar and the window title percentage.
 
         self.notebook = ttk.Notebook(self.main_area)
         self.notebook.pack(fill=tk.BOTH, expand=True)
