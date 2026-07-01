@@ -145,7 +145,7 @@ def show_multi_file_select_dialog(
         selected[:] = list(initial_paths or [])
         dialog.destroy()
 
-    btn_frame = ttk.Frame(dialog, padding=10)
+    btn_frame = ttk.Frame(dialog, padding=ThemeManager.SPACING["md"])
     btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
     ttk.Button(btn_frame, text="➕ Добавить ещё", command=_add).pack(side=tk.LEFT)
     ttk.Button(btn_frame, text="➖ Удалить", command=_remove).pack(side=tk.LEFT, padx=(5, 0))
@@ -169,7 +169,7 @@ def show_attach_file_dialog(
     dialog.grab_set()
     _theme_toplevel(dialog)
 
-    ttk.Label(dialog, text="Выберите сотрудника:", padding=10).pack()
+    ttk.Label(dialog, text="Выберите сотрудника:", padding=ThemeManager.SPACING["md"]).pack()
     employee_var = tk.StringVar()
     employee_combo = ttk.Combobox(
         dialog,
@@ -216,7 +216,7 @@ def show_attach_file_dialog(
         on_attach(emp_name, files, append_var.get())
         dialog.destroy()
 
-    btn_frame = ttk.Frame(dialog, padding=10)
+    btn_frame = ttk.Frame(dialog, padding=ThemeManager.SPACING["md"])
     btn_frame.pack(fill=tk.X)
     ttk.Button(btn_frame, text="Выбрать файлы", command=pick_files).pack(side=tk.LEFT)
     ttk.Button(btn_frame, text="Привязать", command=pick).pack(side=tk.RIGHT)
@@ -252,7 +252,7 @@ def ask_employee_name(existing_names: Optional[List[str]] = None) -> str:
     status_label = ttk.Label(dialog, textvariable=status_var, padding=(10, 0))
     status_label.pack(fill=tk.X)
 
-    btn_frame = ttk.Frame(dialog, padding=10)
+    btn_frame = ttk.Frame(dialog, padding=ThemeManager.SPACING["md"])
     btn_frame.pack(fill=tk.X)
     cancel_btn = ttk.Button(btn_frame, text="Отмена", command=dialog.destroy)
     cancel_btn.pack(side=tk.RIGHT, padx=(5, 0))
