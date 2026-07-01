@@ -383,7 +383,7 @@ class SettingsDialog(tk.Toplevel):
             f"Окно: {ThemeManager._viewport_w}×{ThemeManager._viewport_h}, "
             f"Масштаб: {ThemeManager._scale:.2f}, "
             f"Режим: {ThemeManager.viewport_mode()}",
-            foreground=ThemeManager.COLORS.get("text_muted", "#888"),
+            foreground=ThemeManager.COLORS.get("text_muted", "#64748b"),
         ).pack(side=tk.LEFT)
 
     def _build_paths_tab(self, notebook: ttk.Notebook) -> None:
@@ -547,7 +547,7 @@ class SettingsDialog(tk.Toplevel):
             row.pack(fill=tk.X, pady=2)
             ttk.Label(row, text=f"{label}:").pack(side=tk.LEFT, padx=(0, 8))
             ttk.Label(
-                row, text=value, foreground=ThemeManager.COLORS.get("text_muted", "#888")
+                row, text=value, foreground=ThemeManager.COLORS.get("text_muted", "#64748b")
             ).pack(side=tk.LEFT)
 
         # External editor buttons

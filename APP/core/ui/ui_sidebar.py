@@ -448,8 +448,8 @@ class Sidebar(ttk.Frame):
             return
         self._range_invalid = invalid
         if invalid:
-            self.month_start_entry.configure(foreground="#dc3545")
-            self.month_end_entry.configure(foreground="#dc3545")
+            self.month_start_entry.configure(foreground=ThemeManager.COLORS["danger"])
+            self.month_end_entry.configure(foreground=ThemeManager.COLORS["danger"])
             from core.ui.tooltip import Tooltip
 
             if self._range_warning_tooltip is None:
@@ -470,8 +470,8 @@ class Sidebar(ttk.Frame):
             except (tk.TclError, AttributeError):
                 pass
         else:
-            self.month_start_entry.configure(foreground="white")
-            self.month_end_entry.configure(foreground="white")
+            self.month_start_entry.configure(foreground=ThemeManager.COLORS["text_inverse"])
+            self.month_end_entry.configure(foreground=ThemeManager.COLORS["text_inverse"])
             from core.ui.tooltip import Tooltip
 
             if self._range_warning_tooltip is not None:
