@@ -9,8 +9,9 @@ class LogPanel(ttk.Frame):
         self._setup_ui()
 
     def _setup_ui(self):
+        sp = ThemeManager.SPACING
         header_frame = ttk.Frame(self, style='Sidebar.TFrame')
-        header_frame.pack(fill=tk.X, pady=(10, 2))
+        header_frame.pack(fill=tk.X, pady=(sp['md'], sp['xs']))
         
         ttk.Label(
             header_frame,
@@ -40,7 +41,7 @@ class LogPanel(ttk.Frame):
         # ScrolledText uses explicit colours that do not follow ttk
         # styles — register so dark-mode switches re-colour the bg/fg.
         ThemeManager.register(self.log_area, bg_key="bg_panel", fg_key="text")
-        self.log_area.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+        self.log_area.pack(fill=tk.BOTH, expand=True, padx=sp['sm'], pady=sp['sm'])
 
     def clear_logs(self):
         self.log_area.configure(state='normal')

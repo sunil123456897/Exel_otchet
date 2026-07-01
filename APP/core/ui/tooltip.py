@@ -131,7 +131,11 @@ class Tooltip:
             fg = colors["tooltip_fg"]
             popup_frame_factory = make_popup_frame
         except (KeyError, tk.TclError):
-            bg, fg = "#ffffe0", "#212529"
+            # Emergency fallback when ThemeManager is unavailable — mirror
+            # the dark tooltip palette so the tooltip is at least legible
+            # instead of the legacy light-yellow (#ffffe0) which is gone
+            # from the design system.
+            bg, fg = "#0f172a", "#e2e8f0"
             fonts = {"caption": ("Segoe UI", 9)}
 
         try:

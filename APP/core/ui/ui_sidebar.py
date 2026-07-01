@@ -153,9 +153,7 @@ class Sidebar(ttk.Frame):
             date_pattern="dd.mm.yyyy",
             locale="ru_RU",
             headersbackground=ThemeManager.COLORS["primary"],
-            selectbackground=ThemeManager.COLORS["accent"]
-            if "accent" in ThemeManager.COLORS
-            else "#007bff",
+            selectbackground=ThemeManager.COLORS["primary"],
         )
         self.date_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.date_entry.bind("<<DateEntrySelected>>", lambda e: self._date_debouncer())
