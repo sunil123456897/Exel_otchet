@@ -328,24 +328,73 @@ class SessionRepository(IPersistence):
     def purge_old_sessions(self, max_age_days: int = 30) -> int:
         """Delete sessions older than ``max_age_days`` and their dependent rows.
 
-        Cascades to ``source_files`` and ``staging_data`` via the
-        ``ON DELETE CASCADE`` foreign key declared in the schema. Returns
-        the number of sessions deleted. Called automatically on startup
-        (see ``AppController.__init__``) so the cache.db does not grow
-        unboundedly across months of daily use (TD-019).
+        Returns the number of sessions deleted. Called automatically on
+        startup (see ``AppController.__init__``) so the cache.db does not
+        grow unboundedly across months of daily use (TD-019).
+
+        NB: db_schema.sql declares the foreign keys
+        ``source_files.session_id → sessions``,
+        ``staging_data.file_id → source_files`` and
+        ``template_errors.session_id → sessions`` WITHOUT ``ON DELETE
+        CASCADE``. Relying on a cascade therefore raised
+        ``FOREIGN KEY constraint failed`` on the customer's PC where the
+        schema predates that assumption. We delete the dependent rows in
+        dependency order (children first) inside one transaction so the
+        ``DELETE FROM sessions`` at the end never violates a constraint.
         """
         if max_age_days <= 0:
             return 0
+
+        cutoff = f"-{int(max_age_days)} days"
 
         def _purge():
             conn = self._get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
-                cursor = conn.execute(
-                    "DELETE FROM sessions "
+                # Собираем ID старых сессий (завершённых) до удаления.
+                rows = conn.execute(
+                    "SELECT session_id FROM sessions "
                     "WHERE created_at < datetime('now', ?) "
                     "AND status IN ('completed', 'failed', 'cancelled')",
-                    (f"-{int(max_age_days)} days",),
+                    (cutoff,),
+                ).fetchall()
+                old_ids = [r[0] for r in rows]
+                if not old_ids:
+                    conn.commit()
+                    return 0
+                placeholders = ",".join("?" for _ in old_ids)
+
+                # 1. template_errors → по session_id напрямую.
+                conn.execute(
+                    f"DELETE FROM template_errors WHERE session_id IN ({placeholders})",
+                    old_ids,
+                )
+                # 2. source_files (нужны их id) → staging_data по file_id.
+                file_rows = conn.execute(
+                    f"SELECT id FROM source_files WHERE session_id IN ({placeholders})",
+                    old_ids,
+                ).fetchall()
+                file_ids = [r[0] for r in file_rows]
+                if file_ids:
+                    file_ph = ",".join("?" for _ in file_ids)
+                    conn.execute(
+                        f"DELETE FROM staging_data WHERE file_id IN ({file_ph})",
+                        file_ids,
+                    )
+                # 3. source_files (теперь orphan-free).
+                conn.execute(
+                    f"DELETE FROM source_files WHERE session_id IN ({placeholders})",
+                    old_ids,
+                )
+                # 4. consolidated_results → по session_id (если таблица есть).
+                conn.execute(
+                    f"DELETE FROM consolidated_results WHERE session_id IN ({placeholders})",
+                    old_ids,
+                )
+                # 5. Наконец — сами сессии.
+                cursor = conn.execute(
+                    f"DELETE FROM sessions WHERE session_id IN ({placeholders})",
+                    old_ids,
                 )
                 deleted = cursor.rowcount
                 conn.commit()
