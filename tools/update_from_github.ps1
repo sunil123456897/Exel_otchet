@@ -55,7 +55,8 @@ $UpdateItems = @(
     "ЗАПУСК.bat",
     "ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat",
     "tools\update_from_github.ps1",
-    "tools\diagnose_and_clean.py"
+    "Диагностика.py",
+    "ДИАГНОСТИКА.bat"
 )
 
 function Get-GitHubToken {
