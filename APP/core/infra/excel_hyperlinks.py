@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from openpyxl.cell.cell import Cell
@@ -16,10 +15,16 @@ def build_excel_hyperlink(
 ) -> str | None:
     if not file_path:
         return None
-    try:
-        return str(Path(str(file_path)).resolve())
-    except (OSError, RuntimeError, ValueError):
-        return str(file_path)
+    # IMPORTANT: do NOT call Path.resolve() here. Until this was changed,
+    # every row built its hyperlink via resolve(), which issues an os.stat
+    # on the path. For RSCH reports with ~120k rows whose source_path
+    # points at a network drive, that is ~120k synchronous SMB round-trips
+    # — observed on a customer PC as a 10-minute hang after the 85%
+    # progress mark (file collection finished fast; the freeze was here,
+    # in sheet writing). The stored path is already absolute; Excel only
+    # needs the string for its HYPERLINK formula, so we normalise purely
+    # in-memory.
+    return str(file_path)
 
 
 def extract_hyperlink_formula_parts(value: Any) -> tuple[str, str] | None:
