@@ -6,7 +6,7 @@ from copy import copy
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import openpyxl
 from openpyxl import Workbook
@@ -404,6 +404,8 @@ def build_rsch_report(
     template_path: Optional[Path] = None,
     issues_sink: Optional[List[str]] = None,
     drive_letters: tuple[str, ...] = ("Q", "Z"),
+    on_progress: Optional[Callable[[float], None]] = None,
+    on_current_file: Optional[Callable[[str, int, int], None]] = None,
 ) -> int:
     source_paths = _normalize_source_paths(source_path)
     output_path = Path(output_path)
@@ -441,8 +443,16 @@ def build_rsch_report(
 
     rows: List[Dict[str, Any]] = []
     issues: List[str] = []
+    total_sources = len(source_paths)
     try:
-        for src_path in source_paths:
+        # Сбор строк по источникам — самая тяжёлая (сетевая) часть; именно
+        # она отвечает за «грузит грузит». Колбэки двигают статус-бар и
+        # показывают текущий файл, чтобы пользователь видел прогресс.
+        if on_progress is not None:
+            on_progress(0.0)
+        for i, src_path in enumerate(source_paths):
+            if on_current_file is not None:
+                on_current_file(src_path.name, i, total_sources)
             rows.extend(
                 _collect_rows_from_workbook(
                     src_path,
@@ -453,6 +463,13 @@ def build_rsch_report(
                     drive_letters=drive_letters,
                 )
             )
+            # Сбор = ~80% работы (сеть + парсинг); запись листов — остаток.
+            if on_progress is not None and total_sources:
+                on_progress(((i + 1) / total_sources) * 80.0)
+        if on_current_file is not None and total_sources:
+            on_current_file("сборка листов", total_sources, total_sources)
+        if on_progress is not None:
+            on_progress(85.0)
 
         if issues_sink is not None:
             issues_sink.extend(issues)
@@ -526,6 +543,11 @@ def build_rsch_report(
             output_path.parent.mkdir(parents=True, exist_ok=True)
             backup_existing_excel_output(output_path)
             atomic_save_workbook(wb_out, output_path)
+            if on_progress is not None:
+                # 95% — финиш (100% выставит completion-хендлер в GUI,
+                # чтобы статус-бар не отрисовал 100% до того, как файл
+                # реально записан и тост показан).
+                on_progress(95.0)
         finally:
             # Guarantee the output workbook handle is released even if
             # writing aborts mid-sheet, otherwise a retry on Windows

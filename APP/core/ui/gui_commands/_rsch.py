@@ -51,6 +51,8 @@ class RschCommandsMixin:
             selected_date,
             self._on_rsch_complete,
             cancel_event=self.ctx.operation_state.cancel_event,
+            on_progress=self._on_rsch_progress,
+            on_current_file=self._on_rsch_current_file,
         )
 
     def run_rsch_report_month(self) -> None:
@@ -88,7 +90,24 @@ class RschCommandsMixin:
             end_date,
             self._on_rsch_complete,
             cancel_event=self.ctx.operation_state.cancel_event,
+            on_progress=self._on_rsch_progress,
+            on_current_file=self._on_rsch_current_file,
         )
+
+    # --- progress callbacks (FIX причины 2 «грузит грузит») ------------
+    # До фикса RschService не сообщал прогресс в OperationState, поэтому
+    # статус-бар стоял на 0% весь запуск — выглядело зависшим. Эти колбэки
+    # вызываются из воркер-потока (как в Consolidation); OperationState
+    # потокобезопасен, а обновление виджетов/заголовка выполняется через
+    # listener в gui_master._on_operation_snapshot (root.after) и poll
+    # каждые 500 мс — дополнительно дёргать Tk-события из миксина не нужно.
+
+    def _on_rsch_progress(self, progress: float) -> None:
+        self.ctx.operation_state.set_progress(progress)
+
+    def _on_rsch_current_file(self, name: str, done: int, total: int) -> None:
+        label = f"{name} ({done}/{total})" if total else name
+        self.ctx.operation_state.set_current_file(label)
 
     def _on_rsch_complete(self, ok: bool, msg: str, path: Optional[Path]) -> None:
         def fin() -> None:

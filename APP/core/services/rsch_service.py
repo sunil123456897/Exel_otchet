@@ -11,6 +11,11 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
+# Прогресс-колбэчи для статус-бара (как в Consolidation). Optional, чтобы
+# не ломать существующих вызовов; GUI пробрасывает set_progress/set_current_file.
+ProgressCb = Optional[Callable[[float], None]]
+CurrentFileCb = Optional[Callable[[str, int, int], None]]
+
 from core.infra.rsch import build_rsch_report
 from core.app.message_formatting import build_issue_preview
 
@@ -39,6 +44,8 @@ class RschService:
         selected_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
+        on_progress: ProgressCb = None,
+        on_current_file: CurrentFileCb = None,
     ) -> None:
         """Build an RSC control report from selected workbooks."""
 
@@ -67,6 +74,8 @@ class RschService:
                     target_date=target_date,
                     issues_sink=issues,
                     drive_letters=self._get_drive_letters(),
+                    on_progress=on_progress,
+                    on_current_file=on_current_file,
                 )
                 if written_rows == 0:
                     raise ValueError("РСЧ: нет строк за выбранную дату")
@@ -100,6 +109,8 @@ class RschService:
         end_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
+        on_progress: ProgressCb = None,
+        on_current_file: CurrentFileCb = None,
     ) -> None:
         """Build one RSC control workbook with one sheet per row date in range."""
 
@@ -127,6 +138,8 @@ class RschService:
                     end_date=end,
                     issues_sink=issues,
                     drive_letters=self._get_drive_letters(),
+                    on_progress=on_progress,
+                    on_current_file=on_current_file,
                 )
                 if written_rows == 0:
                     raise ValueError("РСЧ: нет строк за выбранный период")

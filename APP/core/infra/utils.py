@@ -7,8 +7,41 @@ import shutil
 import tempfile
 import threading
 import time
+import concurrent.futures
 from types import SimpleNamespace
 from pathlib import Path
+
+
+# Таймауты на блокирующие сетевые операции внутри get_local_copy.
+# Симптом бага «РСЧ за период грузит грузит и не выгружается»: зависший
+# SMB-сервер держит os.stat / shutil.copy2 минутами. Эти значения дают
+# потоку разблокироваться и сообщить понятную ошибку вместо бесконечного
+# ожидания. Зависший диск обычно не отвечает вовсе, поэтому даже 3 c
+# хватает, чтобы отличить «медленно» от «умерло».
+NETWORK_STAT_TIMEOUT_SECONDS = 3.0
+NETWORK_COPY_TIMEOUT_SECONDS = 30.0
+
+
+def _run_io_with_timeout(fn, *args, timeout: float):
+    """Run a blocking I/O callable with a wall-clock timeout.
+
+    Uses a throwaway thread. On timeout the worker thread is NOT killed
+    (Python cannot safely kill threads) and is left to die with the
+    process; the *caller* is unblocked — which is what matters so the UI
+    thread does not freeze on a hung network drive ("грузит грузит и не
+    выгружается").
+
+    NB: deliberately NOT using ``with ThreadPoolExecutor(...)`` because
+    its ``__exit__`` calls ``shutdown(wait=True)`` and would re-block on
+    the very hung worker we are trying to escape. ``shutdown(wait=False)``
+    returns immediately and abandons the worker.
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(fn, *args)
+    try:
+        return future.result(timeout=timeout)
+    finally:
+        executor.shutdown(wait=False)
 
 
 def open_path(path: str):
@@ -194,6 +227,11 @@ def get_local_copy(
     if not is_network:
         return network_path, None
 
+    # stat с таймаутом. Если сетевой диск завис («грузит грузит»), os.stat
+    # блокирует поток минутами; таймаут превращает это в понятную ошибку.
+    # Важно: если stat не прошёл по таймауту — путь недоступен, и пытаться
+    # делать copy2 на тот же путь бессмысленно (он тоже зависнет).
+    stat_unreachable = False
     if remote_mtime is not None and remote_size is not None:
         try:
             stat = SimpleNamespace(st_mtime=float(remote_mtime), st_size=int(remote_size))
@@ -201,14 +239,30 @@ def get_local_copy(
                 raise ValueError("remote_size must be non-negative")
         except (TypeError, ValueError):
             try:
-                stat = os.stat(network_path)
+                stat = _run_io_with_timeout(
+                    os.stat, network_path, timeout=NETWORK_STAT_TIMEOUT_SECONDS
+                )
+            except concurrent.futures.TimeoutError:
+                stat_unreachable = True
+                stat = SimpleNamespace(st_mtime=0, st_size=0)
             except OSError:
                 stat = SimpleNamespace(st_mtime=0, st_size=0)
     else:
         try:
-            stat = os.stat(network_path)
+            stat = _run_io_with_timeout(
+                os.stat, network_path, timeout=NETWORK_STAT_TIMEOUT_SECONDS
+            )
+        except concurrent.futures.TimeoutError:
+            stat_unreachable = True
+            stat = SimpleNamespace(st_mtime=0, st_size=0)
         except OSError:
             stat = SimpleNamespace(st_mtime=0, st_size=0)
+
+    if stat_unreachable:
+        raise OSError(
+            f"Сетевой путь не отвечает за {NETWORK_STAT_TIMEOUT_SECONDS} c: "
+            f"{network_path}. Проверьте подключение диска."
+        )
 
 
     stat_mtime_ns = getattr(stat, "st_mtime_ns", int(float(stat.st_mtime) * 1_000_000_000))
@@ -230,16 +284,28 @@ def get_local_copy(
         _maybe_cleanup_local_copy_cache()
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         try:
-            shutil.copy2(network_path, str(local_path))
+            _run_io_with_timeout(
+                shutil.copy2,
+                network_path,
+                str(local_path),
+                timeout=NETWORK_COPY_TIMEOUT_SECONDS,
+            )
             return str(local_path), None
-        except Exception:
+        except (Exception, concurrent.futures.TimeoutError):
             fd, temp_file = tempfile.mkstemp(suffix=suffix)
             os.close(fd)
             try:
-                shutil.copy2(network_path, temp_file)
+                _run_io_with_timeout(
+                    shutil.copy2,
+                    network_path,
+                    temp_file,
+                    timeout=NETWORK_COPY_TIMEOUT_SECONDS,
+                )
                 return temp_file, temp_file
-            except Exception as exc:
-                raise IOError(f"Network copy failed for {network_path} — no local fallback available") from exc
+            except (Exception, concurrent.futures.TimeoutError) as exc:
+                raise IOError(
+                    f"Network copy failed for {network_path} — no local fallback available"
+                ) from exc
 
 
 def path_exists_with_timeout(path: str | Path, timeout: float = 1.0) -> bool:

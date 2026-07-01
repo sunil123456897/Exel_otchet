@@ -13,7 +13,11 @@ def resolve_max_workers(config: Mapping[str, Any] | None) -> int:
     if not isinstance(performance, Mapping):
         return default_max_workers()
     raw_value = performance.get("max_workers")
-    if raw_value in (None, ""):
+    # 0 / None / "" трактуются как «default» — это соответствует комментарию
+    # в config.yaml («Empty keeps the current default»). Раньше явный 0
+    # возвращал 1 (max(1, min(64, 0))), что молча замедляло чтение/сборку
+    # на многоядерных ПК заказчика (F-PERF-1).
+    if raw_value in (None, "", 0):
         return default_max_workers()
     try:
         value = int(raw_value)

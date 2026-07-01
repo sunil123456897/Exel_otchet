@@ -1072,10 +1072,18 @@ class AppController:
         selected_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
+        on_progress: Optional[Callable[[float], None]] = None,
+        on_current_file: Optional[Callable[[str, int, int], None]] = None,
     ) -> None:
         """Build an RSC control report from selected workbooks."""
         self._rsch.run_rsch_report(
-            source_paths, output_path, selected_date, on_complete, cancel_event
+            source_paths,
+            output_path,
+            selected_date,
+            on_complete,
+            cancel_event,
+            on_progress=on_progress,
+            on_current_file=on_current_file,
         )
 
     def run_rsch_report_period(
@@ -1086,10 +1094,19 @@ class AppController:
         end_date,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
+        on_progress: Optional[Callable[[float], None]] = None,
+        on_current_file: Optional[Callable[[str, int, int], None]] = None,
     ) -> None:
         """Build one RSC control workbook with one sheet per row date in range."""
         self._rsch.run_rsch_report_period(
-            source_paths, output_path, start_date, end_date, on_complete, cancel_event
+            source_paths,
+            output_path,
+            start_date,
+            end_date,
+            on_complete,
+            cancel_event,
+            on_progress=on_progress,
+            on_current_file=on_current_file,
         )
 
     def run_rsch_report_period_batch(
