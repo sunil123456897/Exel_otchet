@@ -40,18 +40,22 @@ class DashboardTabs:
         self.config_controller = config_controller
         self.app_root = Path(getattr(config_controller, "config_path", "APP/config.yaml")).parent
         self.repo_root = self.app_root.parent
+        sp = ThemeManager.SPACING
+        self._tab_pad = sp["md"]        # notebook tab outer padding
+        self._section_pad = sp["sm"]    # LabelFrame / section inner padding
+        self._btn_gap = (0, sp["sm"])   # gap between sibling action buttons
         self.runtime_state_path = self.app_root / "runtime_state.json"
         self._last_results: list[RuntimeResult] = load_runtime_results(
             self.runtime_state_path
         )
 
-        self.home_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
-        self.employees_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
-        self.reports_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
-        self.diagnostics_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
-        self.logs_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
-        self.aliases_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")
-        self.history_tab = ttk.Frame(notebook, padding=10, style="Main.TFrame")  # UX-008
+        self.home_tab = ttk.Frame(notebook, padding=self._tab_pad, style="Main.TFrame")
+        self.employees_tab = ttk.Frame(notebook, padding=self._tab_pad, style="Main.TFrame")
+        self.reports_tab = ttk.Frame(notebook, padding=self._tab_pad, style="Main.TFrame")
+        self.diagnostics_tab = ttk.Frame(notebook, padding=self._tab_pad, style="Main.TFrame")
+        self.logs_tab = ttk.Frame(notebook, padding=self._tab_pad, style="Main.TFrame")
+        self.aliases_tab = ttk.Frame(notebook, padding=self._tab_pad, style="Main.TFrame")
+        self.history_tab = ttk.Frame(notebook, padding=self._tab_pad, style="Main.TFrame")  # UX-008
 
         notebook.add(self.employees_tab, text="Сотрудники")
         notebook.add(self.home_tab, text="Панель")
@@ -70,35 +74,35 @@ class DashboardTabs:
         self._setup_aliases()
 
     def _setup_home(self) -> None:
-        summary_frame = ttk.LabelFrame(self.home_tab, text="Состояние", padding=8, style="Main.TLabelframe")
-        summary_frame.pack(fill=tk.X, pady=(0, 8))
+        summary_frame = ttk.LabelFrame(self.home_tab, text="Состояние", padding=self._section_pad, style="Main.TLabelframe")
+        summary_frame.pack(fill=tk.X, pady=self._btn_gap)
         self.state_label = ttk.Label(summary_frame, text="", justify=tk.LEFT, wraplength=600)
         self.state_label.pack(fill=tk.X)
 
-        quick_frame = ttk.LabelFrame(self.home_tab, text="Быстрые действия", padding=8, style="Main.TLabelframe")
-        quick_frame.pack(fill=tk.X, pady=(0, 8))
+        quick_frame = ttk.LabelFrame(self.home_tab, text="Быстрые действия", padding=self._section_pad, style="Main.TLabelframe")
+        quick_frame.pack(fill=tk.X, pady=self._btn_gap)
         ttk.Button(
             quick_frame,
             text="Открыть последний Master",
             command=lambda: self._open_report_by_label("Master_Report.xlsx"),
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        ).pack(side=tk.LEFT, padx=(0, self._section_pad))
         ttk.Button(
             quick_frame,
             text="Открыть последнюю сверку",
             command=lambda: self._open_report_by_label("Последняя сверка"),
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        ).pack(side=tk.LEFT, padx=(0, self._section_pad))
         ttk.Button(
             quick_frame,
             text="Открыть backup",
             command=self._open_backup_folder,
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        ).pack(side=tk.LEFT, padx=(0, self._section_pad))
         ttk.Button(
             quick_frame,
             text="Открыть логи",
             command=lambda: self._open_path(self.repo_root),
         ).pack(side=tk.LEFT)
 
-        last_frame = ttk.LabelFrame(self.home_tab, text="Последние результаты", padding=8, style="Main.TLabelframe")
+        last_frame = ttk.LabelFrame(self.home_tab, text="Последние результаты", padding=self._section_pad, style="Main.TLabelframe")
         last_frame.pack(fill=tk.BOTH, expand=True)
         self.results_tree = ttk.Treeview(
             last_frame,
@@ -133,18 +137,18 @@ class DashboardTabs:
 
     def _setup_reports(self) -> None:
         action_frame = ttk.Frame(self.reports_tab, style="Main.TFrame")
-        action_frame.pack(fill=tk.X, pady=(0, 8))
+        action_frame.pack(fill=tk.X, pady=self._btn_gap)
         ttk.Button(action_frame, text="Обновить", command=self.refresh).pack(side=tk.LEFT)
         ttk.Button(action_frame, text="Открыть", command=self._open_selected_report).pack(
-            side=tk.LEFT, padx=(6, 0)
+            side=tk.LEFT, padx=(self._section_pad, 0)
         )
         ttk.Button(
             action_frame,
             text="Открыть папку",
             command=self._open_selected_report_folder,
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        ).pack(side=tk.LEFT, padx=(self._section_pad, 0))
         ttk.Button(action_frame, text="Backup", command=self._open_backup_folder).pack(
-            side=tk.LEFT, padx=(6, 0)
+            side=tk.LEFT, padx=(self._section_pad, 0)
         )
 
         self.reports_tree = ttk.Treeview(
@@ -169,7 +173,7 @@ class DashboardTabs:
     def _setup_history(self) -> None:
         """Build the operation history tab showing recent sessions."""
         action_frame = ttk.Frame(self.history_tab, style="Main.TFrame")
-        action_frame.pack(fill=tk.X, pady=(0, 8))
+        action_frame.pack(fill=tk.X, pady=self._btn_gap)
         ttk.Button(
             action_frame, text="🔄 Обновить", command=self._refresh_history
         ).pack(side=tk.LEFT)
@@ -177,7 +181,7 @@ class DashboardTabs:
             action_frame,
             text="Последние операции (из БД):",
             style="Main.TLabel",
-        ).pack(side=tk.LEFT, padx=(8, 0))
+        ).pack(side=tk.LEFT, padx=(self._section_pad, 0))
 
         self.history_tree = ttk.Treeview(
             self.history_tab,
@@ -276,7 +280,7 @@ class DashboardTabs:
 
     def _setup_diagnostics(self) -> None:
         action_frame = ttk.Frame(self.diagnostics_tab, style="Main.TFrame")
-        action_frame.pack(fill=tk.X, pady=(0, 8))
+        action_frame.pack(fill=tk.X, pady=self._btn_gap)
         ttk.Button(
             action_frame,
             text="Проверить систему",
@@ -287,7 +291,7 @@ class DashboardTabs:
             action_frame,
             text="Скопировать диагностику",
             command=self.copy_diagnostics,
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        ).pack(side=tk.LEFT, padx=(self._section_pad, 0))
 
         self.diagnostics_tree = ttk.Treeview(
             self.diagnostics_tab,
@@ -306,7 +310,7 @@ class DashboardTabs:
 
     def _setup_logs(self) -> None:
         action_frame = ttk.Frame(self.logs_tab, style="Main.TFrame")
-        action_frame.pack(fill=tk.X, pady=(0, 8))
+        action_frame.pack(fill=tk.X, pady=self._btn_gap)
         
         ttk.Button(
             action_frame,
@@ -318,25 +322,25 @@ class DashboardTabs:
             action_frame,
             text="Открыть лог работы (Python)",
             command=lambda: self._open_path(self.app_root / "startup_log.txt"),
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        ).pack(side=tk.LEFT, padx=(self._section_pad, 0))
         
         ttk.Button(
             action_frame,
             text="Открыть лог запуска (Батник)",
             command=lambda: self._open_path(self.repo_root / "startup_log.txt"),
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        ).pack(side=tk.LEFT, padx=(self._section_pad, 0))
         
         ttk.Button(
             action_frame,
             text="Открыть gui_error_log.txt",
             command=lambda: self._open_path(self.repo_root / "gui_error_log.txt"),
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        ).pack(side=tk.LEFT, padx=(self._section_pad, 0))
         
         ttk.Button(
             action_frame,
             text="Открыть папку логов",
             command=lambda: self._open_path(self.repo_root / "logs"),
-        ).pack(side=tk.LEFT, padx=(6, 0))
+        ).pack(side=tk.LEFT, padx=(self._section_pad, 0))
 
         ttk.Label(self.logs_tab, text="Последние события лога:").pack(anchor=tk.W)
         

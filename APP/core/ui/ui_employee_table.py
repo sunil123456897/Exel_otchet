@@ -51,7 +51,7 @@ class EmployeeTable(ttk.Frame):
     def _setup_ui(self):
         # Header with actions
         header_frame = ttk.Frame(self, style="Main.TFrame")
-        header_frame.pack(fill=tk.X, pady=(0, 10))
+        header_frame.pack(fill=tk.X, pady=(0, ThemeManager.SPACING["sm"]))
 
         ttk.Label(header_frame, text="📋 СТАТУС ГОТОВНОСТИ ОТЧЕТОВ", style="Header.TLabel").pack(
             side=tk.LEFT
@@ -62,7 +62,7 @@ class EmployeeTable(ttk.Frame):
 
         ttk.Button(
             btn_frame, text="📂 Папка Master", command=self.controller.open_master_folder
-        ).pack(side=tk.LEFT, padx=5)
+        ).pack(side=tk.LEFT, padx=ThemeManager.SPACING["xs"])
 
         ttk.Button(
             btn_frame, text="📋 Должники", command=self.controller.copy_missing_to_clipboard
@@ -70,7 +70,7 @@ class EmployeeTable(ttk.Frame):
 
         # Search + status filter (UX-013)
         search_frame = ttk.Frame(self, style="Main.TFrame")
-        search_frame.pack(fill=tk.X, pady=(0, 5))
+        search_frame.pack(fill=tk.X, pady=(0, ThemeManager.SPACING["xs"]))
 
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *args: self._search_debouncer())

@@ -867,4 +867,42 @@ class ThemeManager:
         )
 
 
+# ---------------------------------------------------------------------------
+# Popup styling helpers (shared by toast.py and tooltip.py)
+# ---------------------------------------------------------------------------
+# Both modules independently re-implemented the same border-color resolution
+# and the same 1px-highlight tk.Frame construction. Centralising it keeps the
+# two popup families visually consistent and removes the duplicated fallback
+# chains ("border_subtle" → "trough" → magic hex) that had drifted apart.
+
+
+def popup_border_color() -> str:
+    """Resolve the border colour for popup (toast/tooltip) frames.
+
+    Falls back gracefully through border_subtle → trough → a neutral grey,
+    so a toast still renders even if a future palette drops a key.
+    """
+    colors = ThemeManager.COLORS
+    return colors.get("border_subtle", colors.get("trough", "#cbd5e1"))
+
+
+def make_popup_frame(parent: tk.Misc, bg: str, *, pad_x: int, pad_y: int) -> tk.Frame:
+    """Build the standard popup inner frame with a 1px themed border.
+
+    tk widgets (not ttk) are used because ttk.Frame does not reliably
+    honour ``highlightthickness`` across themes — so the popup families
+    share this constructor to keep the border treatment identical.
+    """
+    border = popup_border_color()
+    return tk.Frame(
+        parent,
+        bg=bg,
+        padx=pad_x,
+        pady=pad_y,
+        highlightthickness=1,
+        highlightbackground=border,
+        highlightcolor=border,
+    )
+
+
 __all__ = ["ThemeManager"]

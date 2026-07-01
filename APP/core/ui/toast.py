@@ -120,7 +120,7 @@ class ToastManager:
         underlying exception message, file path, or recovery hint).
         """
         try:
-            from core.ui.theme import ThemeManager
+            from core.ui.theme import ThemeManager, make_popup_frame
 
             colors = ThemeManager.COLORS
             fonts = ThemeManager.FONTS
@@ -128,7 +128,6 @@ class ToastManager:
             bg = colors[bg_key]
             fg = colors[fg_key]
             icon = _LEVEL_ICONS[level]
-            border = colors.get("border_subtle", colors.get("trough", "#ced4da"))
         except (KeyError, tk.TclError):
             return
 
@@ -163,15 +162,9 @@ class ToastManager:
             pass
 
         # Inner frame carries the 1px highlight border + content padding.
-        inner = tk.Frame(
-            toplevel,
-            bg=bg,
-            padx=16,
-            pady=10,
-            highlightthickness=1,
-            highlightbackground=border,
-            highlightcolor=border,
-        )
+        # Shares the construction with tooltips via make_popup_frame so the
+        # two popup families keep identical border treatment.
+        inner = make_popup_frame(toplevel, bg, pad_x=16, pad_y=10)
         inner.pack(fill="both", expand=True)
 
         title_label = tk.Label(

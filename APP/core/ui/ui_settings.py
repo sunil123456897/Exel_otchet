@@ -399,7 +399,7 @@ class SettingsDialog(tk.Toplevel):
         _PathRow(
             tab, "Master-файл:", path_type="save_file", initial=paths.get("master_file", "")
         ).pack(fill=tk.X, pady=pad)
-        list_row = ttk.LabelFrame(tab, text="Корневые папки источников", padding=4)
+        list_row = ttk.LabelFrame(tab, text="Корневые папки источников", padding=ThemeManager.SPACING["sm"])
         list_row.pack(fill=tk.X, pady=pad)
         self._source_roots_editor = _ListEditor(list_row, initial=paths.get("source_roots", []))
         self._source_roots_editor.pack(fill=tk.X)
@@ -459,7 +459,7 @@ class SettingsDialog(tk.Toplevel):
         _, tab = _scrollable(outer)
         net = self._work.get("network", {})
 
-        list_row = ttk.LabelFrame(tab, text="Буквы сетевых дисков", padding=4)
+        list_row = ttk.LabelFrame(tab, text="Буквы сетевых дисков", padding=ThemeManager.SPACING["sm"])
         list_row.pack(fill=tk.X, pady=8)
         self._drive_letters_editor = _ListEditor(
             list_row, initial=net.get("drive_letters", ["Q", "Z"])
@@ -479,14 +479,14 @@ class SettingsDialog(tk.Toplevel):
             side=tk.LEFT
         )
 
-        list_row = ttk.LabelFrame(tab, text="Переопределение прихода (income_overrides)", padding=4)
+        list_row = ttk.LabelFrame(tab, text="Переопределение прихода (income_overrides)", padding=ThemeManager.SPACING["sm"])
         list_row.pack(fill=tk.X, pady=4)
         self._income_overrides_editor = _ListEditor(
             list_row, initial=logic.get("income_overrides", [])
         )
         self._income_overrides_editor.pack(fill=tk.X)
 
-        list_row = ttk.LabelFrame(tab, text="Ключевые слова возврата (return_keywords)", padding=4)
+        list_row = ttk.LabelFrame(tab, text="Ключевые слова возврата (return_keywords)", padding=ThemeManager.SPACING["sm"])
         list_row.pack(fill=tk.X, pady=4)
         self._return_keywords_editor = _ListEditor(
             list_row, initial=logic.get("return_keywords", [])
@@ -551,7 +551,7 @@ class SettingsDialog(tk.Toplevel):
             ).pack(side=tk.LEFT)
 
         # External editor buttons
-        ext_frame = ttk.LabelFrame(tab, text="Внешние редакторы", padding=8)
+        ext_frame = ttk.LabelFrame(tab, text="Внешние редакторы", padding=ThemeManager.SPACING["sm"])
         ext_frame.pack(fill=tk.X, pady=(16, 4))
         ttk.Button(
             ext_frame,

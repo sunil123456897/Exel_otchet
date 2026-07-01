@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import tkinter as tk
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 _logger = logging.getLogger(__name__)
 
@@ -121,16 +121,17 @@ class Tooltip:
         self._after_id = None
         if self._tip is not None and self._tip.winfo_exists():
             return
+        popup_frame_factory: Any = None
         try:
-            from core.ui.theme import ThemeManager
+            from core.ui.theme import ThemeManager, make_popup_frame
 
             colors = ThemeManager.COLORS
             fonts = ThemeManager.FONTS
             bg = colors["tooltip_bg"]
             fg = colors["tooltip_fg"]
-            border = colors.get("border_subtle", colors.get("trough", "#ced4da"))
+            popup_frame_factory = make_popup_frame
         except (KeyError, tk.TclError):
-            bg, fg, border = "#ffffe0", "#212529", "#ced4da"
+            bg, fg = "#ffffe0", "#212529"
             fonts = {"caption": ("Segoe UI", 9)}
 
         try:
@@ -141,18 +142,12 @@ class Tooltip:
             )
             tip.configure(bg=bg)
 
-            # tk.Frame (not ttk.Frame) so we can use highlightthickness
-            # for a 1px border in ``border`` color. ttk.Frame does not
-            # support highlightthickness reliably across themes.
-            frame = tk.Frame(
-                tip,
-                bg=bg,
-                padx=8,
-                pady=6,
-                highlightthickness=1,
-                highlightbackground=border,
-                highlightcolor=border,
-            )
+            # Shared popup-frame constructor (1px themed border) when the
+            # theme is available; plain tk.Frame as an emergency fallback.
+            if popup_frame_factory is not None:
+                frame = popup_frame_factory(tip, bg, pad_x=8, pad_y=6)
+            else:
+                frame = tk.Frame(tip, bg=bg, padx=8, pady=6)
             frame.pack(fill="both", expand=True)
 
             label = tk.Label(

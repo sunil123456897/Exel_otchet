@@ -36,7 +36,7 @@ class Sidebar(ttk.Frame):
     def __init__(self, parent, controller):
         screen_w = parent.winfo_screenwidth()
         sidebar_w = max(260, min(360, int(screen_w * 0.22)))
-        super().__init__(parent, width=sidebar_w, padding="4", style="Sidebar.TFrame")
+        super().__init__(parent, width=sidebar_w, padding=ThemeManager.SPACING["xs"], style="Sidebar.TFrame")
         self.controller = controller
         self.pack_propagate(False)
         # Debounce date changes so clicking through dates in the picker
@@ -104,12 +104,21 @@ class Sidebar(ttk.Frame):
         return "break"
 
     def _setup_ui(self):
+        # Local spacing aliases — keep the section bodies readable while
+        # guaranteeing that every sidebar section / button uses the same
+        # token instead of ad-hoc magic numbers (audit found four
+        # different pady values and three LabelFrame paddings here).
+        sp = ThemeManager.SPACING
+        _section_pad = sp["xs"]          # sidebar LabelFrame padding (compact)
+        _section_gap = (0, sp["sm"])     # vertical gap between sections
+        _btn_gap = (0, sp["xs"])         # bottom gap for full-width action buttons
+
         ttk.Label(
             self.content,
             text="📊 ПАНЕЛЬ",
             style="Header.TLabel",
             background=ThemeManager.COLORS["bg_sidebar"],
-        ).pack(pady=(0, 4), anchor=tk.W)
+        ).pack(pady=(0, sp["xs"]), anchor=tk.W)
 
         # UX-017: network drive indicator — shows a green/red dot
         # indicating whether the configured network drives are reachable.
@@ -124,13 +133,13 @@ class Sidebar(ttk.Frame):
         )
         # Register for re-theming on dark/light switch.
         ThemeManager.register(self._net_indicator, bg_key="bg_sidebar", fg_key="text_muted")
-        self._net_indicator.pack(pady=(0, 4), anchor=tk.W)
+        self._net_indicator.pack(pady=(0, sp["xs"]), anchor=tk.W)
         self._net_poll_after_id: Optional[str] = None
         self.after(2000, self._poll_network_drives)
 
         # Date Selection
-        date_frame = ttk.LabelFrame(self.content, text="📅 ВЫБОР ДАТЫ", padding=2)
-        date_frame.pack(fill=tk.X, pady=(1, 2))
+        date_frame = ttk.LabelFrame(self.content, text="📅 ВЫБОР ДАТЫ", padding=_section_pad)
+        date_frame.pack(fill=tk.X, pady=(sp["xs"] // 2, sp["sm"]))
 
         date_row = ttk.Frame(date_frame)
         date_row.pack(fill=tk.X)
@@ -139,7 +148,7 @@ class Sidebar(ttk.Frame):
             date_row,
             width=12,
             background=ThemeManager.COLORS["primary"],
-            foreground="white",
+            foreground=ThemeManager.COLORS["text_inverse"],
             borderwidth=2,
             date_pattern="dd.mm.yyyy",
             locale="ru_RU",
@@ -173,15 +182,15 @@ class Sidebar(ttk.Frame):
             width=3,
             command=self.controller.refresh_status,
         )
-        self.refresh_btn.pack(side=tk.RIGHT, padx=(4, 0))
+        self.refresh_btn.pack(side=tk.RIGHT, padx=(sp["xs"], 0))
         Tooltip(self.refresh_btn, "Обновить статус")
-        emp_frame = ttk.LabelFrame(self.content, text="👤 СОТРУДНИКИ", padding=2)
-        emp_frame.pack(fill=tk.X, pady=(0, 2))
+        emp_frame = ttk.LabelFrame(self.content, text="👤 СОТРУДНИКИ", padding=_section_pad)
+        emp_frame.pack(fill=tk.X, pady=_section_gap)
 
         self.add_employee_btn = ttk.Button(
             emp_frame, text="➕ Добавить", command=self.controller.add_employee_dialog
         )
-        self.add_employee_btn.pack(fill=tk.X, pady=(0, 1))
+        self.add_employee_btn.pack(fill=tk.X, pady=_btn_gap)
 
         self.attach_btn = ttk.Button(
             emp_frame, text="📎 Привязать", command=self.controller.attach_file_dialog
@@ -189,8 +198,8 @@ class Sidebar(ttk.Frame):
         self.attach_btn.pack(fill=tk.X)
 
         # Consolidation Actions
-        action_frame = ttk.LabelFrame(self.content, text="🚀 СБОРКА", padding=2)
-        action_frame.pack(fill=tk.X, pady=(0, 2))
+        action_frame = ttk.LabelFrame(self.content, text="🚀 СБОРКА", padding=_section_pad)
+        action_frame.pack(fill=tk.X, pady=_section_gap)
 
         ttk.Label(action_frame, text="Кураторский отчет:").pack(anchor=tk.W)
         self.curator_var = tk.StringVar(value="Общий отчет")
@@ -200,7 +209,7 @@ class Sidebar(ttk.Frame):
             state="readonly",
             values=["Общий отчет", "Куратор Борис", "Куратор Иван"],
         )
-        self.curator_combo.pack(fill=tk.X, pady=(0, 2))
+        self.curator_combo.pack(fill=tk.X, pady=_btn_gap)
 
         self.consolidate_btn = ttk.Button(
             action_frame,
@@ -208,28 +217,28 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_consolidation,
         )
-        self.consolidate_btn.pack(fill=tk.X, pady=(0, 1))
+        self.consolidate_btn.pack(fill=tk.X, pady=_btn_gap)
 
         self.consolidate_all_btn = ttk.Button(
             action_frame,
             text="🌍 СОБРАТЬ ВСЕ ДАТЫ",
             command=self.controller.run_consolidation_all_dates,
         )
-        self.consolidate_all_btn.pack(fill=tk.X, pady=(0, 1))
+        self.consolidate_all_btn.pack(fill=tk.X, pady=_btn_gap)
 
         self.rsch_btn = ttk.Button(
             action_frame,
             text="🧾 СОБРАТЬ РСЧ",
             command=self.controller.run_rsch_report,
         )
-        self.rsch_btn.pack(fill=tk.X, pady=(0, 1))
+        self.rsch_btn.pack(fill=tk.X, pady=_btn_gap)
 
         self.reconciliation_btn = ttk.Button(
             action_frame,
             text="✅ СВЕРИТЬ С РСЧ",
             command=self.controller.run_reconciliation_report,
         )
-        self.reconciliation_btn.pack(fill=tk.X, pady=(0, 1))
+        self.reconciliation_btn.pack(fill=tk.X, pady=_btn_gap)
 
         self.auto_reconciliation_btn = ttk.Button(
             action_frame,
@@ -237,12 +246,12 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_auto_reconciliation_day,
         )
-        self.auto_reconciliation_btn.pack(fill=tk.X, pady=(0, 2))
+        self.auto_reconciliation_btn.pack(fill=tk.X, pady=_btn_gap)
 
         # --- Collapsible Period Section ---------------------------------
         self._period_expanded = False
         self._per_container = ttk.LabelFrame(self.content, text="📆 ЗА ПЕРИОД", padding=0)
-        self._per_container.pack(fill=tk.X, pady=(0, 2))
+        self._per_container.pack(fill=tk.X, pady=_section_gap)
 
         self._per_toggle = ttk.Button(
             self._per_container,
@@ -250,25 +259,25 @@ class Sidebar(ttk.Frame):
             command=self._toggle_period_section,
             style="Ghost.TButton",
         )
-        self._per_toggle.pack(fill=tk.X, padx=2, pady=2)
+        self._per_toggle.pack(fill=tk.X, padx=_section_pad, pady=_section_pad)
 
-        self._per_panel = ttk.Frame(self._per_container, padding=2, style="Sidebar.TFrame")
+        self._per_panel = ttk.Frame(self._per_container, padding=_section_pad, style="Sidebar.TFrame")
         # Panel content (built once, hidden until first expand)
         # Date inputs side by side: "С: [date]  По: [date]"
         dates_row = ttk.Frame(self._per_panel)
-        dates_row.pack(fill=tk.X, pady=(0, 1))
+        dates_row.pack(fill=tk.X, pady=_btn_gap)
         ttk.Label(dates_row, text="С:").pack(side=tk.LEFT)
         self.month_start_entry = DateEntry(
             dates_row,
             width=7,
             background=ThemeManager.COLORS["primary"],
-            foreground="white",
+            foreground=ThemeManager.COLORS["text_inverse"],
             borderwidth=2,
             date_pattern="dd.mm.yyyy",
             locale="ru_RU",
             headersbackground=ThemeManager.COLORS["primary"],
         )
-        self.month_start_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 6))
+        self.month_start_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(sp["xs"] // 2, sp["sm"] // 2))
         today = datetime.now()
         default_start, default_end = get_default_period_range(today)
         self.month_start_entry.set_date(default_start)
@@ -278,7 +287,7 @@ class Sidebar(ttk.Frame):
             dates_row,
             width=7,
             background=ThemeManager.COLORS["primary"],
-            foreground="white",
+            foreground=ThemeManager.COLORS["text_inverse"],
             borderwidth=2,
             date_pattern="dd.mm.yyyy",
             locale="ru_RU",
@@ -295,12 +304,12 @@ class Sidebar(ttk.Frame):
 
         # Quick month preset buttons
         preset_frame = ttk.Frame(self._per_panel)
-        preset_frame.pack(fill=tk.X, pady=(0, 1))
+        preset_frame.pack(fill=tk.X, pady=_btn_gap)
         ttk.Button(preset_frame, text="Этот месяц", command=self._set_current_month).pack(
-            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3)
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, sp["xs"] // 2)
         )
         ttk.Button(preset_frame, text="Пред. месяц", command=self._set_previous_month).pack(
-            side=tk.LEFT, fill=tk.X, expand=True, padx=(3, 0)
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(sp["xs"] // 2, 0)
         )
 
         self.consolidate_month_btn = ttk.Button(
@@ -309,7 +318,7 @@ class Sidebar(ttk.Frame):
             style="Action.TButton",
             command=self.controller.run_consolidation_month,
         )
-        self.consolidate_month_btn.pack(fill=tk.X, pady=(0, 2))
+        self.consolidate_month_btn.pack(fill=tk.X, pady=_btn_gap)
 
         self.rsch_month_btn = ttk.Button(
             self._per_panel,
@@ -320,8 +329,8 @@ class Sidebar(ttk.Frame):
 
         # Theme switcher: 3 options (light/dark/system). The "system"
         # option follows the OS dark/light setting (polled every 5s).
-        theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=2)
-        theme_frame.pack(fill=tk.X, pady=(0, 2))
+        theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=_section_pad)
+        theme_frame.pack(fill=tk.X, pady=_section_gap)
         self.theme_var = tk.StringVar(value="light")
         theme_row = ttk.Frame(theme_frame, style="Sidebar.TFrame")
         theme_row.pack(fill=tk.X)
@@ -336,7 +345,7 @@ class Sidebar(ttk.Frame):
                 variable=self.theme_var,
                 value=value,
                 command=self._on_theme_changed,
-            ).pack(side=tk.LEFT, padx=(0, 4))
+            ).pack(side=tk.LEFT, padx=(0, sp["xs"]))
 
         # Settings button (opens universal settings dialog)
         self.settings_btn = ttk.Button(
@@ -344,7 +353,7 @@ class Sidebar(ttk.Frame):
             text="⚙ НАСТРОЙКИ",
             command=self._open_settings_fallback,
         )
-        self.settings_btn.pack(fill=tk.X, pady=(2, 0))
+        self.settings_btn.pack(fill=tk.X, pady=(sp["xs"], 0))
         from core.ui.tooltip import Tooltip
         Tooltip(
             self.settings_btn,
