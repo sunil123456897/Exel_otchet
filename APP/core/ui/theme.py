@@ -532,6 +532,12 @@ class ThemeManager:
         )
 
         # --- Buttons (all use control tokens for padding) ---
+        # Every button style follows ONE consistent state matrix so hover,
+        # active and disabled read identically across the app:
+        #   background: [("active", *_active), ("disabled", bg_panel)]
+        #   foreground: [("active", text_inverse), ("disabled", text_muted)]
+        # Ghost is the exception: it has no solid fill, so active bg is the
+        # panel tint and active fg is primary (the link-like affordance).
         btn_pad = (ctrl["button_pad_x"], ctrl["button_pad_y"])
         style.configure(
             "TButton",
@@ -560,7 +566,7 @@ class ThemeManager:
         style.map(
             "Action.TButton",
             background=[("active", c["primary_active"]), ("disabled", c["bg_panel"])],
-            foreground=[("disabled", c["text_muted"])],
+            foreground=[("active", c["text_inverse"]), ("disabled", c["text_muted"])],
         )
 
         style.configure(
@@ -575,7 +581,7 @@ class ThemeManager:
         style.map(
             "Success.TButton",
             background=[("active", c["success_active"]), ("disabled", c["bg_panel"])],
-            foreground=[("disabled", c["text_muted"])],
+            foreground=[("active", c["text_inverse"]), ("disabled", c["text_muted"])],
         )
 
         style.configure(
@@ -590,7 +596,7 @@ class ThemeManager:
         style.map(
             "Audit.TButton",
             background=[("active", c["info_active"]), ("disabled", c["bg_panel"])],
-            foreground=[("disabled", c["text_muted"])],
+            foreground=[("active", c["text_inverse"]), ("disabled", c["text_muted"])],
         )
 
         style.configure(
@@ -605,7 +611,7 @@ class ThemeManager:
         style.map(
             "Danger.TButton",
             background=[("active", c["danger_active"]), ("disabled", c["bg_panel"])],
-            foreground=[("disabled", c["text_muted"])],
+            foreground=[("active", c["text_inverse"]), ("disabled", c["text_muted"])],
         )
 
         style.configure(
@@ -621,21 +627,6 @@ class ThemeManager:
             "Ghost.TButton",
             background=[("active", c["bg_panel"]), ("disabled", c["bg_main"])],
             foreground=[("active", c["primary"]), ("disabled", c["text_muted"])],
-        )
-
-        style.configure(
-            "Settings.TButton",
-            font=f["button"],
-            padding=btn_pad,
-            relief="flat",
-            borderwidth=0,
-            background=c["bg_main"],
-            foreground=c["text"],
-        )
-        style.map(
-            "Settings.TButton",
-            background=[("active", c["primary"])],
-            foreground=[("active", c["text_inverse"])],
         )
 
         # --- LabelFrame / Card ---
@@ -707,7 +698,15 @@ class ThemeManager:
             background=[("selected", c["primary"])],
             foreground=[("selected", c["text_inverse"])],
         )
-        style.map("Treeview.Heading", background=[("active", c["border_default"])])
+        # On hover the heading text lifts from text_muted to text so the
+        # bold header stays readable: text_muted on border_default falls
+        # below WCAG 3:1 in dark mode (2.96:1). Foreground follows the
+        # active state to match the brightened background.
+        style.map(
+            "Treeview.Heading",
+            background=[("active", c["border_default"])],
+            foreground=[("active", c["text"])],
+        )
 
         # --- Entry / Combobox ---
         style.configure(
