@@ -1,5 +1,6 @@
 import sys
 import logging
+import threading
 import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
@@ -507,10 +508,12 @@ class Sidebar(ttk.Frame):
     def _poll_network_drives(self) -> None:
         """Check if configured network drives are reachable; update indicator.
 
-        Runs on the GUI thread every 30 seconds. Uses a lightweight
-        ``os.path.exists`` check on each configured drive letter.
+        Runs every 30 seconds. The ``os.path.exists`` probes are done on a
+        daemon thread because on slow/unreachable network drives each probe
+        blocks for the SMB redirector timeout (5-30 s) — running that on the
+        GUI thread froze the whole window every poll cycle. Only the final
+        ``config(text=...)`` call is marshalled back to the GUI thread.
         """
-        import os
         try:
             cfg = getattr(self.controller, 'config_controller', None)
             if cfg is None:
@@ -521,27 +524,54 @@ class Sidebar(ttk.Frame):
             drive_letters = network_cfg.get("drive_letters", ["Q"])
             if not isinstance(drive_letters, list):
                 drive_letters = [drive_letters]
-            reachable = 0
-            total = 0
-            for letter in drive_letters:
-                drive_path = f"{str(letter)}:\\"
-                total += 1
-                if os.path.exists(drive_path):
-                    reachable += 1
-            if total == 0:
-                self._net_indicator.config(text="🟡 Сеть: нет дисков")
-            elif reachable == total:
-                self._net_indicator.config(
-                    text=f"🟢 Сеть: {reachable}/{total} дисков доступны"
-                )
-            elif reachable > 0:
-                self._net_indicator.config(
-                    text=f"🟡 Сеть: {reachable}/{total} дисков доступны"
-                )
-            else:
-                self._net_indicator.config(
-                    text=f"🔴 Сеть: {reachable}/{total} дисков доступны"
-                )
+
+            def _probe() -> tuple[int, int]:
+                import os
+                reachable = 0
+                total = 0
+                for letter in drive_letters:
+                    drive_path = f"{str(letter)}:\\"
+                    total += 1
+                    if os.path.exists(drive_path):
+                        reachable += 1
+                return reachable, total
+
+            def _on_done(result: tuple[int, int]) -> None:
+                reachable, total = result
+                if total == 0:
+                    self._net_indicator.config(text="🟡 Сеть: нет дисков")
+                elif reachable == total:
+                    self._net_indicator.config(
+                        text=f"🟢 Сеть: {reachable}/{total} дисков доступны"
+                    )
+                elif reachable > 0:
+                    self._net_indicator.config(
+                        text=f"🟡 Сеть: {reachable}/{total} дисков доступны"
+                    )
+                else:
+                    self._net_indicator.config(
+                        text=f"🔴 Сеть: {reachable}/{total} дисков доступны"
+                    )
+
+            def runner() -> None:
+                try:
+                    result = _probe()
+                except Exception:
+                    logging.exception("Network drive poll failed")
+                    result = (0, 0)
+
+                def safe_done() -> None:
+                    try:
+                        _on_done(result)
+                    except tk.TclError:
+                        pass
+
+                try:
+                    self.after(0, safe_done)
+                except tk.TclError:
+                    pass
+
+            threading.Thread(target=runner, daemon=True).start()
         except Exception:
             self._net_indicator.config(text="🟡 Сеть: ошибка проверки")
         finally:

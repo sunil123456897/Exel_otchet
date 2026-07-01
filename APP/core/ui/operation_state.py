@@ -163,7 +163,15 @@ class OperationState:
         with self._lock:
             if self._current == OperationType.NONE:
                 return
-            self._progress = max(0.0, min(100.0, value))
+            clamped = max(0.0, min(100.0, value))
+            # Skip the listener cascade when the visible value is unchanged.
+            # During consolidation/RSC the same rounded percent can be
+            # emitted dozens of times; each notify fans out to multiple
+            # GUI-thread callbacks, so deduplicating here prevents event-
+            # queue flooding without changing any displayed state.
+            if clamped == self._progress:
+                return
+            self._progress = clamped
         self._notify()
 
     def set_current_file(self, name: str) -> None:
@@ -175,6 +183,11 @@ class OperationState:
         """
         with self._lock:
             if self._current == OperationType.NONE:
+                return
+            # Same dedup rationale as set_progress: the RSCH/RSC pipeline
+            # can emit the same filename repeatedly per source. The label
+            # only changes when the file actually changes.
+            if name == self._current_file:
                 return
             self._current_file = name
         self._notify()

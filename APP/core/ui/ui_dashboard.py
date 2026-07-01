@@ -365,9 +365,93 @@ class DashboardTabs:
         self._aliases_tab = AliasesTab(self.aliases_tab, app_ctl)
 
     def refresh(self) -> None:
-        self._refresh_reports()
-        self._refresh_home()
-        self._refresh_logs()
+        # _refresh_reports and _refresh_home each previously called
+        # collect_report_paths() (a network-walking path.exists/stat/glob
+        # pass) on its own daemon thread. On slow network drives that
+        # doubled the network probes after every operation completion.
+        # Here we fetch the shared data once and feed both renderers.
+        for item in self.reports_tree.get_children():
+            self.reports_tree.delete(item)
+        self.reports_tree.insert("", tk.END, values=("проверка...", "", "", "", ""))
+        self.state_label.config(text="проверка...")
+
+        def work():
+            reports = collect_report_paths(self.config_controller, self.app_root)
+            diagnostics = run_light_diagnostics(self.config_controller, self.app_root)
+            return reports, diagnostics
+
+        def done(payload):
+            if payload is None:
+                self._refresh_logs()
+                return
+            reports, diagnostics = payload
+            self._render_reports(reports)
+            self._render_home(diagnostics, reports)
+            self._refresh_logs()
+
+        self._run_in_background(work, done)
+
+    def _render_reports(self, reports) -> None:
+        for item in self.reports_tree.get_children():
+            self.reports_tree.delete(item)
+        for item in reports:
+            status = "найден" if item.exists else "не найден"
+            self.reports_tree.insert(
+                "",
+                tk.END,
+                values=(
+                    item.label,
+                    f"✅ {status}" if item.exists else f"⚠️ {status}",
+                    item.mtime,
+                    item.size,
+                    str(item.path) if item.path else "",
+                ),
+            )
+
+    def _render_home(self, diagnostics, reports) -> None:
+        errors = sum(1 for item in diagnostics if item.status == "error")
+        warnings = sum(1 for item in diagnostics if item.status == "warning")
+        existing_reports = sum(1 for item in reports if item.exists)
+        self.state_label.config(
+            text=(
+                f"Готовность: {'можно работать' if errors == 0 else 'есть ошибки'}\n"
+                f"Диагностика: ошибок {errors}, предупреждений {warnings}\n"
+                f"Найдено результатов: {existing_reports}/{len(reports)}"
+            )
+        )
+
+        for item in self.results_tree.get_children():
+            self.results_tree.delete(item)
+        if not self._last_results:
+            self.results_tree.insert(
+                "",
+                tk.END,
+                values=(
+                    "Нет данных",
+                    "",
+                    "",
+                    "",
+                    "Запустите сборку отчета",
+                ),
+                tags=("empty",),
+            )
+            return
+        for result in self._last_results:
+            time_text = result.created_at.strftime("%d.%m.%Y %H:%M") if result.created_at else "-"
+            message = result.message
+            if result.rows is not None:
+                message = f"{message} | строк: {result.rows}"
+            self.results_tree.insert(
+                "",
+                tk.END,
+                values=(
+                    result.label,
+                    "✅ успех" if result.ok else "❌ ошибка",
+                    time_text,
+                    str(result.path) if result.path else "",
+                    message,
+                ),
+            )
 
     def refresh_theme(self) -> None:
         """Re-apply theme-dependent tag colours after a palette switch."""
@@ -389,7 +473,7 @@ class DashboardTabs:
                     str(item.path) if item.path else "",
                 ),
             )
-        self._refresh_home()
+        self.refresh()
 
     def copy_diagnostics(self) -> None:
         diagnostics = run_light_diagnostics(
@@ -452,95 +536,6 @@ class DashboardTabs:
                 pass
 
         threading.Thread(target=runner, daemon=True).start()
-
-    def _refresh_reports(self) -> None:
-        for item in self.reports_tree.get_children():
-            self.reports_tree.delete(item)
-        self.reports_tree.insert("", tk.END, values=("проверка...", "", "", "", ""))
-
-        def work():
-            return collect_report_paths(self.config_controller, self.app_root)
-
-        def done(payload):
-            if payload is None:
-                return
-            for item in self.reports_tree.get_children():
-                self.reports_tree.delete(item)
-            for item in payload:
-                status = "найден" if item.exists else "не найден"
-                self.reports_tree.insert(
-                    "",
-                    tk.END,
-                    values=(
-                        item.label,
-                        f"✅ {status}" if item.exists else f"⚠️ {status}",
-                        item.mtime,
-                        item.size,
-                        str(item.path) if item.path else "",
-                    ),
-                )
-
-        self._run_in_background(work, done)
-
-    def _refresh_home(self) -> None:
-        self.state_label.config(text="проверка...")
-
-        def work():
-            diagnostics = run_light_diagnostics(self.config_controller, self.app_root)
-            reports = collect_report_paths(self.config_controller, self.app_root)
-            return diagnostics, reports
-
-        def done(payload):
-            if payload is None:
-                return
-            diagnostics, reports = payload
-            errors = sum(1 for item in diagnostics if item.status == "error")
-            warnings = sum(1 for item in diagnostics if item.status == "warning")
-            existing_reports = sum(1 for item in reports if item.exists)
-            self.state_label.config(
-                text=(
-                    f"Готовность: {'можно работать' if errors == 0 else 'есть ошибки'}\n"
-                    f"Диагностика: ошибок {errors}, предупреждений {warnings}\n"
-                    f"Найдено результатов: {existing_reports}/{len(reports)}"
-                )
-            )
-
-            for item in self.results_tree.get_children():
-                self.results_tree.delete(item)
-            if not self._last_results:
-                # Empty-state hint so the tree isn't a blank grid on
-                # first launch (before any consolidation has run).
-                self.results_tree.insert(
-                    "",
-                    tk.END,
-                    values=(
-                        "Нет данных",
-                        "",
-                        "",
-                        "",
-                        "Запустите сборку отчета",
-                    ),
-                    tags=("empty",),
-                )
-                return
-            for result in self._last_results:
-                time_text = result.created_at.strftime("%d.%m.%Y %H:%M") if result.created_at else "-"
-                message = result.message
-                if result.rows is not None:
-                    message = f"{message} | строк: {result.rows}"
-                self.results_tree.insert(
-                    "",
-                    tk.END,
-                    values=(
-                        result.label,
-                        "✅ успех" if result.ok else "❌ ошибка",
-                        time_text,
-                        str(result.path) if result.path else "",
-                        message,
-                    ),
-                )
-
-        self._run_in_background(work, done)
 
     def _refresh_logs(self) -> None:
         logs = read_recent_logs(

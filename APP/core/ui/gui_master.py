@@ -128,21 +128,39 @@ class GuiMaster(GuiMasterSettingsMixin):
 
         def _poll() -> None:
             _refresh_title()
-            self.root.after(500, _poll)
+            # Poll fast (500ms) while an operation is running so the title
+            # tracks progress; idle the poll to 5s when nothing is happening
+            # — the idle title never changes, so a 10× slower cadence avoids
+            # a permanent WM redraw + lock churn for the app lifetime.
+            interval = 500 if self.operation_state.is_busy else 5000
+            try:
+                self.root.after(interval, _poll)
+            except tk.TclError:
+                pass
 
         self.root.after(500, _poll)
-        self.operation_state.add_listener(
-            lambda snap: self.root.after(0, lambda: self.sidebar.apply(snap))
-        )
-        # Drive the StatsPanel operation progress bar from the same
-        # snapshot stream. The OperationStatusBar reads this too, but
-        # the StatsPanel bar lives in a different widget that the
-        # listener must update explicitly.
-        # Must be marshalled via root.after() — OperationState._notify
-        # is called from background threads during consolidation.
-        self.operation_state.add_listener(
-            lambda snap: self.root.after(0, lambda: self._on_operation_snapshot(snap))
-        )
+        # Single listener drives BOTH the sidebar button-states and the
+        # StatsPanel progress bar from one GUI-thread callback. Two
+        # separate listeners were previously registered, each scheduling
+        # its own root.after(0, ...) — doubling the queued callbacks per
+        # progress tick and contributing to event-queue flooding during
+        # consolidation/RSC. Coalescing halves the per-tick GUI work.
+        def _on_operation_state(snap) -> None:
+            def _apply() -> None:
+                try:
+                    self.sidebar.apply(snap)
+                except (AttributeError, tk.TclError):
+                    pass
+                try:
+                    self._on_operation_snapshot(snap)
+                except (AttributeError, tk.TclError):
+                    pass
+            try:
+                self.root.after(0, _apply)
+            except tk.TclError:
+                pass
+
+        self.operation_state.add_listener(_on_operation_state)
         setup_gui_logging(self.log_panel.get_widget())
 
         self.commands = GuiCommands(
