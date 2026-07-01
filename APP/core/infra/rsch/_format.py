@@ -160,6 +160,19 @@ def _is_special_customer_label(customer: str) -> bool:
     return any(marker in normalized for marker in _SPECIAL_CUSTOMER_MARKERS)
 
 
+def _has_special_marker(row: Dict[str, Any]) -> bool:
+    """Any searchable field carries a special fee/tax marker.
+
+    Strips the customer-only restriction of _is_special_customer_label so
+    the marker is recognised in contractor / comment / executor too.
+    """
+    searchable = " ".join(
+        _normalize_text(row.get(key))
+        for key in ("executor", "customer", "contractor", "comment")
+    )
+    return any(marker in searchable for marker in _SPECIAL_CUSTOMER_MARKERS)
+
+
 def _is_account_optional_row(row: Dict[str, Any]) -> bool:
     searchable = " ".join(
         _normalize_text(row.get(key))
@@ -178,6 +191,14 @@ def _is_problem_row(row: Dict[str, Any]) -> bool:
 
     if income != 0 and expense != 0:
         return True
+
+    # Fee/tax rows (% по выплате, % по депозиту, комиссия, налог, взносы)
+    # carry a sum and legitimately have no contractor/comment/account —
+    # highlighting them was noise the customer explicitly asked to drop.
+    # The marker may live in any field, not just the customer column.
+    has_sum = income != 0 or expense != 0
+    if has_sum and _has_special_marker(row):
+        return False
 
     is_getwork_customer = "гетворк" in _normalize_text(customer)
     if (
