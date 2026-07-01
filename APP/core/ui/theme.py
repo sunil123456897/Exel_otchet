@@ -9,8 +9,14 @@ Design tokens (v2)
 - ``COLORS``    : active palette (dict of hex strings).
 - ``FONTS``     : typography hierarchy (display / heading / body / ...).
 - ``SPACING``   : 6-step spacing scale (xs/sm/md/lg/xl/xxl).
-- ``RADIUS``    : border-radius scale (none / sm / md / lg / pill).
 - ``CONTROL``   : geometry of controls (button_h, row_h, scrollbar_w, …).
+
+Note: border-radius tokens are intentionally absent — ttk's ``clam``
+theme element layouts (Button.border, Entry.field) expose only
+bordercolor/lightcolor/darkcolor/relief/borderwidth, with no radius
+option, so true rounded corners cannot be applied to ttk widgets on
+this platform. All frames use ``relief="flat"`` + ``borderwidth`` for
+the visual edge treatment instead.
 
 Scaled values derive from a single ``_scale ∈ [0.72, 2.0]`` factor
 computed from **four** independent signals:
@@ -24,7 +30,6 @@ computed from **four** independent signals:
 
 from __future__ import annotations
 
-import math
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable, ClassVar
@@ -173,16 +178,6 @@ class ThemeManager:
         "xxl": 32,
     }
     SPACING: ClassVar[dict[str, int]] = dict(_BASE_SPACING)
-
-    # ── border-radius tokens ──────────────────────────────────
-    _BASE_RADIUS: ClassVar[dict[str, int]] = {
-        "none": 0,
-        "sm": 4,
-        "md": 8,
-        "lg": 12,
-        "pill": 20,
-    }
-    RADIUS: ClassVar[dict[str, int]] = dict(_BASE_RADIUS)
 
     # ── control-geometry tokens ───────────────────────────────
     _BASE_CONTROL: ClassVar[dict[str, int]] = {
@@ -359,7 +354,6 @@ class ThemeManager:
         """Rebuild all token groups from current ``_scale`` and ``_density``."""
         cls._rebuild_fonts()
         cls._rebuild_spacing()
-        cls._rebuild_radius()
         cls._rebuild_control()
         try:
             cls.apply_styles()
@@ -387,11 +381,6 @@ class ThemeManager:
     def _rebuild_spacing(cls) -> None:
         s = cls._scale * cls._DENSITY_FACTORS.get(cls._density, 1.0)
         cls.SPACING = {k: max(2, int(v * s)) for k, v in cls._BASE_SPACING.items()}
-
-    @classmethod
-    def _rebuild_radius(cls) -> None:
-        s = cls._scale
-        cls.RADIUS = {k: max(0, math.ceil(v * s)) for k, v in cls._BASE_RADIUS.items()}
 
     @classmethod
     def _rebuild_control(cls) -> None:
