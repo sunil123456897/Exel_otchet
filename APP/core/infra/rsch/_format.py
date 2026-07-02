@@ -88,6 +88,15 @@ _NO_ACCOUNT_MARKERS = (
     "гетворк",
 )
 
+# Customer labels that signal a pure expense entry (e.g. an internal cash
+# withdrawal or transfer). Such rows legitimately have no contractor or
+# comment and must not be flagged. Requires a non-zero sum, like the
+# fee/tax markers above. Requested by the customer for the literal word
+# "расход" in the заказчик field with empty контрагент and комментарий.
+_EXPENSE_ONLY_LABELS = (
+    "расход",
+)
+
 
 def _normalize_text(value: Any) -> str:
     if value is None:
@@ -181,6 +190,19 @@ def _is_account_optional_row(row: Dict[str, Any]) -> bool:
     return any(marker in searchable for marker in _NO_ACCOUNT_MARKERS)
 
 
+def _is_expense_only_row(row: Dict[str, Any]) -> bool:
+    """Customer field is a pure-expense label (e.g. "расход") and both
+    contractor and comment are empty — the row legitimately carries only
+    an expense with no contractor/comment to fill in.
+    """
+    customer = _normalize_text(row.get("customer"))
+    if not any(label in customer for label in _EXPENSE_ONLY_LABELS):
+        return False
+    contractor = str(row.get("contractor") or "").strip()
+    comment = str(row.get("comment") or "").strip()
+    return not contractor and not comment
+
+
 def _is_problem_row(row: Dict[str, Any]) -> bool:
     income = row["income"]
     expense = row["expense"]
@@ -198,6 +220,12 @@ def _is_problem_row(row: Dict[str, Any]) -> bool:
     # The marker may live in any field, not just the customer column.
     has_sum = income != 0 or expense != 0
     if has_sum and _has_special_marker(row):
+        return False
+
+    # Pure-expense entries (заказчик = "расход" with empty контрагент and
+    # комментарий) carry only an expense and legitimately have nothing to
+    # fill in — the customer asked these not to be highlighted.
+    if has_sum and _is_expense_only_row(row):
         return False
 
     is_getwork_customer = "гетворк" in _normalize_text(customer)
