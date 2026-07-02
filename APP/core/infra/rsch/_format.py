@@ -89,10 +89,13 @@ _NO_ACCOUNT_MARKERS = (
 )
 
 # Customer labels that signal a pure expense entry (e.g. an internal cash
-# withdrawal or transfer). Such rows legitimately have no contractor or
-# comment and must not be flagged. Requires a non-zero sum, like the
-# fee/tax markers above. Requested by the customer for the literal word
-# "расход" in the заказчик field with empty контрагент and комментарий.
+# withdrawal, transfer, or a category like "расход/аренда"). Such rows
+# legitimately have no contractor or comment and must not be flagged. NO
+# sum is required (unlike the fee/tax markers above): in real data
+# "расход" is a category prefix that may start a row before the amount is
+# entered — confirmed on customer data where ~2 of 2074 "расход" rows
+# have no sum, and those empty ones are exactly what the customer saw
+# highlighted (e.g. "расход/ан Директор").
 _EXPENSE_ONLY_LABELS = (
     "расход",
 )
@@ -222,10 +225,14 @@ def _is_problem_row(row: Dict[str, Any]) -> bool:
     if has_sum and _has_special_marker(row):
         return False
 
-    # Pure-expense entries (заказчик = "расход" with empty контрагент and
+    # Pure-expense entries (заказчик = "расход..." with empty контрагент and
     # комментарий) carry only an expense and legitimately have nothing to
-    # fill in — the customer asked these not to be highlighted.
-    if has_sum and _is_expense_only_row(row):
+    # fill in — the customer asked these not to be highlighted. Unlike the
+    # fee/tax markers above, NO sum is required: in real data "расход" is a
+    # category label that may start a row before the amount is entered
+    # (confirmed on customer data: ~2 of 2074 "расход" rows have no sum,
+    # and those empty ones are exactly what the customer saw highlighted).
+    if _is_expense_only_row(row):
         return False
 
     is_getwork_customer = "гетворк" in _normalize_text(customer)

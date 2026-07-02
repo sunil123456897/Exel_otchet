@@ -1,15 +1,19 @@
-"""Pure-expense customer label ("расход") with empty contractor and comment
-must not flag a row as a problem when a sum is present.
+"""Pure-expense customer label ("расход...") with empty contractor and comment
+must not flag a row as a problem — with OR without a sum.
 
-Customer report: rows where заказчик = "расход" with пустой контрагент and
-пустой комментарий were highlighted yellow even though there is nothing to
-fill in — such rows represent an internal cash withdrawal / transfer that
-legitimately has only a Расход value.
+Customer report (two rounds):
+1. First ask: rows where заказчик = "расход" with пустой контрагент and
+   пустой комментарий were highlighted yellow even though there is nothing
+   to fill in — such rows represent an internal cash withdrawal / transfer.
+2. Follow-up with screenshot: the actual offending row was "расход/ан
+   Директор" (compound label — "расход" is a category prefix), with empty
+   contractor/comment AND no sum. The first fix required a non-zero sum,
+   which left this case still highlighted.
 
-Mirrors the special-marker exemption (% по выплате, комиссия, ...) but for
-a different business case: the заказчик field is a pure-expense label. Like
-the special-marker exemption it requires a non-zero sum (a label with no
-sum is still flagged). Case- and space-insensitive via _normalize_text.
+Final behaviour: unlike the fee/tax markers (% по выплате, комиссия, ...),
+the expense-only exemption does NOT require a sum — "расход" in real data
+is a category label that may start a row before the amount is entered.
+Case- and space-insensitive via _normalize_text.
 """
 from __future__ import annotations
 
@@ -66,11 +70,22 @@ def test_expense_label_with_comment_still_problem():
     assert _is_problem_row(row) is True
 
 
-def test_expense_label_without_sum_still_problem():
-    """A pure-expense label with NO sum is still flagged — the exemption
-    requires a non-zero sum, matching the special-marker behaviour."""
+def test_expense_label_without_sum_not_highlighted():
+    """A pure-expense label with NO sum is also not flagged. In real data
+    "расход" is a category label that may start a row before the amount is
+    entered — the customer saw exactly such an empty row highlighted
+    ("расход/ан Директор", пустой контрагент, пустой комментарий, без суммы).
+    Unlike the fee/tax markers, no sum is required here."""
     row = _row(customer="расход")  # income=0, expense=0
-    assert _is_problem_row(row) is True
+    assert _is_problem_row(row) is False
+
+
+def test_expense_category_label_without_sum_not_highlighted():
+    """Customer-reported case (screenshot row 5980): заказчик = "расход/ан
+    Директор" (compound label, "расход" as a category prefix), empty
+    contractor, empty comment, no sum. Must NOT be highlighted."""
+    row = _row(customer="расход/ан Директор", executor="ЗВЕЛИН")
+    assert _is_problem_row(row) is False
 
 
 def test_normal_customer_without_contractor_still_problem():
