@@ -42,8 +42,21 @@ class Sidebar(ttk.Frame):
         # Debounce date changes so clicking through dates in the picker
         # does not fire a full refresh per click.
         self._date_debouncer = Debouncer(self, self.controller.refresh_status, delay_ms=250)
+        # The scrollable settings area (canvas + scrollbar) lives in its
+        # OWN sub-frame. Previously canvas and scrollbar were packed
+        # directly into ``self`` (side=LEFT / side=RIGHT), which clashed
+        # with StatsPanel/LogPanel packed later from gui_master without a
+        # ``side=`` (default TOP). With canvas ``expand=True`` grabbing the
+        # full width, those TOP widgets were squeezed into a narrow strip
+        # between the canvas and the scrollbar — visible as a "parasitic
+        # vertical strip" with clipped content when the window was
+        # maximised. Wrapping canvas+scrollbar in a dedicated frame lets
+        # StatsPanel/LogPanel pack cleanly below it (side=BOTTOM in
+        # gui_master) without competing for space.
+        self.scroll_host = ttk.Frame(self, style="Sidebar.TFrame")
+        self.scroll_host.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.canvas = tk.Canvas(
-            self,
+            self.scroll_host,
             borderwidth=0,
             highlightthickness=0,
             background=ThemeManager.COLORS["bg_sidebar"],
@@ -52,7 +65,7 @@ class Sidebar(ttk.Frame):
         # it to be re-themed on ThemeManager.set_theme().  Canvas has
         # no foreground option, so pass fg_key=None.
         ThemeManager.register(self.canvas, bg_key="bg_sidebar", fg_key=None)
-        self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.scrollbar = ttk.Scrollbar(self.scroll_host, orient=tk.VERTICAL, command=self.canvas.yview)
         self.content = ttk.Frame(self.canvas, style="Sidebar.TFrame")
         self._content_window = self.canvas.create_window((0, 0), window=self.content, anchor=tk.NW)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)

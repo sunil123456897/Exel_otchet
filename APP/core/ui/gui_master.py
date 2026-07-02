@@ -230,10 +230,10 @@ class GuiMaster(GuiMasterSettingsMixin):
         self.main_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
         self.stats_panel = StatsPanel(self.sidebar, self)
-        self.stats_panel.pack(fill=tk.X, pady=(0, 10))
+        self.stats_panel.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 10))
 
         self.log_panel = LogPanel(self.sidebar, self)
-        self.log_panel.pack(fill=tk.BOTH, expand=True)
+        self.log_panel.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
 
         # NOTE: OperationStatusBar (a bottom-of-window progress strip) was
         # removed per user request — it duplicated the operation progress
