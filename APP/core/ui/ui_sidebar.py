@@ -43,16 +43,11 @@ class Sidebar(ttk.Frame):
         # does not fire a full refresh per click.
         self._date_debouncer = Debouncer(self, self.controller.refresh_status, delay_ms=250)
         # The scrollable settings area (canvas + scrollbar) lives in its
-        # OWN sub-frame. Previously canvas and scrollbar were packed
-        # directly into ``self`` (side=LEFT / side=RIGHT), which clashed
-        # with StatsPanel/LogPanel packed later from gui_master without a
-        # ``side=`` (default TOP). With canvas ``expand=True`` grabbing the
-        # full width, those TOP widgets were squeezed into a narrow strip
-        # between the canvas and the scrollbar — visible as a "parasitic
-        # vertical strip" with clipped content when the window was
-        # maximised. Wrapping canvas+scrollbar in a dedicated frame lets
-        # StatsPanel/LogPanel pack cleanly below it (side=BOTTOM in
-        # gui_master) without competing for space.
+        # own sub-frame. This keeps the canvas+scrollbar pack pair isolated
+        # from anything else packed into the sidebar later: StatsPanel is
+        # now packed into sidebar.content (the scrollable inner frame) by
+        # gui_master, so it scrolls together with the settings above. The
+        # scroll_host wrapper is what the canvas is actually rendered into.
         self.scroll_host = ttk.Frame(self, style="Sidebar.TFrame")
         self.scroll_host.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.canvas = tk.Canvas(

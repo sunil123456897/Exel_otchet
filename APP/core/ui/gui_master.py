@@ -7,7 +7,6 @@ from typing import Optional
 from core.ui.ui_sidebar import Sidebar
 from core.ui.ui_employee_table import EmployeeTable
 from core.ui.ui_stats_panel import StatsPanel
-from core.ui.ui_log_panel import LogPanel
 from core.ui.ui_dashboard import DashboardTabs
 from core.ui.theme import ThemeManager
 from core.ui.geometry import (
@@ -17,7 +16,7 @@ from core.ui.geometry import (
 )
 from core.ui.operation_state import OPERATION_LABELS, OperationState
 from core.ui.toast import ToastManager
-from core.infra import ConfigController, setup_gui_logging, open_path
+from core.infra import ConfigController, open_path
 from core.app_controller import AppController
 
 from core.view_models.employee_list_viewmodel import EmployeeListViewModel
@@ -161,7 +160,6 @@ class GuiMaster(GuiMasterSettingsMixin):
                 pass
 
         self.operation_state.add_listener(_on_operation_state)
-        setup_gui_logging(self.log_panel.get_widget())
 
         self.commands = GuiCommands(
             self.root,
@@ -229,19 +227,30 @@ class GuiMaster(GuiMasterSettingsMixin):
         self.main_area = ttk.Frame(self.root, padding="15", style="Main.TFrame")
         self.main_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-        self.stats_panel = StatsPanel(self.sidebar, self)
-        self.stats_panel.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 10))
+        # StatsPanel is packed into the sidebar's scrollable content area
+        # (sidebar.content, inside the canvas) so it scrolls together with
+        # the settings above it — the user asked for the old fixed-bottom
+        # layout (which had its own pack-conflict problems) to be merged
+        # into the scroll area. The panel is appended AFTER Sidebar's own
+        # _setup_ui runs, so it lands at the bottom of the settings list.
+        self.stats_panel = StatsPanel(self.sidebar.content, self)
+        self.stats_panel.pack(fill=tk.X, pady=(ThemeManager.SPACING["sm"], 0))
 
-        self.log_panel = LogPanel(self.sidebar, self)
-        self.log_panel.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
-
+        # NOTE: LogPanel (live logs at the bottom of the sidebar) was
+        # removed per user request — it duplicated the dedicated "Логи"
+        # tab in the dashboard, which reads the same logs from
+        # startup_log.txt / gui_error_log.txt / the logs/ folder. The
+        # gui_logging TextHandler was also removed: logs still flow to
+        # the RotatingFileHandler configured in main.py and are viewable
+        # via the Логи tab. Operation progress remains visible through
+        # StatsPanel.operation_bar (now in the scroll area) and the
+        # window-title percentage.
         # NOTE: OperationStatusBar (a bottom-of-window progress strip) was
-        # removed per user request — it duplicated the operation progress
-        # already shown by StatsPanel in the sidebar and read as an empty
-        # red strip in the idle state. The class is retained for its tests
+        # removed earlier per user request — it duplicated the operation
+        # progress already shown by StatsPanel and read as an empty red
+        # strip in the idle state. The class is retained for its tests
         # and for callers that may re-enable it; it is simply no longer
-        # packed into the window. Operation progress is still visible via
-        # StatsPanel.operation_bar and the window title percentage.
+        # packed into the window.
 
         self.notebook = ttk.Notebook(self.main_area)
         self.notebook.pack(fill=tk.BOTH, expand=True)
