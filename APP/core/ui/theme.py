@@ -37,54 +37,76 @@ from typing import Callable, ClassVar
 # ---------------------------------------------------------------------------
 # Palettes
 # ---------------------------------------------------------------------------
+# Premium palette v3 — "Тихая касса" (treasury workstation).
+# Replaces the generic Tailwind-blue/slate (v1) with a deliberate
+# navy-blue accent + warm-cool neutrals. Synthesised from the design
+# references in awesome-design-md-main (wise/stripe/linear/vercel/
+# clickhouse/supabase/notion/posthog). See
+# workspace/sources/design_system.json for the full rationale.
+#
+# Design intent:
+# - One restrained chromatic accent (navy-blue). Brand mark, primary
+#   CTA, focus ring, active tab, selection — nothing else carries hue.
+# - Surface ladder carries depth (no box-shadow, ttk can't): canvas →
+#   sidebar (white card) → panel (recessed) → trough.
+# - "Ink" text is near-black navy-charcoal, not mid-grey — premium
+#   legibility (Vercel stark-ink discipline).
+# - Semantic colours are muted, not neon: a financial alert must read
+#   serious, not panicked.
 _LIGHT = {
-    "primary": "#2563eb",
-    "primary_active": "#1d4ed8",
-    "success": "#16a34a",
-    "success_active": "#15803d",
-    "danger": "#dc2626",
-    "danger_active": "#b91c1c",
-    "warning": "#d97706",
-    "info": "#0891b2",
-    "info_active": "#0e7490",
-    "accent": "#2563eb",
-    "bg_main": "#f3f4f6",
-    "bg_sidebar": "#ffffff",
-    "bg_panel": "#e9ecef",
-    "trough": "#cbd5e1",
-    "text": "#334155",
-    "text_secondary": "#475569",
-    "text_muted": "#64748b",
-    "text_inverse": "#ffffff",
-    "border_subtle": "#e2e8f0",
-    "border_default": "#cbd5e1",
-    "tooltip_bg": "#0f172a",
-    "tooltip_fg": "#e2e8f0",
+    "primary": "#1b4b8a",        # corporate-deep navy — trust/seriousness (8.7:1 on white)
+    "primary_active": "#163d70", # press — thinned navy (holds white text 10.5:1)
+    "success": "#1a8a4e",        # restrained forest — not neon (4.4:1 for text/icon)
+    "success_active": "#15703d",
+    "danger": "#c0492f",         # burnt brick — financial alert, not panic (4.96:1)
+    "danger_active": "#9d3a26",
+    "warning": "#b45309",        # amber-ochre — disclaimer/attention (5.02:1)
+    "info": "#0e6e8c",           # deep cyan — neutral informational (5.79:1)
+    "info_active": "#0b586f",
+    "accent": "#1b4b8a",         # alias of primary — single chromatic voice
+    "bg_main": "#f5f6f8",        # cool "paper" canvas — calmer than pure grey
+    "bg_sidebar": "#ffffff",     # clean sheet for cards/panels — separates from canvas
+    "bg_panel": "#eceef2",       # recessed/trough-zones — soft recede
+    "trough": "#d8dce4",         # scroll gutter / inactive controls
+    "text": "#1a2332",           # "ink" navy-charcoal, not #000 — premium muted (14.6:1)
+    "text_secondary": "#3d4859", # secondary body — still legible
+    "text_muted": "#6b7588",     # captions/placeholders (4.6:1 on white — AA)
+    "text_inverse": "#ffffff",   # on primary / dark fills
+    "border_subtle": "#e2e5eb",  # thin 1px card edge — barely visible
+    "border_default": "#c4cad4", # visible input border / focusless state
+    "tooltip_bg": "#1a2332",     # dark inverse popup — contrast marker
+    "tooltip_fg": "#f5f6f8",
 }
 
+# Premium-dark v3 — a *separately designed scene*, NOT an inversion of
+# light. Modelled on Linear's surface ladder: navy-tinted near-black
+# canvas (never pure #000 — Linear rejects it as "pixel-rendered") with
+# four lift steps; hairline borders carry depth without shadow. The
+# accent lifts ~3 stops brighter than its light twin so it reads on
+# black, but stays the same hue family.
 _DARK = {
-    "primary": "#60a5fa",
-    "primary_active": "#93c5fd",
-    "success": "#4ade80",
-    "success_active": "#86efac",
-    "danger": "#f87171",
-    "danger_active": "#fca5a5",
-    "warning": "#fbbf24",
-    "info": "#22d3ee",
-    "info_active": "#67e8f9",
-    "accent": "#60a5fa",
-    "bg_main": "#0f172a",
-    "bg_sidebar": "#1e293b",
-    "bg_panel": "#334155",
-    "trough": "#334155",
-    "text": "#e2e8f0",
-    "text_secondary": "#cbd5e1",
-    "text_muted": "#94a3b8",
-    "text_inverse": "#0f172a",
-    "border_subtle": "#334155",
-    "border_default": "#475569",
-    "tooltip_bg": "#020617",
-    "tooltip_fg": "#e2e8f0",
+    "primary": "#5b8def",        # lifted azure — visible on black (4.5:1 as text on canvas)
+    "primary_active": "#7aa2f7", # hover/press — brighter (for link text)
+    "success": "#5fb87a",        # softened green — doesn't glow (7.2:1 on panel)
+    "success_active": "#7cc793",
+    "danger": "#ec6a5f",         # warm coral-brick (5.65:1 on panel)
+    "danger_active": "#f0867d",
+    "warning": "#e0a341",        # amber lifted — readable on dark
+    "info": "#4db0c9",           # cyan one step brighter
+    "info_active": "#6cc2d8",
+    "accent": "#5b8def",
+    "bg_main": "#111418",        # canvas — deep navy-charcoal (Linear #0f1011, slightly warmer)
+    "bg_sidebar": "#171b21",     # surface-1 — cards/panels one step up
+    "bg_panel": "#1e232b",       # surface-2 — recessed/lifted zones
+    "trough": "#2a3038",         # surface-3 — scroll gutter, inactive
+    "text": "#e7ebf3",           # light-grey ink — NOT pure white (Linear #f7f8f8) (15.5:1)
+    "text_secondary": "#b8c0cc", # secondary body
+    "text_muted": "#8b94a5",     # captions (6.05:1 — comfortable)
+    "text_inverse": "#111418",   # on light accent popups
+    "border_subtle": "#232830",  # hairline cards (Linear #23252a style)
+    "border_default": "#363d48", # visible input border (hairline-strong)
+    "tooltip_bg": "#0c0e12",     # one step below canvas — "sunken" popup
+    "tooltip_fg": "#e7ebf3",
 }
 
 
@@ -146,16 +168,30 @@ class ThemeManager:
     _scale_listeners: ClassVar[list[Callable[[float, str], None]]] = []
 
     # ── typography ────────────────────────────────────────────
+    # Premium type v3 — uses real Segoe UI weight *families* (Semibold)
+    # instead of the algorithmic "bold" flag: Tk on Windows renders
+    # "bold" by emboldening the Regular cut, which looks thick/defaulty.
+    # Naming the Semibold family pulls the actually-drawn Semibold cut —
+    # cleaner, thinner, more deliberate (PostHog/IBM Plex principle).
+    #
+    # Mono uses Cascadia Mono (real tabular figures — every digit has
+    # identical advance-width, so sum columns align on the decimal).
+    # Cascadia Code is deliberately avoided: its programming ligatures
+    # (=>, !=) corrupt numeric alignment. Falls back to Consolas if
+    # Cascadia Mono is not installed (pre-Win10 2004 / stripped images).
+    _MONO_FAMILY: ClassVar[str] = "Cascadia Mono"
+    _MONO_FALLBACK: ClassVar[str] = "Consolas"
+
     _BASE_FONTS: ClassVar[dict[str, tuple]] = {
-        "display": ("Segoe UI", 14, "bold"),
-        "heading": ("Segoe UI", 12, "bold"),
-        "body": ("Segoe UI", 10),
-        "body_bold": ("Segoe UI", 10, "bold"),
+        "display": ("Segoe UI Semibold", 14),       # section titles — Semibold as family
+        "heading": ("Segoe UI Semibold", 12),       # group titles
+        "body": ("Segoe UI", 10),                   # default body — native Regular weight
+        "body_bold": ("Segoe UI Semibold", 10),     # emphasis via real Semibold
         "caption": ("Segoe UI", 9),
-        "caption_bold": ("Segoe UI", 9, "bold"),
-        "micro": ("Segoe UI", 8),
-        "mono": ("Consolas", 10),
-        "button": ("Segoe UI", 10),
+        "caption_bold": ("Segoe UI Semibold", 9),
+        "micro": ("Segoe UI", 8),                   # status bar / footnotes
+        "mono": ("Cascadia Mono", 10),              # SUMS & numeric cells (tabular figures)
+        "button": ("Segoe UI Semibold", 10),        # buttons — decisive, not link-like
     }
     FONTS: ClassVar[dict[str, tuple]] = dict(_BASE_FONTS)
     _scaled_fonts: ClassVar[dict[str, tuple]] = {}
@@ -193,6 +229,13 @@ class ThemeManager:
     # ── non-ttk widget registry ───────────────────────────────
     _themed_widgets: ClassVar[list] = []
 
+    # ── tk.Menu registry ──────────────────────────────────────
+    # tk.Menu colours are set via configure(bg=/fg=/activebackground=)
+    # at creation and do NOT follow ttk styles, so they need their own
+    # re-theming pass on palette switch. Each entry is the menu plus the
+    # colour keys to apply (bg_sidebar / text / primary / text_inverse).
+    _themed_menus: ClassVar[list] = []
+
     # ── public: registration ──────────────────────────────────
 
     @classmethod
@@ -203,6 +246,27 @@ class ThemeManager:
         option (e.g. ``tk.Canvas``).
         """
         cls._themed_widgets.append((widget, bg_key, fg_key))
+
+    @classmethod
+    def register_menu(
+        cls,
+        menu,
+        *,
+        bg_key: str = "bg_sidebar",
+        fg_key: str = "text",
+        activebg_key: str = "primary",
+        activefg_key: str = "text_inverse",
+    ) -> None:
+        """Track a ``tk.Menu`` so its colours follow theme switches.
+
+        ``tk.Menu`` does not honour ttk styles — its ``bg`` / ``fg`` /
+        ``activebackground`` / ``activeforeground`` are set at creation
+        and stay frozen on the palette that was active then. Registering
+        the menu makes :meth:`set_theme` re-apply the four colours so a
+        right-click context menu (or the window menubar) follows a
+        light↔dark switch instead of lingering in the old palette.
+        """
+        cls._themed_menus.append((menu, bg_key, fg_key, activebg_key, activefg_key))
 
     # ── public: scaling ───────────────────────────────────────
 
@@ -361,9 +425,26 @@ class ThemeManager:
     @classmethod
     def _rebuild_fonts(cls) -> None:
         s = cls._scale
+        # Resolve the mono family once per rebuild: use Cascadia Mono if
+        # the system exposes it (real tabular figures, ships with Win10
+        # 2004+/Win11), otherwise fall back to Consolas (everywhere since
+        # Win7). Probed lazily because font availability can't change at
+        # runtime, but probing at rebuild-time is cheap and avoids
+        # importing tkinter.font at module import (which would break the
+        # "no Tk required to read tokens" invariant for tests).
+        mono_family = cls._MONO_FAMILY
+        try:
+            import tkinter.font as tkfont  # noqa: PLC0415 — lazy, optional
+            if cls._MONO_FAMILY not in set(tkfont.families()):
+                mono_family = cls._MONO_FALLBACK
+        except Exception:
+            mono_family = cls._MONO_FALLBACK  # headless/test env
+
         cls._scaled_fonts = {}
         for key, val in cls._BASE_FONTS.items():
             font_name = val[0]
+            if key == "mono":
+                font_name = mono_family
             font_size = max(8, int(val[1] * s))
             font_opts = val[2:]
             cls._scaled_fonts[key] = (font_name, font_size, *font_opts)
@@ -401,6 +482,13 @@ class ThemeManager:
             cls.apply_styles()
         except Exception:
             pass
+        # Invalidate the icon cache so PIL icons reload in the new
+        # theme's colour (IconManager.get lazily rebuilds on next call).
+        try:
+            from core.ui.icons import IconManager
+            IconManager.set_theme(name)
+        except Exception:
+            pass
         for entry in list(cls._themed_widgets):
             try:
                 widget, bg_key, fg_key = entry
@@ -423,6 +511,27 @@ class ThemeManager:
             except Exception:
                 try:
                     cls._themed_widgets.remove(entry)
+                except ValueError:
+                    pass
+        # Re-apply colours to registered tk.Menus. Menus don't honour ttk
+        # styles, so without this pass a context menu / menubar keeps the
+        # palette that was active when it was created — e.g. a menu built
+        # in light mode stays light after the user switches to dark.
+        for entry in list(cls._themed_menus):
+            try:
+                menu, bg_key, fg_key, activebg_key, activefg_key = entry
+                try:
+                    menu.configure(
+                        background=cls.COLORS[bg_key],
+                        foreground=cls.COLORS[fg_key],
+                        activebackground=cls.COLORS[activebg_key],
+                        activeforeground=cls.COLORS[activefg_key],
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    cls._themed_menus.remove(entry)
                 except ValueError:
                     pass
 
@@ -513,6 +622,14 @@ class ThemeManager:
         style.configure(
             "Sidebar.TLabel", background=c["bg_sidebar"], foreground=c["text"], font=f["body"]
         )
+        # Sidebar section header — display font + primary accent, but on
+        # the sidebar surface (NOT bg_main). A dedicated style (rather
+        # than overriding bg= at the widget) is required because an
+        # explicit widget option pins the colour and breaks theme switches.
+        style.configure(
+            "SidebarHeader.TLabel",
+            font=f["display"], foreground=c["primary"], background=c["bg_sidebar"],
+        )
         style.configure(
             "Header.TLabel", font=f["display"], foreground=c["primary"], background=c["bg_main"]
         )
@@ -569,6 +686,14 @@ class ThemeManager:
             background=[("active", c["primary_active"]), ("disabled", c["bg_panel"])],
             foreground=[("active", c["text_inverse"]), ("disabled", c["text_muted"])],
         )
+
+        # NOTE: Success.TButton / Audit.TButton / Card.TLabelframe have
+        # no live callers (verified: no style="Success.TButton" etc.
+        # anywhere in APP/core). Retained intentionally: they are themed
+        # through COLORS so they follow palette switches harmlessly, and
+        # removing them would break tests/test_operation_status_bar.py
+        # which exercises the status-bar style family. Safe to delete
+        # only if those tests are migrated first.
 
         style.configure(
             "Success.TButton",
@@ -709,6 +834,29 @@ class ThemeManager:
             foreground=[("active", c["text"])],
         )
 
+        # --- Mono Treeview (path-heavy trees) ---
+        # ttk applies a Treeview font to the WHOLE widget — there is no
+        # per-column font API. For trees dominated by file paths, sizes
+        # and counts (reports / diagnostics), a tabular-mono font makes
+        # paths scannable and numeric columns align on the decimal. The
+        # heading stays in body_bold so the column titles still read as
+        # UI chrome, not code.
+        style.configure(
+            "Mono.Treeview",
+            font=f["mono"],
+            rowheight=ctrl.get("row_h_compact" if cls._density == "compact" else "row_h", 32),
+            background=c["bg_sidebar"],
+            fieldbackground=c["bg_sidebar"],
+            foreground=c["text"],
+            bordercolor=c["border_subtle"],
+            borderwidth=0,
+        )
+        style.map(
+            "Mono.Treeview",
+            background=[("selected", c["primary"])],
+            foreground=[("selected", c["text_inverse"])],
+        )
+
         # --- Entry / Combobox ---
         style.configure(
             "TEntry",
@@ -725,6 +873,32 @@ class ThemeManager:
         )
         style.map(
             "TEntry",
+            bordercolor=[("focus", c["primary"])],
+            lightcolor=[("focus", c["primary"])],
+            darkcolor=[("focus", c["primary"])],
+        )
+        # tkcalendar.DateEntry auto-creates a ttk style named "DateEntry"
+        # (distinct from "TEntry") with a hard-coded white fieldbackground.
+        # Because it's a separate style, our TEntry configure above does
+        # NOT recolour the date-entry field — the field stays white in
+        # dark mode. Mirror the TEntry colours here so the entry-field
+        # follows the active theme. The arrowbutton colour comes from
+        # DateEntry's own configure(background=...) at creation.
+        style.configure(
+            "DateEntry",
+            fieldbackground=c["bg_sidebar"],
+            background=c["primary"],
+            foreground=c["text"],
+            bordercolor=c["border_default"],
+            lightcolor=c["border_default"],
+            darkcolor=c["border_default"],
+            arrowcolor=c["text_muted"],
+            insertcolor=c["primary"],
+            padding=(sp["xs"], int(4 * s)),
+        )
+        style.map(
+            "DateEntry",
+            fieldbackground=[("readonly", c["bg_sidebar"])],
             bordercolor=[("focus", c["primary"])],
             lightcolor=[("focus", c["primary"])],
             darkcolor=[("focus", c["primary"])],
@@ -883,7 +1057,7 @@ def popup_border_color() -> str:
     so a toast still renders even if a future palette drops a key.
     """
     colors = ThemeManager.COLORS
-    return colors.get("border_subtle", colors.get("trough", "#cbd5e1"))
+    return colors.get("border_subtle", colors.get("trough", "#d8dce4"))
 
 
 def make_popup_frame(parent: tk.Misc, bg: str, *, pad_x: int, pad_y: int) -> tk.Frame:
@@ -905,8 +1079,121 @@ def make_popup_frame(parent: tk.Misc, bg: str, *, pad_x: int, pad_y: int) -> tk.
     )
 
 
-# ---------------------------------------------------------------------------
-# Animation tokens (shared by toast.py and tooltip.py)
+def attach_treeview_hover(tree: ttk.Treeview, *, tag: str = "hover") -> None:
+    """Wire row-hover highlight onto a ``ttk.Treeview``.
+
+    Adds/removes a ``hover`` row tag (background = border_subtle) as the
+    cursor moves between rows, matching the EmployeeTable treatment so
+    every data tree in the app feels the same under the pointer. The
+    ``hover`` tag is always appended last so it wins over any status
+    tag's background; on leave it is stripped so the status tint returns.
+
+    Idempotent across theme switches: the tag colour is resolved from
+    the *current* palette on every motion, so no re-registration is
+    needed after a light↔dark switch.
+    """
+    state = {"row": None}
+
+    def _strip(item) -> None:
+        existing = [t for t in tree.item(item, "tags") if t != tag]
+        tree.item(item, tags=existing)
+
+    def _on_motion(event: tk.Event) -> None:
+        row = tree.identify_row(event.y)
+        if row == state["row"]:
+            return
+        if state["row"]:
+            _strip(state["row"])
+        if row:
+            tags = [t for t in tree.item(row, "tags") if t != tag]
+            tags.append(tag)
+            tree.item(row, tags=tags)
+            tree.tag_configure(tag, background=ThemeManager.COLORS.get("border_subtle"))
+        state["row"] = row or None
+
+    def _on_leave(_event: tk.Event) -> None:
+        if state["row"]:
+            _strip(state["row"])
+            state["row"] = None
+
+    tree.bind("<Motion>", _on_motion, add="+")
+    tree.bind("<Leave>", _on_leave, add="+")
+
+
+def attach_hover_animation(
+    widget,
+    base_color: str,
+    hover_color: str,
+    *,
+    steps: int = 6,
+    delay_ms: int = 12,
+) -> None:
+    """Smooth colour-transition hover for plain ``tk`` widgets.
+
+    ttk widgets ignore ``configure(background=...)`` (their colours come
+    from the style engine), so this only works on ``tk.Frame`` / ``tk.Label``
+    — which is exactly where we want a soft hover: sidebar indicators,
+    section headers, toast close-buttons. Builds on the existing
+    ``ThemeManager.animate_background`` lerp so the motion system stays
+    consistent with theme-switch fades.
+
+    ``base_color`` / ``hover_color`` are hex strings resolved at bind
+    time; if the theme changes, call this again (the old bindings are
+    replaced via ``add="+"`` semantics — Tk keeps the latest).
+    """
+    anim_ids: list[str] = []
+
+    def _cancel() -> None:
+        for aid in anim_ids:
+            try:
+                widget.after_cancel(aid)
+            except Exception:
+                pass
+        anim_ids.clear()
+
+    def _enter(_e) -> None:
+        _cancel()
+        try:
+            start = widget.cget("background")
+        except Exception:
+            return
+        for i in range(1, steps + 1):
+            t = i / steps
+            try:
+                aid = widget.after(
+                    delay_ms * i,
+                    lambda ti=t: widget.configure(
+                        background=_lerp_hex(start, hover_color, ti)
+                    ),
+                )
+                anim_ids.append(aid)
+            except Exception:
+                return
+
+    def _leave(_e) -> None:
+        _cancel()
+        try:
+            start = widget.cget("background")
+        except Exception:
+            return
+        for i in range(1, steps + 1):
+            t = i / steps
+            try:
+                aid = widget.after(
+                    delay_ms * i,
+                    lambda ti=t: widget.configure(
+                        background=_lerp_hex(start, base_color, ti)
+                    ),
+                )
+                anim_ids.append(aid)
+            except Exception:
+                return
+
+    widget.bind("<Enter>", _enter, add="+")
+    widget.bind("<Leave>", _leave, add="+")
+
+
+
 # ---------------------------------------------------------------------------
 # Both popup families animate via ``wm_attributes("-alpha", ...)``. The frame
 # interval (FADE_DELAY_MS) is shared so the two feel like one motion system;

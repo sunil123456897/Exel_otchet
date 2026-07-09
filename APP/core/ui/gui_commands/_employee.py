@@ -63,7 +63,16 @@ class EmployeeCommandsMixin:
 
     def _sync_employee_ui(self) -> None:
         self.ctx.employee_table.clear_tree()
-        for emp in self.ctx.employee_vm.get_filtered_employees():
+        employees = self.ctx.employee_vm.get_filtered_employees()
+        if not employees:
+            # U11: show a friendly empty state instead of a bare table on
+            # a fresh install (or when every row is filtered out). Uses
+            # the existing EmployeeTable.show_empty_state so the styling
+            # (placeholder tag, disabled selection) stays consistent.
+            self.ctx.employee_table.show_empty_state(
+                "Добавьте сотрудников, чтобы начать"
+            )
+        for emp in employees:
             self.ctx.employee_table.insert_row(
                 (emp.name, emp.status_text, emp.path_text), emp.tag
             )
@@ -146,7 +155,12 @@ class EmployeeCommandsMixin:
                 )
 
     def filter_tree(self) -> None:
+        # Forward BOTH the text search and the status dropdown filter to
+        # the viewmodel so get_filtered_employees applies them together.
+        # Previously only search_query was passed, leaving the status
+        # dropdown (Все/Готово/Нет файла/Должники) as a dead control.
         self.ctx.employee_vm.search_query = self.ctx.employee_table.get_search_query()
+        self.ctx.employee_vm.status_filter = self.ctx.employee_table.get_status_filter()
         self._sync_employee_ui()
 
     def open_employee_folder(self) -> None:

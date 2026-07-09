@@ -17,6 +17,20 @@ __pycache__/
 .venv_backup/
 .pytest_cache/
 
+# Secrets — never commit credentials
+.github_token
+*.token
+.env
+.env.local
+
+# Local agent workspaces — audit artifacts, scratch space, never commit
+workspace/
+.agents/
+.codegraph/
+.gitnexus/
+.hypothesis/
+.opencode/
+
 # IDE
 .vscode/
 .idea/
@@ -24,3 +38,20 @@ __pycache__/
 # OS
 Thumbs.db
 .DS_Store
+
+# Runtime state — first-run onboarding flag
+APP/first_run.json
+
+# UI redesign artifacts — temp/preview files not for the repo
+prototype-*.png
+.playwright-mcp/
+.zcode/
+
+# Reference design repo (external, large)
+awesome-design-md-main/
+
+# Misc experiment scripts not part of the app
+oracle.py
+rlm_eval*.py
+rlm_report/
+ideal_debug_prompt_v2.0.md

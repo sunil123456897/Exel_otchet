@@ -45,6 +45,9 @@ class EmployeeListViewModel:
         self._all_employees: List[EmployeeStatus] = []
         self._employees_map: Dict[str, List[Dict[str, Any]]] = {}
         self._search_query: str = ""
+        # Status filter: one of None (show all), "ready", "missing",
+        # "debtors" (missing + partial). Set from the sidebar dropdown.
+        self._status_filter: Optional[str] = None
         self._rename_detected: bool = False
         self._last_error: Optional[str] = None
         self._on_update: Optional[Callable] = None
@@ -136,6 +139,15 @@ class EmployeeListViewModel:
     def search_query(self, value: str) -> None:
         self._search_query = value.lower()
 
+    @property
+    def status_filter(self) -> Optional[str]:
+        """The active status filter: None / 'ready' / 'missing' / 'debtors'."""
+        return self._status_filter
+
+    @status_filter.setter
+    def status_filter(self, value: Optional[str]) -> None:
+        self._status_filter = value
+
     def get_all_names(self) -> List[str]:
         """Return the names of every known employee.
 
@@ -147,20 +159,39 @@ class EmployeeListViewModel:
             return [e.name for e in self._all_employees]
 
     def get_filtered_employees(self) -> List[EmployeeStatus]:
-        """Получить отфильтрованный список по поисковому запросу."""
+        """Получить отфильтрованный список по поиску и статусу.
+
+        Applies TWO filters in sequence:
+        1. Text search (``search_query``) across name/status/path.
+        2. Status filter (``status_filter``): 'ready' shows only ready
+           employees, 'missing' only those without a file, 'debtors'
+           shows everyone who is NOT ready (missing + partial).
+        """
         with self._lock:
             employees = list(self._all_employees)
-        if not self._search_query:
-            return employees
 
-        return [
-            emp
-            for emp in employees
-            if any(
-                self._search_query in x.lower()
-                for x in (emp.name, emp.status_text, emp.path_text)
-            )
-        ]
+        # 1. Text search
+        if self._search_query:
+            employees = [
+                emp
+                for emp in employees
+                if any(
+                    self._search_query in x.lower()
+                    for x in (emp.name, emp.status_text, emp.path_text)
+                )
+            ]
+
+        # 2. Status filter
+        sf = self._status_filter
+        if sf == "ready":
+            employees = [e for e in employees if e.tag == "ready"]
+        elif sf == "missing":
+            employees = [e for e in employees if e.tag == "missing"]
+        elif sf == "debtors":
+            # "Должники" = everyone who is NOT ready (missing + partial).
+            employees = [e for e in employees if e.tag != "ready"]
+
+        return employees
 
     def get_ready_count(self) -> int:
         """Количество готовых сотрудников."""

@@ -288,19 +288,52 @@ function Update-WithGit {
 
     Push-Location $Root
     try {
+        # SECURITY (CWE-312/532): remote URL must NEVER contain the token.
+        # Git persists remote URLs in .git/config forever, leaking secrets
+        # to anyone with read access to the working tree. The token is
+        # supplied to authenticated operations (fetch) ONLY via an ephemeral
+        # credential helper passed with `-c`, which lives in the git process
+        # memory for the duration of the command and is never written to
+        # .git/config. The bare URL is used for all remote add/set-url.
+        $bareUrl = "https://github.com/$RepoOwner/$RepoName.git"
+
         $remoteUrl = & $Git remote get-url origin 2>$null
         if (-not $remoteUrl) {
-            if ($Token) {
-                & $Git remote add origin "https://$Token@github.com/$RepoOwner/$RepoName.git" | Out-Null
-            } else {
-                & $Git remote add origin "https://github.com/$RepoOwner/$RepoName.git" | Out-Null
-            }
-        } elseif ($Token -and $remoteUrl -notmatch "@github\.com") {
-            & $Git remote set-url origin "https://$Token@github.com/$RepoOwner/$RepoName.git" | Out-Null
+            & $Git remote add origin $bareUrl | Out-Null
+        } elseif ($remoteUrl -ne $bareUrl) {
+            # Normalise any pre-existing URL (incl. one carrying a legacy
+            # embedded token) back to the bare, token-free form.
+            & $Git remote set-url origin $bareUrl | Out-Null
         }
 
+        # Build the authenticated git invocation. The credential helper is
+        # a shell function that echoes username/password to git's credential
+        # protocol on stdin. `credential.helper=` (empty) is prepended so
+        # that any system/global helpers (e.g. Windows Credential Manager,
+        # gh.exe) are cleared for this invocation, guaranteeing OUR token
+        # is used and not a cached one.
+        #
+        # SECURITY (CWE-214): the token is NOT interpolated into the helper
+        # string. The helper is single-quoted in PowerShell (so PS does not
+        # expand it) and references `$GIT_UPDATE_TOKEN` — a sh variable that
+        # `sh.exe` resolves from the environment we set just below. This
+        # keeps the token out of the git.exe process command line, which
+        # would otherwise be visible via Win32_Process.CommandLine / Process
+        # Explorer / ETW. The env var is removed in `finally`.
         Write-Log "Проверяю обновления через Git..."
-        & $Git fetch origin $Branch --quiet
+        if ($Token) {
+            $env:GIT_UPDATE_TOKEN = $Token
+            try {
+                # Single-quoted: PS leaves $GIT_UPDATE_TOKEN as a literal;
+                # git's sh evaluator expands it from the inherited env block.
+                $credHelper = '!f() { echo username=x-access-token; echo "password=$GIT_UPDATE_TOKEN"; }; f'
+                & $Git -c credential.helper= -c "credential.helper=$credHelper" fetch origin $Branch --quiet
+            } finally {
+                Remove-Item Env:\GIT_UPDATE_TOKEN -ErrorAction SilentlyContinue
+            }
+        } else {
+            & $Git -c credential.helper= fetch origin $Branch --quiet
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "git fetch завершился с кодом $LASTEXITCODE"
         }
@@ -494,7 +527,9 @@ if ($gitHubToken) {
 $git = Get-GitCommand
 $updatedWithGit = $false
 if ($git) {
-    $updatedWithGit = Update-WithGit $git
+    # Pass the token so Update-WithGit can authenticate fetch via an
+    # ephemeral credential helper (token never embedded in remote URL).
+    $updatedWithGit = Update-WithGit $git $gitHubToken
     if (-not $updatedWithGit) {
         $updatedWithGit = Update-WithGitSnapshot $git
     }

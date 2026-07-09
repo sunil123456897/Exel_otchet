@@ -140,8 +140,10 @@ class Tooltip:
             # Emergency fallback when ThemeManager is unavailable — mirror
             # the dark tooltip palette so the tooltip is at least legible
             # instead of the legacy light-yellow (#ffffe0) which is gone
-            # from the design system.
-            bg, fg = "#0f172a", "#e2e8f0"
+            # from the design system. Hex values kept in sync with the
+            # dark palette's tooltip_bg/tooltip_fg (theme.py _DARK); if
+            # the palette changes, update these two literals too.
+            bg, fg = "#0c0e12", "#e7ebf3"
             fonts = {"caption": ("Segoe UI", 9)}
 
         try:

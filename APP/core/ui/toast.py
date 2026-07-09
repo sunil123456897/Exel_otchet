@@ -38,6 +38,15 @@ _LEVEL_ICONS = {
     ToastLevel.ERROR: "✕",
 }
 
+# Themed PNG icon names (drawn by tools/generate_ui_icons.py). Used when
+# PIL is available; falls back to the text symbols above otherwise.
+_LEVEL_ICON_NAMES = {
+    ToastLevel.INFO: "info",
+    ToastLevel.SUCCESS: "success",
+    ToastLevel.WARNING: "warning",
+    ToastLevel.ERROR: "error",
+}
+
 # Level → (bg_key, fg_key) into ThemeManager.COLORS. Resolved at ``show``
 # time so a theme switch picks up the new palette immediately.
 _LEVEL_THEME_KEYS = {
@@ -172,9 +181,19 @@ class ToastManager:
         inner = make_popup_frame(toplevel, bg, pad_x=16, pad_y=10)
         inner.pack(fill="both", expand=True)
 
+        # Themed PNG icon for the level (replaces the text glyph ℹ✓⚠✕
+        # so the icon follows the palette and renders crisply on HiDPI).
+        level_icon = None
+        try:
+            from core.ui.icons import IconManager
+            level_icon = IconManager.get(_LEVEL_ICON_NAMES.get(level, "info"))
+        except Exception:
+            pass
         title_label = tk.Label(
             inner,
-            text=f"{icon}  {title}",
+            text=f"{icon}  {title}" if level_icon is None else title,
+            image=level_icon,
+            compound="left",
             bg=bg,
             fg=fg,
             font=fonts["body_bold"],
@@ -266,7 +285,13 @@ class ToastManager:
             bg=bg,
             fg=fg,
             # Slightly larger than body so the × reads as a clear target.
-            font=("Segoe UI", max(11, fonts["body_bold"][1] + 1), "bold"),
+            # Family follows the active font tokens (Segoe UI Semibold)
+            # rather than a hard-coded "Segoe UI" so it stays consistent
+            # with the rest of the type system across palette changes.
+            font=(
+                fonts["body_bold"][0],
+                max(11, fonts["body_bold"][1] + 1),
+            ),
             cursor="hand2",
         )
         close_label.place(relx=1.0, x=-8, y=4, anchor="ne")

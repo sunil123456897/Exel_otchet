@@ -1,6 +1,6 @@
 """
 Module: utils_logging
-Description: Part of the Master-Report v5.5 architecture.
+Description: Part of the Master-Report v5.6 architecture.
 This module provides specialized functionality for the financial consolidation system.
 Maintained for high modularity, testability, and structural integrity.
 """

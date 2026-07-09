@@ -23,6 +23,11 @@ from core.infra.config_controller import ConfigController
 from core.infra.settings_store import SettingsStore, UIPreferences
 from core.ui.theme import ThemeManager
 
+try:
+    from APP import __version__ as APP_VERSION
+except Exception:  # pragma: no cover - APP package always on path at runtime
+    APP_VERSION = "5.6"
+
 _log = logging.getLogger(__name__)
 
 # ── helpers ───────────────────────────────────────────────────
@@ -208,7 +213,7 @@ class SettingsDialog(tk.Toplevel):
 
         # Theme the Toplevel background to match the active palette.
         # Without this, the dialog body is white in dark mode.
-        self.configure(background=ThemeManager.COLORS.get("bg_main", "#f3f4f6"))
+        self.configure(background=ThemeManager.COLORS.get("bg_main", "#f5f6f8"))
 
         self._cc = config_controller
         self._store = settings_store
@@ -383,7 +388,7 @@ class SettingsDialog(tk.Toplevel):
             f"Окно: {ThemeManager._viewport_w}×{ThemeManager._viewport_h}, "
             f"Масштаб: {ThemeManager._scale:.2f}, "
             f"Режим: {ThemeManager.viewport_mode()}",
-            foreground=ThemeManager.COLORS.get("text_muted", "#64748b"),
+            foreground=ThemeManager.COLORS.get("text_muted", "#6b7588"),
         ).pack(side=tk.LEFT)
 
     def _build_paths_tab(self, notebook: ttk.Notebook) -> None:
@@ -535,7 +540,7 @@ class SettingsDialog(tk.Toplevel):
         notebook.add(tab, text="ℹ О программе")
 
         info = [
-            ("Версия", "5.6"),
+            ("Версия", APP_VERSION),
             ("Путь к config.yaml", getattr(self._cc, "config_path", "—")),
             ("employees.yaml", getattr(self._cc, "employees_path", "—")),
             ("Тема", self._current_prefs.theme),
@@ -547,7 +552,7 @@ class SettingsDialog(tk.Toplevel):
             row.pack(fill=tk.X, pady=2)
             ttk.Label(row, text=f"{label}:").pack(side=tk.LEFT, padx=(0, 8))
             ttk.Label(
-                row, text=value, foreground=ThemeManager.COLORS.get("text_muted", "#64748b")
+                row, text=value, foreground=ThemeManager.COLORS.get("text_muted", "#6b7588")
             ).pack(side=tk.LEFT)
 
         # External editor buttons

@@ -139,8 +139,15 @@ class DashboardTabs:
         self.results_tree.tag_configure(
             "empty", foreground=_c("text_muted")
         )
+        # Status tags so "✅ успех" / "❌ ошибка" rows are colour-coded
+        # for at-a-glance scanning — same treatment as EmployeeTable.
+        self._configure_results_tags()
         self.results_tree.pack(fill=tk.BOTH, expand=True)
         self.results_tree.bind("<Double-1>", lambda _event: self._open_selected_result())
+        # Row-hover highlight — consistent with EmployeeTable so every
+        # data tree feels identical under the pointer.
+        from core.ui.theme import attach_treeview_hover
+        attach_treeview_hover(self.results_tree)
         # Initial empty-state hint so the tree isn't a blank grid on
         # first launch — replaced by real rows once ``_refresh_home``
         # completes (or re-inserted if there are no results yet).
@@ -171,6 +178,10 @@ class DashboardTabs:
             self.reports_tab,
             columns=("name", "status", "mtime", "size", "path"),
             show="headings",
+            # Path-heavy tree: file names, sizes, mtimes, full paths —
+            # render in tabular-mono so paths are scannable and the
+            # size column aligns on the decimal.
+            style="Mono.Treeview",
         )
         for column, text, width in (
             ("name", "Файл", 160),
@@ -183,6 +194,8 @@ class DashboardTabs:
             self.reports_tree.column(column, width=width, anchor=tk.W, stretch=(column == "path"))
         self.reports_tree.pack(fill=tk.BOTH, expand=True)
         self.reports_tree.bind("<Double-1>", lambda _event: self._open_selected_report())
+        from core.ui.theme import attach_treeview_hover
+        attach_treeview_hover(self.reports_tree)
 
     # ── UX-008: History tab ──────────────────────────────────────
 
@@ -231,6 +244,8 @@ class DashboardTabs:
         )
 
         self.history_tree.pack(fill=tk.BOTH, expand=True)
+        from core.ui.theme import attach_treeview_hover
+        attach_treeview_hover(self.history_tree)
         # Load on init (best-effort — DB may not have sessions yet)
         try:
             self._refresh_history()
@@ -317,6 +332,9 @@ class DashboardTabs:
             self.diagnostics_tab,
             columns=("check", "status", "detail", "path"),
             show="headings",
+            # Path-heavy tree: diagnostic check paths render in tabular-
+            # mono for scannability.
+            style="Mono.Treeview",
         )
         for column, text, width in (
             ("check", "Проверка", 170),
@@ -327,6 +345,8 @@ class DashboardTabs:
             self.diagnostics_tree.heading(column, text=text)
             self.diagnostics_tree.column(column, width=width, anchor=tk.W, stretch=(column in ("detail", "path")))
         self.diagnostics_tree.pack(fill=tk.BOTH, expand=True)
+        from core.ui.theme import attach_treeview_hover
+        attach_treeview_hover(self.diagnostics_tree)
 
     def _setup_logs(self) -> None:
         action_frame = ttk.Frame(self.logs_tab, style="Main.TFrame")
@@ -479,13 +499,40 @@ class DashboardTabs:
                     str(result.path) if result.path else "",
                     message,
                 ),
+                tags=("success" if result.ok else "error",),
             )
+
+    def _configure_results_tags(self) -> None:
+        """Colour-code success/error rows in the results tree.
+
+        Mirrors EmployeeTable's status treatment: bold semantic-colour
+        foreground so "✅ успех"/"❌ ошибка" reads as a label, with a
+        faint row-wash tint derived from the semantic palette.
+        """
+        from core.ui.theme import ThemeManager, _lerp_hex
+
+        bold = ThemeManager.FONTS["body_bold"]
+
+        def _tint(sem_key: str) -> str:
+            try:
+                return _lerp_hex(ThemeManager.COLORS["bg_sidebar"],
+                                 ThemeManager.COLORS[sem_key], 0.08)
+            except KeyError:
+                return ThemeManager.COLORS["bg_sidebar"]
+
+        self.results_tree.tag_configure(
+            "success", foreground=_c("success"), background=_tint("success"), font=bold
+        )
+        self.results_tree.tag_configure(
+            "error", foreground=_c("danger"), background=_tint("danger"), font=bold
+        )
 
     def refresh_theme(self) -> None:
         """Re-apply theme-dependent tag colours after a palette switch."""
         self.results_tree.tag_configure(
             "empty", foreground=_c("text_muted")
         )
+        self._configure_results_tags()
 
     def run_diagnostics(self) -> None:
         for item in self.diagnostics_tree.get_children():

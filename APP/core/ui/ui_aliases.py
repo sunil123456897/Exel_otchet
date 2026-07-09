@@ -106,8 +106,13 @@ class AliasesTab:
         try:
             aliases = self.app.get_customer_aliases()
         except Exception as e:
-            logger.error("Failed to load aliases: %s", e)
-            messagebox.showerror("Ошибка", f"Не удалось загрузить алиасы: {e}", parent=self.parent)
+            # U12-B: route through the error presenter so the raw
+            # ``str(e)`` (which may carry absolute paths / DB internals)
+            # is no longer shown to the user — only a human-readable
+            # message + ``repr(e)`` in the log.
+            from core.ui.error_presenter import present_error
+
+            present_error(self.parent, "Не удалось загрузить алиасы", e)
             return
         for a in aliases:
             updated = (a.updated_at or "")[:19]
@@ -155,7 +160,10 @@ class AliasesTab:
                 self.app.delete_customer_alias(alias_id)
                 self.refresh()
             except Exception as e:
-                messagebox.showerror("Ошибка", str(e), parent=self.parent)
+                # U12-B: sanitised error presentation (no raw str(e)).
+                from core.ui.error_presenter import present_error
+
+                present_error(self.parent, "Не удалось удалить алиас", e)
 
     def _open_dialog(
         self,
@@ -173,7 +181,7 @@ class AliasesTab:
         dlg.grab_set()
         # Theme the dialog background for dark mode.
         from core.ui.theme import ThemeManager
-        dlg.configure(background=ThemeManager.COLORS.get("bg_main", "#f3f4f6"))
+        dlg.configure(background=ThemeManager.COLORS.get("bg_main", "#f5f6f8"))
 
         # Колонка полей ввода и строка заметок растягиваются вместе с окном.
         dlg.columnconfigure(1, weight=1)
@@ -220,9 +228,16 @@ class AliasesTab:
                 self.refresh()
                 dlg.destroy()
             except ValueError as e:
+                # TODO(U12-followup): ValueError carries a human-readable
+                # business-validation message, so it is intentionally left
+                # on messagebox for this cycle — migrate once the presenter
+                # gains a "validation" channel that keeps str(e) visible.
                 messagebox.showerror("Ошибка", str(e), parent=dlg)
             except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось сохранить: {e}", parent=dlg)
+                # U12-B: sanitised error presentation (no raw str(e)).
+                from core.ui.error_presenter import present_error
+
+                present_error(dlg, "Не удалось сохранить алиас", e)
 
         ok_btn = ttk.Button(btn_frame, text="Сохранить", command=save)
         ok_btn.pack(side=tk.LEFT, padx=4)

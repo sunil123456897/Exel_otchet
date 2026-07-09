@@ -107,6 +107,113 @@ class Sidebar(ttk.Frame):
         self.canvas.yview_scroll(-1, "units")
         return "break"
 
+    @staticmethod
+    def _icon(name: str):
+        """Load a themed PNG icon (replaces emoji in buttons/labels).
+
+        Returns a PhotoImage or None (callers pass None to ttk.Button
+        image= which is a no-op — the button renders text-only). Centralised
+        so every button/label picks up the icon through the same path and
+        follows theme switches via IconManager's cache invalidation.
+        """
+        try:
+            from core.ui.icons import IconManager
+            return IconManager.get(name)
+        except Exception:
+            return None
+
+    def _icon_section(self, parent, text: str, icon_name: str, padding):
+        """Build a ttk.LabelFrame whose title carries a themed icon.
+
+        ttk.LabelFrame's ``text=`` is plain text only; to show an icon we
+        pass a ttk.Label as ``labelwidget`` with ``image=`` + ``compound``.
+        This gives each sidebar section a crisp themed glyph (calendar for
+        date, user for employees, etc.) instead of the previous astral
+        emoji that rendered unpredictably. Falls back to plain text if
+        the icon is unavailable.
+        """
+        icon = self._icon(icon_name)
+        if icon is not None:
+            label = ttk.Label(
+                parent,
+                text=text,
+                image=icon,
+                compound="left",
+                style="TLabelframe.Label",
+            )
+            return ttk.LabelFrame(parent, labelwidget=label, padding=padding)
+        return ttk.LabelFrame(parent, text=text, padding=padding)
+
+    @staticmethod
+    def _patch_dateentry_nav(entry) -> None:
+        """Fix tkcalendar's popup-closes-on-month-navigation bug.
+
+        tkcalendar's ``_on_focus_out_cal`` withdraws the dropdown when
+        the calendar loses focus. Clicking the prev/next-month arrows
+        moves focus to the arrow button (a child of the calendar's
+        Toplevel), which trips ``<FocusOut>`` on the calendar widget and
+        closes the popup mid-navigation — the user can't page through
+        months. This override keeps the popup open as long as the new
+        focus target is inside the calendar's Toplevel (``_top_cal``),
+        so arrow navigation works normally.
+        """
+        def _safe_focus_out(event):
+            try:
+                focus = entry.focus_get()
+            except tk.TclError:
+                focus = None
+            if focus is None:
+                # Only withdraw if the pointer is also outside the popup.
+                try:
+                    x, y = entry._top_cal.winfo_pointerxy()
+                    xc = entry._top_cal.winfo_rootx()
+                    yc = entry._top_cal.winfo_rooty()
+                    w = entry._top_cal.winfo_width()
+                    h = entry._top_cal.winfo_height()
+                    if not (xc <= x <= xc + w and yc <= y <= yc + h):
+                        entry._top_cal.withdraw()
+                        entry.state(["!pressed"])
+                except (tk.TclError, AttributeError):
+                    pass
+                return
+            # Focus is somewhere — check if it's the DateEntry itself.
+            if focus is entry:
+                # Original behaviour: withdraw unless clicking the arrow.
+                x, y = event.x, event.y
+                if (type(x) is not int or type(y) is not int
+                        or entry.identify(x, y) != entry._downarrow_name):
+                    entry._top_cal.withdraw()
+                    entry.state(["!pressed"])
+                return
+            # Focus is on another widget. If it's inside the calendar
+            # Toplevel (e.g. a month-nav arrow), KEEP the popup open —
+            # this is the navigation bug fix. Otherwise withdraw.
+            try:
+                top_w = str(entry._top_cal)
+                fw = str(focus)
+                if fw.startswith(top_w):
+                    return  # inside popup → keep open
+            except (tk.TclError, AttributeError):
+                pass
+            entry._top_cal.withdraw()
+            entry.state(["!pressed"])
+
+        # Replace the bound FocusOut handler. tkcalendar binds on the
+        # _calendar widget, so we rebind there with add="+" and let the
+        # new handler short-circuit by returning "break" when it wants
+        # to suppress withdrawal.
+        def _focus_out_break(event):
+            _safe_focus_out(event)
+            # Returning "break" stops tkcalendar's original handler from
+            # also running (it would withdraw unconditionally).
+            return "break"
+
+        try:
+            entry._calendar.unbind("<FocusOut>")
+        except (tk.TclError, AttributeError):
+            pass
+        entry._calendar.bind("<FocusOut>", _focus_out_break)
+
     def _on_button5(self, _event):
         self.canvas.yview_scroll(1, "units")
         return "break"
@@ -121,11 +228,23 @@ class Sidebar(ttk.Frame):
         _section_gap = (0, sp["sm"])     # vertical gap between sections
         _btn_gap = (0, sp["xs"])         # bottom gap for full-width action buttons
 
+        # Section header with themed icon (replaces the chart emoji which
+        # rendered unpredictably via the OS emoji font). NOTE: no explicit
+        # background= here — an explicit bg option on a ttk widget pins the
+        # colour and breaks theme switches (the style's background never
+        # re-applies). We rely on the Sidebar.TLabel style instead.
+        try:
+            from core.ui.icons import IconManager
+            panel_icon = IconManager.get("build")
+        except Exception:
+            panel_icon = None
         ttk.Label(
             self.content,
-            text="📊 ПАНЕЛЬ",
-            style="Header.TLabel",
-            background=ThemeManager.COLORS["bg_sidebar"],
+            text="ПАНЕЛЬ",
+            style="SidebarHeader.TLabel",
+            image=panel_icon,
+            compound="left",
+            padding=(0, 0, sp["xs"], 0),
         ).pack(pady=(0, sp["xs"]), anchor=tk.W)
 
         # UX-017: network drive indicator — shows a green/red dot
@@ -133,12 +252,17 @@ class Sidebar(ttk.Frame):
         # Updated every 30s by ``_poll_network_drives``.
         self._net_indicator = tk.Label(
             self.content,
-            text="🔴 Сеть: проверка...",
+            text="Сеть: проверка...",
             background=ThemeManager.COLORS["bg_sidebar"],
-            foreground=ThemeManager.COLORS.get("text_muted", "#64748b"),
+            foreground=ThemeManager.COLORS.get("text_muted", "#6b7588"),
             font=ThemeManager.FONTS["micro"],
             anchor=tk.W,
+            compound="left",
+            padx=4,
         )
+        # Initial status dot icon (busy/unknown until first probe).
+        self._net_level = "busy"
+        self._set_net_status("busy", "Сеть: проверка...")
         # Register for re-theming on dark/light switch.
         ThemeManager.register(self._net_indicator, bg_key="bg_sidebar", fg_key="text_muted")
         self._net_indicator.pack(pady=(0, sp["xs"]), anchor=tk.W)
@@ -146,24 +270,35 @@ class Sidebar(ttk.Frame):
         self.after(2000, self._poll_network_drives)
 
         # Date Selection
-        date_frame = ttk.LabelFrame(self.content, text="📅 ВЫБОР ДАТЫ", padding=_section_pad)
+        date_frame = self._icon_section(self.content, "ВЫБОР ДАТЫ", "calendar", _section_pad)
         date_frame.pack(fill=tk.X, pady=(sp["xs"] // 2, sp["sm"]))
 
         date_row = ttk.Frame(date_frame)
         date_row.pack(fill=tk.X)
 
+        _c = ThemeManager.COLORS
         self.date_entry = DateEntry(
             date_row,
             width=12,
-            background=ThemeManager.COLORS["primary"],
-            foreground=ThemeManager.COLORS["text_inverse"],
+            background=_c["primary"],
+            foreground=_c["text"],
             borderwidth=2,
             date_pattern="dd.mm.yyyy",
             locale="ru_RU",
-            headersbackground=ThemeManager.COLORS["primary"],
-            selectbackground=ThemeManager.COLORS["primary"],
+            headersbackground=_c["primary"],
+            headersforeground=_c["text_inverse"],
+            selectbackground=_c["primary"],
+            selectforeground=_c["text_inverse"],
+            normalbackground=_c["bg_sidebar"],
+            normalforeground=_c["text"],
+            weekendbackground=_c["bg_panel"],
+            weekendforeground=_c["text_secondary"],
+            othermonthforeground=_c["text_muted"],
+            othermonthbackground=_c["bg_panel"],
+            bordercolor=_c["border_default"],
         )
         self.date_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._patch_dateentry_nav(self.date_entry)
         self.date_entry.bind("<<DateEntrySelected>>", lambda e: self._date_debouncer())
         self.bind("<Destroy>", self._on_destroy, add="+")
 
@@ -184,27 +319,30 @@ class Sidebar(ttk.Frame):
 
         self.refresh_btn = ttk.Button(
             date_row,
-            text="🔄",
+            text="",
+            image=self._icon("refresh"),
             width=3,
             command=self.controller.refresh_status,
         )
         self.refresh_btn.pack(side=tk.RIGHT, padx=(sp["xs"], 0))
         Tooltip(self.refresh_btn, "Обновить статус")
-        emp_frame = ttk.LabelFrame(self.content, text="👤 СОТРУДНИКИ", padding=_section_pad)
+        emp_frame = self._icon_section(self.content, "СОТРУДНИКИ", "user", _section_pad)
         emp_frame.pack(fill=tk.X, pady=_section_gap)
 
         self.add_employee_btn = ttk.Button(
-            emp_frame, text="➕ Добавить", command=self.controller.add_employee_dialog
+            emp_frame, text="Добавить", image=self._icon("plus"),
+            compound="left", command=self.controller.add_employee_dialog
         )
         self.add_employee_btn.pack(fill=tk.X, pady=_btn_gap)
 
         self.attach_btn = ttk.Button(
-            emp_frame, text="📎 Привязать", command=self.controller.attach_file_dialog
+            emp_frame, text="Привязать", image=self._icon("attach"),
+            compound="left", command=self.controller.attach_file_dialog
         )
         self.attach_btn.pack(fill=tk.X)
 
         # Consolidation Actions
-        action_frame = ttk.LabelFrame(self.content, text="🚀 СБОРКА", padding=_section_pad)
+        action_frame = self._icon_section(self.content, "СБОРКА", "build", _section_pad)
         action_frame.pack(fill=tk.X, pady=_section_gap)
 
         ttk.Label(action_frame, text="Кураторский отчет:").pack(anchor=tk.W)
@@ -219,36 +357,59 @@ class Sidebar(ttk.Frame):
 
         self.consolidate_btn = ttk.Button(
             action_frame,
-            text="⚡ СОБРАТЬ ДЕНЬ",
+            text="СОБРАТЬ ДЕНЬ",
+            image=self._icon("play"),
+            compound="left",
             style="Action.TButton",
             command=self.controller.run_consolidation,
         )
         self.consolidate_btn.pack(fill=tk.X, pady=_btn_gap)
+        Tooltip(
+            self.consolidate_btn,
+            "Собрать отчёт за выбранную дату (Ctrl+D)",
+        )
 
         self.consolidate_all_btn = ttk.Button(
             action_frame,
-            text="🌍 СОБРАТЬ ВСЕ ДАТЫ",
+            text="СОБРАТЬ ВСЕ ДАТЫ",
+            image=self._icon("globe"),
+            compound="left",
             command=self.controller.run_consolidation_all_dates,
         )
         self.consolidate_all_btn.pack(fill=tk.X, pady=_btn_gap)
+        Tooltip(
+            self.consolidate_all_btn,
+            "Собрать отчёт по всем датам сразу (Ctrl+Shift+D)",
+        )
 
         self.rsch_btn = ttk.Button(
             action_frame,
-            text="🧾 СОБРАТЬ РСЧ",
+            text="СОБРАТЬ РСЧ",
+            image=self._icon("doc"),
+            compound="left",
             command=self.controller.run_rsch_report,
         )
         self.rsch_btn.pack(fill=tk.X, pady=_btn_gap)
+        Tooltip(self.rsch_btn, "Сформировать РСЧ-отчёт за выбранную дату (Ctrl+R)")
 
         self.reconciliation_btn = ttk.Button(
             action_frame,
-            text="✅ СВЕРИТЬ С РСЧ",
+            text="СВЕРИТЬ С РСЧ",
+            image=self._icon("check"),
+            compound="left",
             command=self.controller.run_reconciliation_report,
         )
         self.reconciliation_btn.pack(fill=tk.X, pady=_btn_gap)
+        Tooltip(
+            self.reconciliation_btn,
+            "Сверить мастер-отчёт с РСЧ за выбранную дату (Ctrl+E)",
+        )
 
         self.auto_reconciliation_btn = ttk.Button(
             action_frame,
-            text="✅ АВТОСВЕРКА",
+            text="АВТОСВЕРКА",
+            image=self._icon("check"),
+            compound="left",
             style="Action.TButton",
             command=self.controller.run_auto_reconciliation_day,
         )
@@ -256,7 +417,7 @@ class Sidebar(ttk.Frame):
 
         # --- Collapsible Period Section ---------------------------------
         self._period_expanded = False
-        self._per_container = ttk.LabelFrame(self.content, text="📆 ЗА ПЕРИОД", padding=0)
+        self._per_container = self._icon_section(self.content, "ЗА ПЕРИОД", "period", 0)
         self._per_container.pack(fill=tk.X, pady=_section_gap)
 
         self._per_toggle = ttk.Button(
@@ -273,17 +434,29 @@ class Sidebar(ttk.Frame):
         dates_row = ttk.Frame(self._per_panel)
         dates_row.pack(fill=tk.X, pady=_btn_gap)
         ttk.Label(dates_row, text="С:").pack(side=tk.LEFT)
+        _mc = ThemeManager.COLORS
         self.month_start_entry = DateEntry(
             dates_row,
             width=7,
-            background=ThemeManager.COLORS["primary"],
-            foreground=ThemeManager.COLORS["text_inverse"],
+            background=_mc["primary"],
+            foreground=_mc["text"],
             borderwidth=2,
             date_pattern="dd.mm.yyyy",
             locale="ru_RU",
-            headersbackground=ThemeManager.COLORS["primary"],
+            headersbackground=_mc["primary"],
+            headersforeground=_mc["text_inverse"],
+            selectbackground=_mc["primary"],
+            selectforeground=_mc["text_inverse"],
+            normalbackground=_mc["bg_sidebar"],
+            normalforeground=_mc["text"],
+            weekendbackground=_mc["bg_panel"],
+            weekendforeground=_mc["text_secondary"],
+            othermonthforeground=_mc["text_muted"],
+            othermonthbackground=_mc["bg_panel"],
+            bordercolor=_mc["border_default"],
         )
         self.month_start_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(sp["xs"] // 2, sp["sm"] // 2))
+        self._patch_dateentry_nav(self.month_start_entry)
         today = datetime.now()
         default_start, default_end = get_default_period_range(today)
         self.month_start_entry.set_date(default_start)
@@ -292,14 +465,25 @@ class Sidebar(ttk.Frame):
         self.month_end_entry = DateEntry(
             dates_row,
             width=7,
-            background=ThemeManager.COLORS["primary"],
-            foreground=ThemeManager.COLORS["text_inverse"],
+            background=_mc["primary"],
+            foreground=_mc["text"],
             borderwidth=2,
             date_pattern="dd.mm.yyyy",
             locale="ru_RU",
-            headersbackground=ThemeManager.COLORS["primary"],
+            headersbackground=_mc["primary"],
+            headersforeground=_mc["text_inverse"],
+            selectbackground=_mc["primary"],
+            selectforeground=_mc["text_inverse"],
+            normalbackground=_mc["bg_sidebar"],
+            normalforeground=_mc["text"],
+            weekendbackground=_mc["bg_panel"],
+            weekendforeground=_mc["text_secondary"],
+            othermonthforeground=_mc["text_muted"],
+            othermonthbackground=_mc["bg_panel"],
+            bordercolor=_mc["border_default"],
         )
         self.month_end_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._patch_dateentry_nav(self.month_end_entry)
         self.month_end_entry.set_date(default_end)
         self.month_start_entry.bind(
             "<<DateEntrySelected>>", lambda e: self._validate_period_range()
@@ -320,30 +504,42 @@ class Sidebar(ttk.Frame):
 
         self.consolidate_month_btn = ttk.Button(
             self._per_panel,
-            text="📊 СОБРАТЬ ПЕРИОД",
+            text="СОБРАТЬ ПЕРИОД",
+            image=self._icon("period"),
+            compound="left",
             style="Action.TButton",
             command=self.controller.run_consolidation_month,
         )
         self.consolidate_month_btn.pack(fill=tk.X, pady=_btn_gap)
+        Tooltip(
+            self.consolidate_month_btn,
+            "Собрать отчёт за период «С…По» (Ctrl+M)",
+        )
 
         self.rsch_month_btn = ttk.Button(
             self._per_panel,
-            text="🧾 СОБРАТЬ РСЧ ЗА ПЕРИОД",
+            text="СОБРАТЬ РСЧ ЗА ПЕРИОД",
+            image=self._icon("doc"),
+            compound="left",
             command=self.controller.run_rsch_report_month,
         )
         self.rsch_month_btn.pack(fill=tk.X)
+        Tooltip(
+            self.rsch_month_btn,
+            "Сформировать РСЧ-отчёт за период «С…По» (Ctrl+Shift+R)",
+        )
 
         # Theme switcher: 3 options (light/dark/system). The "system"
         # option follows the OS dark/light setting (polled every 5s).
-        theme_frame = ttk.LabelFrame(self.content, text="🎨 ТЕМА", padding=_section_pad)
+        theme_frame = self._icon_section(self.content, "ТЕМА", "palette", _section_pad)
         theme_frame.pack(fill=tk.X, pady=_section_gap)
         self.theme_var = tk.StringVar(value="light")
         theme_row = ttk.Frame(theme_frame, style="Sidebar.TFrame")
         theme_row.pack(fill=tk.X)
         for value, label in (
-            ("light", "☀️ Светлая"),
-            ("dark", "🌙 Тёмная"),
-            ("system", "💻 Системная"),
+            ("light", "Светлая"),
+            ("dark", "Тёмная"),
+            ("system", "Системная"),
         ):
             ttk.Radiobutton(
                 theme_row,
@@ -356,7 +552,9 @@ class Sidebar(ttk.Frame):
         # Settings button (opens universal settings dialog)
         self.settings_btn = ttk.Button(
             self.content,
-            text="⚙ НАСТРОЙКИ",
+            text="НАСТРОЙКИ",
+            image=self._icon("gear"),
+            compound="left",
             command=self._open_settings_fallback,
         )
         self.settings_btn.pack(fill=tk.X, pady=(sp["xs"], 0))
@@ -366,9 +564,62 @@ class Sidebar(ttk.Frame):
             "Открыть диалог настроек: пути, сеть, бэкапы, логика, БД, тема",
         )
 
+        # U12-A: shortcuts reference button. Placed right under the
+        # settings button so the two "help/configuration" affordances
+        # group together. Forwards to controller.show_shortcuts when
+        # available (GuiMaster owns the root and the grab target).
+        self.shortcuts_btn = ttk.Button(
+            self.content,
+            text="ГОРЯЧИЕ КЛАВИШИ",
+            image=self._icon("keyboard"),
+            compound="left",
+            command=self._open_shortcuts,
+        )
+        self.shortcuts_btn.pack(fill=tk.X, pady=(sp["xs"], 0))
+        Tooltip(
+            self.shortcuts_btn,
+            "Показать список сочетаний клавиш (F1)",
+        )
+
         # Subscribe to scale changes for adaptive width
         self._scale_cb = lambda _s, _mode: self.after(0, self._recompute_width)
         ThemeManager.add_scale_listener(self._scale_cb)
+        # Register every icon-bearing button with IconManager so a
+        # light↔dark switch re-applies the new-theme icon automatically.
+        # Without this, ttk.Button keeps the old-theme PhotoImage cached
+        # in its image= option — the "stale icon" bug where buttons stay
+        # in the previous theme's colour after switching.
+        self._register_icon_buttons()
+
+    def _register_icon_buttons(self) -> None:
+        """Register all icon-bearing widgets with IconManager.
+
+        Maps the sidebar's button-attribute names to their icon names so
+        a single registration pass covers every themed icon. Called once
+        at the end of ``_setup_ui``.
+        """
+        try:
+            from core.ui.icons import IconManager
+        except Exception:
+            return
+        icon_map = {
+            "refresh_btn": "refresh",
+            "add_employee_btn": "plus",
+            "attach_btn": "attach",
+            "consolidate_btn": "play",
+            "consolidate_all_btn": "globe",
+            "rsch_btn": "doc",
+            "reconciliation_btn": "check",
+            "auto_reconciliation_btn": "check",
+            "consolidate_month_btn": "period",
+            "rsch_month_btn": "doc",
+            "settings_btn": "gear",
+            "shortcuts_btn": "keyboard",
+        }
+        for attr, icon_name in icon_map.items():
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                IconManager.register(btn, icon_name)
 
     def _on_theme_changed(self):
         """Forward the chosen theme to the master controller."""
@@ -417,6 +668,25 @@ class Sidebar(ttk.Frame):
                 current_prefs=store.load_preferences() if store else None,
                 gui=self.controller,
             )
+
+    def _open_shortcuts(self) -> None:
+        """Open the shortcuts reference dialog — forward to controller.
+
+        GuiMaster owns ``root`` (the right grab parent) and the
+        ``show_shortcuts`` method; the sidebar only forwards the click.
+        Falls back to the local helper if the controller does not expose
+        the method (defensive — keeps the button functional in any host).
+        """
+        opener = getattr(self.controller, "show_shortcuts", None)
+        if callable(opener):
+            opener()
+            return
+        try:
+            from core.ui.shortcuts_dialog import show_shortcuts
+
+            show_shortcuts(self)
+        except Exception:
+            logging.warning("Shortcuts dialog could not be shown", exc_info=True)
 
     def _toggle_period_section(self):
         """Expand/collapse the period compilation panel."""
@@ -502,6 +772,65 @@ class Sidebar(ttk.Frame):
             except (tk.TclError, AttributeError):
                 pass
 
+    def refresh_theme(self) -> None:
+        """Re-apply theme-dependent colours after a palette switch.
+
+        ``tkcalendar.DateEntry`` reads its accent colours (background,
+        headersbackground, selectbackground) at creation and does not
+        follow ttk styles — so without this pass the calendar popup
+        stays in the palette that was active when the sidebar was built
+        (e.g. light-mode blue after switching to dark). Mirrors the
+        ``refresh_theme`` pattern used by EmployeeTable/Dashboard.
+        """
+        c = ThemeManager.COLORS
+        for entry_attr in ("date_entry", "month_start_entry", "month_end_entry"):
+            entry = getattr(self, entry_attr, None)
+            if entry is None:
+                continue
+            # tkcalendar exposes ~12 colour options; updating only the 4
+            # accent ones (background/headersbackground/selectbackground)
+            # left the day-cells white with black text in dark mode. The
+            # full set below recolours: the entry field, the calendar
+            # header band, the selected day, AND every day-cell (normal /
+            # weekend / other-month) so the popup reads correctly in both
+            # themes. colours are derived from the active palette.
+            try:
+                entry.configure(
+                    background=c["primary"],            # arrow button bg
+                    foreground=c["text"],               # entry field text
+                    headersbackground=c["primary"],     # weekday-name band
+                    headersforeground=c["text_inverse"],
+                    selectbackground=c["primary"],      # selected day
+                    selectforeground=c["text_inverse"],
+                    # day cells
+                    normalbackground=c["bg_sidebar"],
+                    normalforeground=c["text"],
+                    weekendbackground=c["bg_panel"],
+                    weekendforeground=c["text_secondary"],
+                    othermonthforeground=c["text_muted"],
+                    othermonthbackground=c["bg_panel"],
+                    bordercolor=c["border_default"],
+                )
+            except (tk.TclError, AttributeError, KeyError):
+                pass
+            # FIX-003 range-validation tint: re-assert the danger colour
+            # (or clear it) so the invalid-range marker survives a theme
+            # switch instead of reverting to the default text colour.
+            if getattr(self, "_range_invalid", False):
+                try:
+                    entry.configure(foreground=c["danger"])
+                except (tk.TclError, KeyError):
+                    pass
+        # Re-apply the network indicator's themed dot in the new palette.
+        # The dot PNG is theme-specific (success/error/warning render in
+        # different colours for light vs dark); without this, the indicator
+        # keeps the old-theme's dot colour after a switch.
+        try:
+            cur_text = self._net_indicator.cget("text")
+            self._set_net_status(getattr(self, "_net_level", "busy"), cur_text)
+        except (tk.TclError, AttributeError):
+            pass
+
     def get_date(self):
         return self.date_entry.get_date()
 
@@ -520,6 +849,38 @@ class Sidebar(ttk.Frame):
 
     # ── UX-017: network drive indicator ─────────────────────────
 
+    _NET_ICON_MAP = {"ok": "dot_ok", "err": "dot_err", "warn": "dot_warn", "busy": "dot_busy"}
+
+    def _set_net_status(self, level: str, text: str) -> None:
+        """Update the network indicator with a themed status-dot icon + text.
+
+        ``level`` ∈ {ok, err, warn, busy} selects a themed PNG dot (drawn
+        by ``tools/generate_ui_icons.py``), replacing the previous coloured
+        circle emoji that rendered unpredictably across OS emoji fonts.
+        Falls back gracefully to text-only if the icon is missing.
+        """
+        self._net_level = level
+        try:
+            from core.ui.icons import IconManager
+            icon = IconManager.get(self._NET_ICON_MAP.get(level, "dot_busy"))
+        except Exception:
+            icon = None
+        # Re-assert background AND foreground from the active palette so
+        # the indicator never lingers in the old theme after a switch.
+        # ThemeManager.register() should cover this, but _set_net_status
+        # is also called directly by refresh_theme() after a switch, so
+        # being self-contained here is the robust path.
+        c = ThemeManager.COLORS
+        try:
+            self._net_indicator.config(
+                text=text,
+                image=icon,
+                background=c.get("bg_sidebar", "#ffffff"),
+                foreground=c.get("text_muted", "#6b7588"),
+            )
+        except tk.TclError:
+            pass
+
     def _poll_network_drives(self) -> None:
         """Check if configured network drives are reachable; update indicator.
 
@@ -532,7 +893,7 @@ class Sidebar(ttk.Frame):
         try:
             cfg = getattr(self.controller, 'config_controller', None)
             if cfg is None:
-                self._net_indicator.config(text="🟡 Сеть: нет конфиг")
+                self._set_net_status("warn", "Сеть: нет конфиг")
                 return
             config = getattr(cfg, 'config', {})
             network_cfg = config.get("network", {}) if isinstance(config, dict) else {}
@@ -554,18 +915,18 @@ class Sidebar(ttk.Frame):
             def _on_done(result: tuple[int, int]) -> None:
                 reachable, total = result
                 if total == 0:
-                    self._net_indicator.config(text="🟡 Сеть: нет дисков")
+                    self._set_net_status("warn", "Сеть: нет дисков")
                 elif reachable == total:
-                    self._net_indicator.config(
-                        text=f"🟢 Сеть: {reachable}/{total} дисков доступны"
+                    self._set_net_status(
+                        "ok", f"Сеть: {reachable}/{total} дисков доступны"
                     )
                 elif reachable > 0:
-                    self._net_indicator.config(
-                        text=f"🟡 Сеть: {reachable}/{total} дисков доступны"
+                    self._set_net_status(
+                        "warn", f"Сеть: {reachable}/{total} дисков доступны"
                     )
                 else:
-                    self._net_indicator.config(
-                        text=f"🔴 Сеть: {reachable}/{total} дисков доступны"
+                    self._set_net_status(
+                        "err", f"Сеть: {reachable}/{total} дисков доступны"
                     )
 
             def runner() -> None:
@@ -588,7 +949,7 @@ class Sidebar(ttk.Frame):
 
             threading.Thread(target=runner, daemon=True).start()
         except Exception:
-            self._net_indicator.config(text="🟡 Сеть: ошибка проверки")
+            self._set_net_status("warn", "Сеть: ошибка проверки")
         finally:
             # Schedule next poll in 30s
             try:

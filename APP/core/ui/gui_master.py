@@ -1,8 +1,13 @@
 import logging
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, PhotoImage
 from pathlib import Path
 from typing import Optional
+
+try:
+    from APP import __version__ as APP_VERSION
+except Exception:  # pragma: no cover - APP package always on path at runtime
+    APP_VERSION = "5.6"
 
 from core.ui.ui_sidebar import Sidebar
 from core.ui.ui_employee_table import EmployeeTable
@@ -69,13 +74,22 @@ class GuiMaster(GuiMasterSettingsMixin):
             config_controller,
             app_controller,
         )
-        self.root.title("🚀 Master-Report v5.5 | Financial Consolidator")
+        self.root.title(f"Master-Report v{APP_VERSION} | Financial Consolidator")
         ThemeManager.init_scaling(self.root)
         ThemeManager.attach_resize_listener(self.root)
         ThemeManager.apply_styles()
+        # Bind the Tk root to the icon manager so PhotoImages can be
+        # created for themed PNG icons (PIL-based, replacing emoji).
+        try:
+            from core.ui.icons import IconManager
+            IconManager.bind_root(self.root)
+            IconManager.set_theme(ThemeManager.current_theme())
+        except Exception:
+            pass
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         self.root.geometry(_resolve_initial_geometry((1100, 840), sw, sh))
         self.root.minsize(max(640, int(sw * 0.5)), max(420, int(sh * 0.5)))
+        self._apply_window_icon()
 
         # Load persisted theme/scale/density BEFORE creating any widgets
         # so they are born with the correct palette (e.g. dark mode).
@@ -110,7 +124,7 @@ class GuiMaster(GuiMasterSettingsMixin):
         #    from a worker thread.
         # 2. Fallback poll every 500ms from GUI thread — catches the
         #    edge case where the virtual event is dropped.
-        self._base_title = "🚀 Master-Report v5.5"
+        self._base_title = f"Master-Report v{APP_VERSION}"
 
         def _refresh_title(_event=None) -> None:
             try:
@@ -183,6 +197,41 @@ class GuiMaster(GuiMasterSettingsMixin):
         self._init_settings(config_controller)
         # UX-006: global keyboard shortcuts for common operations.
         self._bind_shortcuts()
+        # U11: first-run welcome dialog. Deferred (root.after) so the main
+        # window has time to render first; guarded inside the helper for
+        # headless/test environments and the already-done flag.
+        try:
+            from core.ui.welcome_dialog import show_welcome_if_first_run
+
+            self.root.after(300, lambda: show_welcome_if_first_run(self.root))
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "welcome dialog unavailable", exc_info=True
+            )
+
+    def _apply_window_icon(self) -> None:
+        """Set the window/taskbar icon.
+
+        U10 brand identity: replace the default Tk feather with a
+        multi-resolution ``app.ico`` (navy-blue "Тихая касса" monogram).
+        ``iconbitmap`` is preferred on Windows (sets the taskbar badge too);
+        ``iconphoto`` is the cross-platform fallback. Both are guarded so a
+        missing icon or a platform TclError never breaks startup.
+        """
+        icons_dir = Path(__file__).resolve().parents[2] / "assets" / "icons"
+        ico_path = icons_dir / "app.ico"
+        png_path = icons_dir / "app.png"
+        try:
+            if ico_path.exists():
+                self.root.iconbitmap(str(ico_path))
+                return
+        except tk.TclError:
+            pass
+        try:
+            if png_path.exists():
+                self.root.iconphoto(False, PhotoImage(file=str(png_path)))
+        except tk.TclError:
+            pass
 
     def _bind_shortcuts(self) -> None:
         """Bind global keyboard shortcuts (UX-006).
@@ -195,6 +244,7 @@ class GuiMaster(GuiMasterSettingsMixin):
         Ctrl+E  → reconcile
         F5      → refresh status
         Esc     → cancel running operation
+        F1      → show shortcuts reference dialog (U12-A)
         """
         root = self.root
         # Guard: if a text entry has focus, let it handle Ctrl+* keys.
@@ -219,6 +269,15 @@ class GuiMaster(GuiMasterSettingsMixin):
         root.bind("<Control-e>", _guard(self.run_reconciliation_report))
         root.bind("<F5>", _guard(self.refresh_status))
         root.bind("<Escape>", _guard(self._request_cancel))
+        # U12-A: F1 opens the shortcuts reference dialog. Guarded like
+        # the other shortcuts so F1 inside a Text/Entry does not hijack
+        # the native caret behaviour.
+        def _show_shortcuts():
+            from core.ui.shortcuts_dialog import show_shortcuts
+
+            show_shortcuts(self.root)
+
+        root.bind("<F1>", _guard(_show_shortcuts))
 
     def setup_ui(self):
         self.sidebar = Sidebar(self.root, self)
@@ -387,6 +446,12 @@ class GuiMaster(GuiMasterSettingsMixin):
     def open_master_folder(self):
         self.commands.open_master_folder()
 
+    def show_shortcuts(self) -> None:
+        """Open the keyboard-shortcuts reference dialog (U12-A)."""
+        from core.ui.shortcuts_dialog import show_shortcuts
+
+        show_shortcuts(self.root)
+
     def copy_missing_to_clipboard(self):
         self.commands.copy_missing_to_clipboard()
 
@@ -503,6 +568,11 @@ class GuiMaster(GuiMasterSettingsMixin):
             self.employee_table.refresh_theme()
         if hasattr(self, "dashboard_tabs"):
             self.dashboard_tabs.refresh_theme()
+        # Sidebar hosts tkcalendar.DateEntry widgets whose accent
+        # colours are frozen at creation; refresh_theme re-applies them
+        # so the calendar follows a light↔dark switch.
+        if hasattr(self, "sidebar"):
+            self.sidebar.refresh_theme()
         self.toasts.info(
             "Тема",
             f"Применена тема: {resolved}",

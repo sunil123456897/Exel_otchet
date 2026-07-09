@@ -9,7 +9,7 @@ from core.ui.theme import ThemeManager
 
 def _theme_toplevel(dialog: tk.Toplevel) -> None:
     """Apply dark-mode background to a Toplevel dialog."""
-    dialog.configure(background=ThemeManager.COLORS.get("bg_main", "#f3f4f6"))
+    dialog.configure(background=ThemeManager.COLORS.get("bg_main", "#f5f6f8"))
 
 
 def _theme_listbox(lb: tk.Listbox) -> None:
