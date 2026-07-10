@@ -68,12 +68,15 @@ class GuiMaster(GuiMasterSettingsMixin):
         root: tk.Tk,
         config_controller: ConfigController,
         app_controller: AppController,
+        *,
+        view_only: bool = False,
     ):
         self.root, self.config_controller, self.app_controller = (
             root,
             config_controller,
             app_controller,
         )
+        self.view_only = view_only
         self.root.title(f"Master-Report v{APP_VERSION} | Financial Consolidator")
         ThemeManager.init_scaling(self.root)
         ThemeManager.attach_resize_listener(self.root)
@@ -325,6 +328,41 @@ class GuiMaster(GuiMasterSettingsMixin):
         self.dashboard_tabs.refresh()
 
         self.toasts = ToastManager(self.root)
+
+        # License enforcement: if the trial has expired (production mode
+        # only — never in development), lock the sidebar action buttons
+        # so the app is view-only. The user can browse employees, tables
+        # and history but cannot run consolidation/RSCH/reconciliation.
+        if self.view_only:
+            self._activate_view_only()
+
+    def _activate_view_only(self) -> None:
+        """Disable all action buttons + show a one-time notice toast.
+
+        Uses the same OperationState mechanism that a running operation
+        uses: ``begin`` flips all 10 action buttons to disabled via the
+        sidebar's ``apply(snap)`` listener. We never ``end`` it, so the
+        lock persists until the app is restarted with a valid license.
+        """
+        from core.ui.operation_state import OperationType
+
+        try:
+            self.operation_state.begin(OperationType.CONSOLIDATION_DAY)
+            # Pin progress at 100% so the title reads sensibly.
+            self.operation_state.set_progress(100.0)
+        except Exception:
+            pass
+        # Show a non-blocking notice (not a modal — the user should still
+        # be able to browse). Toast auto-dismisses.
+        try:
+            self.toasts.warning(
+                "Демо-режим",
+                "Срок ознакомительного периода истёк. Обратитесь к "
+                "разработчику для активации.",
+                duration_ms=8000,
+            )
+        except Exception:
+            pass
 
     def _on_employee_vm_update(self):
         self.root.after(0, self.commands._sync_employee_ui)

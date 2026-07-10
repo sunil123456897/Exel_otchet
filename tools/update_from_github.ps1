@@ -46,6 +46,8 @@ $ProtectedUpdatePaths = $LocalSettings + $LocalData + @(
 )
 $UpdateItems = @(
     "APP\core",
+    "APP\__init__.py",
+    "APP\assets",
     "APP\main.py",
     "APP\headless_run.py",
     "APP\db_schema.sql",
@@ -55,6 +57,7 @@ $UpdateItems = @(
     "ЗАПУСК.bat",
     "ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat",
     "tools\update_from_github.ps1",
+    "tools\_compile_protect.py",
     "Диагностика.py",
     "ДИАГНОСТИКА.bat"
 )
@@ -488,6 +491,36 @@ function Update-WithZip {
     }
 }
 
+function Compile-And-Protect {
+    # Production build: compile .py → .pyc, generate a 30-day trial
+    # license, then DELETE the .py source files so the client receives
+    # only bytecode. On the developer's machine (.py present) this
+    # function is never called — ЗАПУСК.bat runs .py directly.
+    #
+    # The heavy lifting (compile + verify + license + delete) is done in
+    # a separate Python script (tools/_compile_protect.py) rather than
+    # inline ``python -c "..."`` because PowerShell eats double-quotes
+    # in -c arguments, breaking the compile command. The script is
+    # FAIL-SAFE: it verifies every .py has a .pyc before deleting, so
+    # a partial compile never bricks the installation.
+    $venvPython = Join-Path $Root ".venv\Scripts\python.exe"
+    $pythonToUse = if (Test-Path -LiteralPath $venvPython) { $venvPython } else { "python" }
+    $compileScript = Join-Path $Root "tools\_compile_protect.py"
+
+    if (-not (Test-Path -LiteralPath $compileScript)) {
+        Write-Log "Compile-And-Protect: _compile_protect.py not found, skipping."
+        return
+    }
+
+    Write-Log "Compiling .py → .pyc (production protection)..."
+    & $pythonToUse $compileScript
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Compile-And-Protect returned $LASTEXITCODE — .py source preserved, app runs unprotected but functional."
+        Write-Log "Compile-And-Protect: non-fatal failure (exit $LASTEXITCODE)"
+    }
+}
+
+
 function Update-Dependencies {
     $venvPython = Join-Path $Root ".venv\Scripts\python.exe"
     $requirements = Join-Path $Root "requirements.txt"
@@ -539,6 +572,16 @@ if (-not $updatedWithGit) {
 }
 
 Update-Dependencies
+
+# Production protection: compile to .pyc, generate trial license, remove
+# .py source. Only runs on the CLIENT's machine (via this updater) — the
+# developer's own checkout keeps .py files for editing.
+try {
+    Compile-And-Protect
+} catch {
+    Write-Warning "Compile-And-Protect failed (non-fatal): $($_.Exception.Message)"
+    Write-Log "Compile-And-Protect error: $($_.Exception.Message)"
+}
 
 if ($Launch) {
     $launcher = Join-Path $Root "ЗАПУСК.bat"

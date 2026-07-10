@@ -9,7 +9,7 @@ set "PIP_NO_INPUT=1"
 set "ARG1=%~1"
 set "ARG2=%~2"
 
-title Master Report Launcher v5.5
+title Master Report Launcher v5.6
 
 set "APPDIR=%~dp0APP"
 set "MAINFILE=%APPDIR%\main.py"
@@ -105,14 +105,26 @@ goto gui_preflight_failed
 :gui_ok
 
 call :step "Step 5/5. Launching application"
+
+:: Smart launch: prefer main.py (development / source checkout). If only
+:: the compiled bytecode remains (production build — .py removed by the
+:: update script), fall back to main.pyc. This lets the same launcher
+:: serve both the developer's machine and the client's protected copy.
+set "LAUNCH_FILE=%MAINFILE%"
+if not exist "%MAINFILE%" (
+    set "LAUNCH_FILE=%APPDIR%\main.pyc"
+    call :log "main.py not found, using compiled main.pyc"
+)
+if not exist "%LAUNCH_FILE%" goto missing_main
+
 if not defined PYTHONW_CMD goto start_python
 call :log "Launching via pythonw (no console)"
-start "" "%PYTHONW_CMD%" "%MAINFILE%"
+start "" "%PYTHONW_CMD%" "%LAUNCH_FILE%"
 goto launch_done
 
 :start_python
 call :log "Launching via python (with console)"
-start "" "%PYTHON_CMD%" "%MAINFILE%"
+start "" "%PYTHON_CMD%" "%LAUNCH_FILE%"
 
 :launch_done
 

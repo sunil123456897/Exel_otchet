@@ -48,6 +48,19 @@ def main():
     logger = logging.getLogger("Main")
     logger.info(f"--- STARTING: {app_root} ---")
     _enable_dpi_awareness()
+
+    # License check: in production mode (.py removed), this returns True
+    # once the trial period expires. The app still launches but in
+    # view-only mode (action buttons disabled). In development (.py
+    # present) this is always False — no interference for the developer.
+    try:
+        from core.license import check_license
+        view_only = check_license()
+    except Exception:
+        view_only = False
+    if view_only:
+        logger.warning("License expired — starting in view-only mode")
+
     app_ctl = None
     root = None
     try:
@@ -81,7 +94,7 @@ def main():
                     "Could not show integrity warning dialog: %s",
                     Bootstrap._integrity_warning,
                 )
-        GuiMaster(root, cfg_ctl, app_ctl)
+        GuiMaster(root, cfg_ctl, app_ctl, view_only=view_only)
 
         def on_close():
             logger.info("Shutdown...")
