@@ -1,0 +1,16 @@
+# Commit pin for the Python updater (run_updater.py).
+#
+# When a SHA is set below, ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat will REFUSE to apply an
+# update whose branch HEAD commit does not match — the only real defence
+# against a compromised GitHub repository/account (the archive's own SHA-256
+# is computed from the downloaded bytes and cannot detect a malicious push).
+#
+# To pin: review the diff at
+#   https://github.com/sunil123456897/Exel_otchet/compare/<old>...<new>
+# then put the full 40-char commit SHA on its own line below, e.g.:
+#   d9c8351a1b2c3d4e5f60718293a4b5c6d7e8f901
+#
+# Leave this file empty (only comments) to update from the branch HEAD with a
+# warning and no commit verification (current default behaviour).
+#
+# pin:
