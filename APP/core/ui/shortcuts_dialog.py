@@ -77,7 +77,7 @@ class ShortcutsDialog:
         top = tk.Toplevel(self.parent)
         top.title("Горячие клавиши")
         top.configure(background=c.get("bg_main", "#f5f6f8"))
-        top.transient(self.parent)
+        top.transient(self.parent)  # type: ignore[call-overload]
         top.resizable(False, False)
         self.top = top
 

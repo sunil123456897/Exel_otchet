@@ -1,0 +1,40 @@
+{
+  "passed": 5,
+  "results": [
+    {
+      "name": "S1_consolidation_day",
+      "ok": true,
+      "elapsed_s": 12.06,
+      "msg": "Успешно!",
+      "timed_out": false
+    },
+    {
+      "name": "S2_consolidation_all",
+      "ok": true,
+      "elapsed_s": 60.5,
+      "msg": "Готово!",
+      "timed_out": false
+    },
+    {
+      "name": "S3_consolidation_period",
+      "ok": true,
+      "elapsed_s": 23.03,
+      "msg": "Готово! (20.05.2026 — 29.05.2026)",
+      "timed_out": false
+    },
+    {
+      "name": "S10_refresh_status",
+      "ok": true,
+      "elapsed_s": 0.2,
+      "msg": "{'Александра П': [{'path': 'E:\\\\Dlia Dashi\\\\Version5\\\\REPORTS\\\\Отчет кураторов 3\\\\Александра П\\\\отчет Александра П 2026.xlsx', 'id': 0}], 'Алексей': [{'path': 'E:\\\\Dlia Dashi\\\\Version5\\\\REPORTS\\\\Отчет кураторов 3\\\\Алексей\\\\Отчёт Алексей.xlsx', 'id': 0}], 'Алиса С': [{'path': 'E:\\\\Dlia Dashi\\\\Version",
+      "timed_out": false
+    },
+    {
+      "name": "S8_auto_reconciliation",
+      "ok": true,
+      "elapsed_s": 28.19,
+      "msg": "Автосверка собрана: Общий 492, Борис 57, Иван 18 строк. РСЧ: 574 строк. Есть проблемы с листами РСЧ: Шаблон РСЧ не найден: E:\\Dlia Dashi\\Version5\\APP\\РСЧ\\шаблон отчета.xlsx. Используется встроенный шаблон.",
+      "timed_out": false
+    }
+  ]
+}

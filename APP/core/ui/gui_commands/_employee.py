@@ -104,7 +104,7 @@ class EmployeeCommandsMixin:
     def attach_file_dialog(self) -> None:
         from core.ui.ui_dialogs import show_attach_file_dialog
 
-        def on_attach(name, paths, append) -> None:
+        def on_attach(name: str, paths: List[str], append: bool) -> None:
             self.ctx.employee_vm.attach_files(
                 self.ctx.config_controller, name, paths, append=append
             )
@@ -170,7 +170,7 @@ class EmployeeCommandsMixin:
             return
 
         unique_parents: List[str] = []
-        seen: set = set()
+        seen: set[str] = set()
         for raw_path in paths:
             parent = str(Path(raw_path).parent)
             if parent in seen:

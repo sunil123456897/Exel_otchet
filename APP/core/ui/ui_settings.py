@@ -25,8 +25,10 @@ from core.ui.theme import ThemeManager
 
 try:
     from APP import __version__ as APP_VERSION
-except Exception:  # pragma: no cover - APP package always on path at runtime
-    APP_VERSION = "5.6"
+except Exception:
+    # Runtime fallback: APP/ on sys.path but not its parent. Mirror in
+    # APP/core/__init__.py — kept in sync by the single-version-source test.
+    from core import __version__ as APP_VERSION  # type: ignore[no-redef]
 
 _log = logging.getLogger(__name__)
 
@@ -148,7 +150,7 @@ class _ListEditor(ttk.Frame):
         self._edit_item(None)
 
     def _edit(self) -> None:
-        sel = self._listbox.curselection()
+        sel = self._listbox.curselection()  # type: ignore[no-untyped-call]
         if not sel:
             return
         self._edit_item(self._items[sel[0]], sel[0])
@@ -172,7 +174,7 @@ class _ListEditor(ttk.Frame):
         self._refresh()
 
     def _delete(self) -> None:
-        sel = self._listbox.curselection()
+        sel = self._listbox.curselection()  # type: ignore[no-untyped-call]
         if not sel:
             return
         del self._items[sel[0]]
@@ -208,7 +210,7 @@ class SettingsDialog(tk.Toplevel):
         super().__init__(parent)
         self.title("Настройки")
         self.resizable(True, True)
-        self.transient(parent)
+        self.transient(parent)  # type: ignore[call-overload]
         self.grab_set()
 
         # Theme the Toplevel background to match the active palette.
@@ -277,7 +279,7 @@ class SettingsDialog(tk.Toplevel):
         pw, ph = parent.winfo_width(), parent.winfo_height()
         dw, dh = self.winfo_width(), self.winfo_height()
         x = parent.winfo_x() + (pw - dw) // 2
-        y = parent.winfo_x() + (ph - dh) // 2
+        y = parent.winfo_y() + (ph - dh) // 2
         self.geometry(f"+{max(0, x)}+{max(0, y)}")
         self.minsize(600, 400)
 
@@ -342,11 +344,19 @@ class SettingsDialog(tk.Toplevel):
         preset_row = ttk.Frame(tab)
         preset_row.pack(fill=tk.X, pady=(0, 4))
         ttk.Label(preset_row, text="Пресеты:").pack(side=tk.LEFT)
-        for val, lbl in ((0.85, "Мелкий"), (1.0, "Норма"), (1.15, "Крупный"), (1.30, "Большой")):
+        for preset_val, lbl in ((0.85, "Мелкий"), (1.0, "Норма"), (1.15, "Крупный"), (1.30, "Большой")):
+            # Named callback per preset: the default arg binds the current
+            # ``preset_val`` at definition time so each button keeps its own
+            # value (a bare lambda also fails mypy's parameter inference).
+            # Distinct loop name avoids colliding with the ``val`` str used
+            # in the theme-radio loop above.
+            def preset_cb(v: float = preset_val) -> None:
+                self._set_scale_preset(v)
+
             btn = ttk.Button(
                 preset_row,
-                text=f"{lbl} ({val:.2f})",
-                command=lambda v=val: self._set_scale_preset(v),
+                text=f"{lbl} ({preset_val:.2f})",
+                command=preset_cb,
             )
             btn.pack(side=tk.LEFT, padx=(2, 0))
 
@@ -585,9 +595,11 @@ class SettingsDialog(tk.Toplevel):
             try:
                 os.startfile(path)  # Windows: opens with default .yaml editor
             except (OSError, AttributeError):
-                # Fallback: notepad
+                # Fallback: notepad. No shell — pass the path as an argv list
+                # so a quote/space in the install path can't inject a command.
                 try:
-                    os.system(f'notepad "{path}"')
+                    import subprocess
+                    subprocess.Popen(["notepad.exe", path])
                 except OSError:
                     pass
 
@@ -599,8 +611,10 @@ class SettingsDialog(tk.Toplevel):
             try:
                 os.startfile(path)
             except (OSError, AttributeError):
+                # No shell — argv list avoids command injection via the path.
                 try:
-                    os.system(f'notepad "{path}"')
+                    import subprocess
+                    subprocess.Popen(["notepad.exe", path])
                 except OSError:
                     pass
 
@@ -630,10 +644,6 @@ class SettingsDialog(tk.Toplevel):
             sidebar_width=int(self._sidebar_w_var.get()),
             window_geometry=None,
         )
-
-    def _collect_work(self) -> dict[str, Any]:
-        """Gather config values from all tab widgets into ``self._work``."""
-        return self._work
 
     def _writeback_config(self) -> None:
         """Copy working sections back into the live ConfigController."""
@@ -734,9 +744,9 @@ class SettingsDialog(tk.Toplevel):
                 pass
 
     @staticmethod
-    def _compute_prefs_diff(old, new) -> list[str]:
+    def _compute_prefs_diff(old: UIPreferences, new: UIPreferences) -> list[str]:
         """UX-009: Return a list of human-readable change descriptions."""
-        changes = []
+        changes: list[str] = []
         labels = {
             "theme": "Тема",
             "scale_mode": "Масштаб",

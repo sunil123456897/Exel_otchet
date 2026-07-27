@@ -6,12 +6,12 @@ from copy import copy
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import openpyxl
-from openpyxl.worksheet.worksheet import Worksheet
 from python_calamine import CalamineWorkbook
 
+from core.domain.data_loss_log import record_loss
 from core.infra.utils import get_local_copy
 
 from ._format import (_normalize_text, _to_decimal, _as_date, _clean_executor_name,
@@ -20,7 +20,40 @@ from ._format import (_normalize_text, _to_decimal, _as_date, _clean_executor_na
 logger = logging.getLogger(__name__)
 
 
-def _copy_style(src_cell, dst_cell) -> None:
+def _to_decimal_soft(
+    value: Any,
+    *,
+    sheet: str,
+    row_index: int,
+    field: str,
+    source: str,
+) -> Decimal:
+    """Fail-soft amount parsing for РСЧ row collection.
+
+    Mirrors :func:`_to_decimal` but, instead of raising on a dirty cell,
+    logs the loss to ``data_loss.log`` and returns ``Decimal("0")`` so a
+    single bad amount never aborts the whole executor sheet. Previously the
+    ``ValueError`` propagated to the per-sheet ``except`` in the workbook
+    collectors and silently dropped EVERY row of the sheet (hundreds of valid
+    transactions lost for one corrupt cell). Matches reconciliation's
+    ``_to_decimal_soft``.
+    """
+    try:
+        return _to_decimal(value)
+    except (ValueError, ArithmeticError):
+        record_loss(
+            source=f"rsch:{source}",
+            kind="rsch_amount_parse",
+            reason="Некорректное числовое значение в РСЧ; ячейка обнулена",
+            row_index=row_index,
+            sheet=sheet,
+            field=field,
+            original_value=value,
+        )
+        return Decimal("0")
+
+
+def _copy_style(src_cell: Any, dst_cell: Any) -> None:
     dst_cell.font = copy(src_cell.font)
     dst_cell.fill = copy(src_cell.fill)
     dst_cell.border = copy(src_cell.border)
@@ -29,7 +62,7 @@ def _copy_style(src_cell, dst_cell) -> None:
     dst_cell.protection = copy(src_cell.protection)
 
 
-def _find_header_row(sheet_data: List[tuple]) -> Optional[int]:
+def _find_header_row(sheet_data: List[tuple[Any, ...]]) -> Optional[int]:
     max_scan = min(len(sheet_data), 30)
     for row_idx_0 in range(max_scan):
         row_values = sheet_data[row_idx_0]
@@ -45,7 +78,7 @@ def _find_header_row(sheet_data: List[tuple]) -> Optional[int]:
     return None
 
 
-def _detect_columns(sheet_data: List[tuple], header_row_idx: int, sheet_title: str) -> Dict[str, Optional[int]]:
+def _detect_columns(sheet_data: List[tuple[Any, ...]], header_row_idx: int, sheet_title: str) -> Dict[str, Optional[int]]:
     row_values = sheet_data[header_row_idx - 1]
     max_scan = min(len(row_values), 128)
     header_values = [
@@ -58,7 +91,7 @@ def _detect_columns(sheet_data: List[tuple], header_row_idx: int, sheet_title: s
     project_cols = [i + 1 for i, v in enumerate(header_values) if "проект" in v]
     contractor_cols = [i + 1 for i, v in enumerate(header_values) if "контрагент" in v]
 
-    def first_index(predicate) -> Optional[int]:
+    def first_index(predicate: Callable[[str], bool]) -> Optional[int]:
         for i, v in enumerate(header_values, start=1):
             if predicate(v):
                 return i
@@ -129,7 +162,7 @@ def _build_row(
 
 
 def _collect_rows_from_sheet(
-    ws: Worksheet,
+    ws: Any,  # openpyxl Worksheet or _CalamineWorksheetAdapter (duck-typed)
     target_date: Optional[date],
     source_name: str,
     source_path: Path,
@@ -169,11 +202,17 @@ def _collect_rows_from_sheet(
 
         income_col = col_map["income"]
         raw_income = row_values[income_col - 1] if income_col and income_col <= len(row_values) else None
-        income = _to_decimal(raw_income)
+        income = _to_decimal_soft(
+            raw_income, sheet=ws.title, row_index=row_idx, field="income",
+            source=source_name,
+        )
 
         expense_col = col_map["expense"]
         raw_expense = row_values[expense_col - 1] if expense_col and expense_col <= len(row_values) else None
-        expense = _to_decimal(raw_expense)
+        expense = _to_decimal_soft(
+            raw_expense, sheet=ws.title, row_index=row_idx, field="expense",
+            source=source_name,
+        )
 
         account = _cell_text_from_row(row_values, col_map["account"])
         expense_comment = _cell_text_from_row(row_values, 10)
@@ -305,7 +344,7 @@ class _CalamineWorksheetAdapter:
         self.title = title
         self._sheet = sheet
 
-    def iter_rows(self, values_only: bool = True):
+    def iter_rows(self, values_only: bool = True) -> Any:
         return self._sheet.iter_rows()
 
 

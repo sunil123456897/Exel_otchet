@@ -156,7 +156,7 @@ def _clean_executor_name(sheet_name: str) -> str:
 
 
 
-def _cell_text_from_row(row_values: tuple, col_idx: Optional[int]) -> str:
+def _cell_text_from_row(row_values: tuple[Any, ...], col_idx: Optional[int]) -> str:
     if not col_idx:
         return ""
     value = row_values[col_idx - 1] if col_idx <= len(row_values) else None
@@ -250,7 +250,7 @@ def _is_problem_row(row: Dict[str, Any]) -> bool:
     if not account and not _is_account_optional_row(row):
         return True
 
-    return income == 0 and expense == 0
+    return bool(income == 0 and expense == 0)
 
 
 

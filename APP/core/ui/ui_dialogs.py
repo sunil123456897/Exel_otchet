@@ -24,10 +24,10 @@ def _theme_listbox(lb: tk.Listbox) -> None:
 
 
 def show_multi_file_select_dialog(
-    parent,
+    parent: tk.Tk,
     initial_paths: Optional[List[str]] = None,
     title: str = "Выберите файлы",
-    filetypes: Optional[List[tuple]] = None,
+    filetypes: Optional[List[tuple[str, str]]] = None,
 ) -> List[str]:
     """Modal dialog for selecting multiple files with a live preview.
 
@@ -74,7 +74,7 @@ def show_multi_file_select_dialog(
     scroll.pack(side=tk.RIGHT, fill=tk.Y)
     tree.configure(yscrollcommand=scroll.set)
 
-    def _format_size(n: int) -> str:
+    def _format_size(n: float) -> str:
         for unit in ("Б", "КБ", "МБ", "ГБ"):
             if n < 1024:
                 return f"{n:.0f} {unit}" if unit == "Б" else f"{n:.1f} {unit}"
@@ -157,11 +157,11 @@ def show_multi_file_select_dialog(
 
 
 def show_attach_file_dialog(
-    parent,
+    parent: tk.Tk,
     employees: List[str],
     on_attach: Callable[[str, List[str], bool], None],
     preselect: Optional[str] = None,
-):
+) -> None:
     dialog = tk.Toplevel(parent)
     dialog.title("Привязать файлы")
     dialog.geometry("450x400")
@@ -236,7 +236,8 @@ def ask_employee_name(existing_names: Optional[List[str]] = None) -> str:
     dialog = tk.Toplevel()
     dialog.title("Добавить сотрудника")
     dialog.geometry("380x200")
-    dialog.transient(dialog.master)
+    # ``dialog.master`` is typed as Misc; at runtime it is the Tk root (a Wm).
+    dialog.transient(dialog.master)  # type: ignore[call-overload]
     dialog.grab_set()
     dialog.resizable(False, False)
     _theme_toplevel(dialog)
@@ -258,27 +259,28 @@ def ask_employee_name(existing_names: Optional[List[str]] = None) -> str:
     cancel_btn.pack(side=tk.RIGHT, padx=(5, 0))
     ok_btn = ttk.Button(btn_frame, text="Добавить", command=dialog.destroy)
     ok_btn.pack(side=tk.RIGHT)
-    ok_btn.state(["disabled"])
+    # ttk.Widget.state is left unannotated in typeshed; the calls are valid.
+    ok_btn.state(["disabled"])  # type: ignore[no-untyped-call]
 
     result_holder: List[str] = [""]
 
-    def _validate(_event=None) -> None:
+    def _validate(_event: object = None) -> None:
         raw = name_var.get()
         name = raw.strip()
         if not raw:
             status_var.set("")
-            ok_btn.state(["disabled"])
+            ok_btn.state(["disabled"])  # type: ignore[no-untyped-call]
             return
         if not name:
             status_var.set("Имя не может состоять только из пробелов")
-            ok_btn.state(["disabled"])
+            ok_btn.state(["disabled"])  # type: ignore[no-untyped-call]
             return
         if name.lower() in existing:
             status_var.set(f"Сотрудник «{name}» уже существует")
-            ok_btn.state(["disabled"])
+            ok_btn.state(["disabled"])  # type: ignore[no-untyped-call]
             return
         status_var.set(f"Готово к добавлению: «{name}»")
-        ok_btn.state(["!disabled"])
+        ok_btn.state(["!disabled"])  # type: ignore[no-untyped-call]
 
     def _submit() -> None:
         # Only invoked when the OK button is enabled, so the input is
@@ -288,7 +290,7 @@ def ask_employee_name(existing_names: Optional[List[str]] = None) -> str:
 
     ok_btn.configure(command=_submit)
     name_var.trace_add("write", lambda *_args: _validate())
-    entry.bind("<Return>", lambda _e: _submit() if "disabled" not in ok_btn.state() else None)
+    entry.bind("<Return>", lambda _e: _submit() if "disabled" not in ok_btn.state() else None)  # type: ignore[no-untyped-call]
     entry.bind("<Escape>", lambda _e: dialog.destroy())
 
     dialog.wait_window()

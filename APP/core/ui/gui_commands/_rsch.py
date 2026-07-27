@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from tkinter import filedialog, messagebox
-from typing import List, Optional
+from typing import Any, Callable, List, Optional
 
 from core.ui.operation_state import OperationType
 from core.ui.gui_commands._base import CommandContext, finish
@@ -20,6 +20,9 @@ class RschCommandsMixin:
     """Mixin providing RSCH commands and the related completion handler."""
 
     ctx: CommandContext
+    # Provided by the composed GuiCommands (gui_commands/__init__.py); declared
+    # here so the mixin type-checks without a runtime assignment.
+    _record_dashboard_result: Callable[..., None]
 
     # --- command entry points ------------------------------------------
 
@@ -172,22 +175,9 @@ class RschCommandsMixin:
         )
         return [Path(p) for p in selected]
 
-    def _merge_unique_paths(
-        self, current: List[Path], new_items: List[Path]
-    ) -> List[Path]:
-        merged = list(current)
-        seen = {str(p) for p in current}
-        for item in new_items:
-            key = str(item)
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(item)
-        return merged
-
     # --- config persistence --------------------------------------------
 
-    def _get_rsch_config(self) -> dict:
+    def _get_rsch_config(self) -> dict[str, Any]:
         cfg = getattr(self.ctx.config_controller, "config", None)
         if not isinstance(cfg, dict):
             cfg = {}
@@ -209,7 +199,7 @@ class RschCommandsMixin:
             raw_sources = [raw_sources]
 
         normalized: List[Path] = []
-        seen: set = set()
+        seen: set[str] = set()
         for raw in raw_sources:
             if not raw:
                 continue

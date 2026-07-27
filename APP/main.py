@@ -5,18 +5,36 @@ import logging.handlers
 import ctypes
 from pathlib import Path
 from tkinter import messagebox
+from typing import Any
 
 app_root = Path(__file__).parent.absolute()
 if str(app_root) not in sys.path:
     sys.path.insert(0, str(app_root))
 
 from core.bootstrap import Bootstrap  # noqa: E402
+from core.shared.path_scrub import scrub_path  # noqa: E402
 
 
-def preflight_gui_imports():
+class _PiiScrubFilter(logging.Filter):
+    """Redact Windows user names / SMB shares from every log record.
+
+    Attached to the root handlers so logs shared with support (diagnostic
+    package) never leak PII such as ``C:\\Users\\<name>``. ``scrub_path``
+    only masks the user-name segment and ``\\\\server\\share`` — ordinary
+    drive/relative paths pass through, so diagnostic value is preserved.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = scrub_path(record.msg)
+        return True
+
+
+def preflight_gui_imports() -> type[Any]:
     from core.ui.gui_master import GuiMaster
 
-    return GuiMaster
+    gui_master_cls: type[Any] = GuiMaster
+    return gui_master_cls
 
 
 def _enable_dpi_awareness() -> None:
@@ -30,22 +48,39 @@ def _enable_dpi_awareness() -> None:
             pass
 
 
-def main():
+def main() -> None:
     log_file = app_root / "startup_log.txt"
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
+    # Build log handlers defensively. On a read-only install (e.g. under
+    # Program Files without admin rights) opening the log file must NOT kill
+    # startup — especially under pythonw, where there is no console to show
+    # the error and the app just "silently dies". delay=True defers opening
+    # the file until the first record; if even that fails, logging degrades
+    # gracefully (stderr) instead of raising here before the GUI exists.
+    handlers: list[logging.Handler] = []
+    try:
+        handlers.append(
             logging.handlers.RotatingFileHandler(
                 log_file,
                 encoding="utf-8",
                 maxBytes=10 * 1024 * 1024,  # 10 MB
                 backupCount=5,
-            ),
-            logging.StreamHandler(),
-        ],
+                delay=True,
+            )
+        )
+    except Exception:
+        pass
+    handlers.append(logging.StreamHandler())
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=handlers,
     )
     logger = logging.getLogger("Main")
+    # Scrub PII (user names / SMB shares) from everything the handlers emit,
+    # including records propagated from child loggers across the app.
+    _pii_filter = _PiiScrubFilter()
+    for _handler in logging.getLogger().handlers:
+        _handler.addFilter(_pii_filter)
     logger.info(f"--- STARTING: {app_root} ---")
     _enable_dpi_awareness()
 
@@ -96,7 +131,7 @@ def main():
                 )
         GuiMaster(root, cfg_ctl, app_ctl, view_only=view_only)
 
-        def on_close():
+        def on_close() -> None:
             logger.info("Shutdown...")
             try:
                 if app_ctl:

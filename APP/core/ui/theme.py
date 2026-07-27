@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Callable, ClassVar
+from typing import Any, Callable, ClassVar, cast
 
 # ---------------------------------------------------------------------------
 # Palettes
@@ -164,7 +164,7 @@ class ThemeManager:
     }
 
     # ── resize listener ───────────────────────────────────────
-    _resize_after_id: ClassVar[str | None] = None  # type: ignore[valid-type]
+    _resize_after_id: ClassVar[str | None] = None
     _scale_listeners: ClassVar[list[Callable[[float, str], None]]] = []
 
     # ── typography ────────────────────────────────────────────
@@ -182,7 +182,7 @@ class ThemeManager:
     _MONO_FAMILY: ClassVar[str] = "Cascadia Mono"
     _MONO_FALLBACK: ClassVar[str] = "Consolas"
 
-    _BASE_FONTS: ClassVar[dict[str, tuple]] = {
+    _BASE_FONTS: ClassVar[dict[str, tuple[Any, ...]]] = {
         "display": ("Segoe UI Semibold", 14),       # section titles — Semibold as family
         "heading": ("Segoe UI Semibold", 12),       # group titles
         "body": ("Segoe UI", 10),                   # default body — native Regular weight
@@ -193,8 +193,8 @@ class ThemeManager:
         "mono": ("Cascadia Mono", 10),              # SUMS & numeric cells (tabular figures)
         "button": ("Segoe UI Semibold", 10),        # buttons — decisive, not link-like
     }
-    FONTS: ClassVar[dict[str, tuple]] = dict(_BASE_FONTS)
-    _scaled_fonts: ClassVar[dict[str, tuple]] = {}
+    FONTS: ClassVar[dict[str, tuple[Any, ...]]] = dict(_BASE_FONTS)
+    _scaled_fonts: ClassVar[dict[str, tuple[Any, ...]]] = {}
 
     # ── spacing scale ─────────────────────────────────────────
     _BASE_SPACING: ClassVar[dict[str, int]] = {
@@ -227,19 +227,21 @@ class ThemeManager:
     CONTROL: ClassVar[dict[str, int]] = dict(_BASE_CONTROL)
 
     # ── non-ttk widget registry ───────────────────────────────
-    _themed_widgets: ClassVar[list] = []
+    _themed_widgets: ClassVar[list[Any]] = []
 
     # ── tk.Menu registry ──────────────────────────────────────
     # tk.Menu colours are set via configure(bg=/fg=/activebackground=)
     # at creation and do NOT follow ttk styles, so they need their own
     # re-theming pass on palette switch. Each entry is the menu plus the
     # colour keys to apply (bg_sidebar / text / primary / text_inverse).
-    _themed_menus: ClassVar[list] = []
+    _themed_menus: ClassVar[list[Any]] = []
 
     # ── public: registration ──────────────────────────────────
 
     @classmethod
-    def register(cls, widget, *, bg_key: str = "bg_panel", fg_key: str | None = "text") -> None:
+    def register(
+        cls, widget: Any, *, bg_key: str = "bg_panel", fg_key: str | None = "text"
+    ) -> None:
         """Track a non-ttk widget so its colours follow theme switches.
 
         Pass ``fg_key=None`` for widgets that have no ``foreground``
@@ -250,7 +252,7 @@ class ThemeManager:
     @classmethod
     def register_menu(
         cls,
-        menu,
+        menu: Any,
         *,
         bg_key: str = "bg_sidebar",
         fg_key: str = "text",
@@ -546,48 +548,6 @@ class ThemeManager:
         from core.ui.system_theme import detect_system_theme
 
         return detect_system_theme() or "light"
-
-    # ── smooth background animation ───────────────────────────
-
-    @classmethod
-    def animate_background(
-        cls,
-        widget,
-        target: str,
-        steps: int = 8,
-        delay_ms: int = 16,
-    ) -> None:
-        try:
-            current = widget.cget("background")
-        except Exception:
-            return
-        prev = getattr(widget, "_theme_anim_ids", None)
-        if prev:
-            for aid in prev:
-                try:
-                    widget.after_cancel(aid)
-                except Exception:
-                    pass
-        ids: list[str] = []
-
-        def _step(i: int) -> None:
-            if i > steps:
-                return
-            t = i / steps
-            try:
-                widget.configure(background=_lerp_hex(current, target, t))
-            except Exception:
-                return
-
-        for i in range(1, steps + 1):
-            try:
-                ids.append(widget.after(delay_ms * i, _step, i))
-            except Exception:
-                return
-        try:
-            widget._theme_anim_ids = ids
-        except Exception:
-            pass
 
     # ── ttk style configuration ───────────────────────────────
 
@@ -1042,6 +1002,41 @@ class ThemeManager:
 
 
 # ---------------------------------------------------------------------------
+# Public colour helpers (single source of truth for the whole UI layer)
+# ---------------------------------------------------------------------------
+# Previously every widget module kept its own private ``_c()`` lookup and its
+# own status-wash blend (``_tint`` / ``_status_tint`` + ``_blend``), all
+# importing the private ``_lerp_hex``. The palette math now lives here once.
+
+
+def color(key: str, fallback: str | None = None) -> str | None:
+    """Safe theme-colour lookup with optional fallback.
+
+    Canonical token keys (success, danger, warning, bg_panel, text_muted, …)
+    are always present in both palettes, so no fallback is needed for them;
+    ``fallback`` is only for optional/legacy keys.
+    """
+    return ThemeManager.COLORS.get(key, fallback)
+
+
+def status_tint(sem_key: str, ratio: float = 0.08) -> str:
+    """A very faint row-wash derived from a semantic colour.
+
+    ttk Treeview can only colour a whole row (not a single cell), so a status
+    "badge" has to be a row-level tint. Pure semantic fills (#1a8a4e success)
+    would swamp a table and fight the odd/even stripes; a ~8% wash keeps the
+    stripe visible while still marking the row. Computed by blending the
+    semantic colour into the sidebar background at (1-ratio):ratio.
+    """
+    try:
+        sem = ThemeManager.COLORS[sem_key]
+        base = ThemeManager.COLORS["bg_sidebar"]
+    except KeyError:
+        return ThemeManager.COLORS.get("bg_sidebar", "#ffffff")
+    return _lerp_hex(base, sem, ratio)
+
+
+# ---------------------------------------------------------------------------
 # Popup styling helpers (shared by toast.py and tooltip.py)
 # ---------------------------------------------------------------------------
 # Both modules independently re-implemented the same border-color resolution
@@ -1092,9 +1087,9 @@ def attach_treeview_hover(tree: ttk.Treeview, *, tag: str = "hover") -> None:
     the *current* palette on every motion, so no re-registration is
     needed after a light↔dark switch.
     """
-    state = {"row": None}
+    state: dict[str, str | None] = {"row": None}
 
-    def _strip(item) -> None:
+    def _strip(item: str) -> None:
         existing = [t for t in tree.item(item, "tags") if t != tag]
         tree.item(item, tags=existing)
 
@@ -1108,7 +1103,7 @@ def attach_treeview_hover(tree: ttk.Treeview, *, tag: str = "hover") -> None:
             tags = [t for t in tree.item(row, "tags") if t != tag]
             tags.append(tag)
             tree.item(row, tags=tags)
-            tree.tag_configure(tag, background=ThemeManager.COLORS.get("border_subtle"))
+            tree.tag_configure(tag, background=cast(str, ThemeManager.COLORS.get("border_subtle")))
         state["row"] = row or None
 
     def _on_leave(_event: tk.Event) -> None:
@@ -1118,80 +1113,6 @@ def attach_treeview_hover(tree: ttk.Treeview, *, tag: str = "hover") -> None:
 
     tree.bind("<Motion>", _on_motion, add="+")
     tree.bind("<Leave>", _on_leave, add="+")
-
-
-def attach_hover_animation(
-    widget,
-    base_color: str,
-    hover_color: str,
-    *,
-    steps: int = 6,
-    delay_ms: int = 12,
-) -> None:
-    """Smooth colour-transition hover for plain ``tk`` widgets.
-
-    ttk widgets ignore ``configure(background=...)`` (their colours come
-    from the style engine), so this only works on ``tk.Frame`` / ``tk.Label``
-    — which is exactly where we want a soft hover: sidebar indicators,
-    section headers, toast close-buttons. Builds on the existing
-    ``ThemeManager.animate_background`` lerp so the motion system stays
-    consistent with theme-switch fades.
-
-    ``base_color`` / ``hover_color`` are hex strings resolved at bind
-    time; if the theme changes, call this again (the old bindings are
-    replaced via ``add="+"`` semantics — Tk keeps the latest).
-    """
-    anim_ids: list[str] = []
-
-    def _cancel() -> None:
-        for aid in anim_ids:
-            try:
-                widget.after_cancel(aid)
-            except Exception:
-                pass
-        anim_ids.clear()
-
-    def _enter(_e) -> None:
-        _cancel()
-        try:
-            start = widget.cget("background")
-        except Exception:
-            return
-        for i in range(1, steps + 1):
-            t = i / steps
-            try:
-                aid = widget.after(
-                    delay_ms * i,
-                    lambda ti=t: widget.configure(
-                        background=_lerp_hex(start, hover_color, ti)
-                    ),
-                )
-                anim_ids.append(aid)
-            except Exception:
-                return
-
-    def _leave(_e) -> None:
-        _cancel()
-        try:
-            start = widget.cget("background")
-        except Exception:
-            return
-        for i in range(1, steps + 1):
-            t = i / steps
-            try:
-                aid = widget.after(
-                    delay_ms * i,
-                    lambda ti=t: widget.configure(
-                        background=_lerp_hex(start, base_color, ti)
-                    ),
-                )
-                anim_ids.append(aid)
-            except Exception:
-                return
-
-    widget.bind("<Enter>", _enter, add="+")
-    widget.bind("<Leave>", _leave, add="+")
-
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Callable, Optional
 from core.ui.theme import ThemeManager
 from core.ui.debounce import Debouncer
 
@@ -33,7 +33,7 @@ def get_default_period_range(today: datetime | None = None) -> tuple[datetime, d
 
 
 class Sidebar(ttk.Frame):
-    def __init__(self, parent, controller):
+    def __init__(self, parent: tk.Misc, controller: Any) -> None:
         screen_w = parent.winfo_screenwidth()
         sidebar_w = max(260, min(360, int(screen_w * 0.22)))
         super().__init__(parent, width=sidebar_w, padding=ThemeManager.SPACING["xs"], style="Sidebar.TFrame")
@@ -64,21 +64,25 @@ class Sidebar(ttk.Frame):
         self.content = ttk.Frame(self.canvas, style="Sidebar.TFrame")
         self._content_window = self.canvas.create_window((0, 0), window=self.content, anchor=tk.NW)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Pack order matters: the scrollbar must be packed BEFORE the
+        # canvas so the canvas's ``expand=True`` does not starve it of
+        # width. Packing the expanding widget first leaves the scrollbar
+        # with 1×1 — exactly the "scrollbar disappeared" symptom.
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.content.bind("<Configure>", self._on_content_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
         self.canvas.bind("<Enter>", self._bind_mousewheel)
         self.canvas.bind("<Leave>", self._unbind_mousewheel)
         self._setup_ui()
 
-    def _on_content_configure(self, _event):
+    def _on_content_configure(self, _event: object) -> None:
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
-    def _on_canvas_configure(self, event):
+    def _on_canvas_configure(self, event: Any) -> None:
         self.canvas.itemconfigure(self._content_window, width=event.width)
 
-    def _bind_mousewheel(self, _event):
+    def _bind_mousewheel(self, _event: object) -> None:
         # Bind on the canvas only — the previous implementation used
         # ``bind_all``, which routed the wheel to every widget while the
         # cursor was over the sidebar (a focus-eating overreach).
@@ -88,12 +92,12 @@ class Sidebar(ttk.Frame):
         self.canvas.bind("<Button-4>", self._on_button4)
         self.canvas.bind("<Button-5>", self._on_button5)
 
-    def _unbind_mousewheel(self, _event):
+    def _unbind_mousewheel(self, _event: object) -> None:
         self.canvas.unbind("<MouseWheel>")
         self.canvas.unbind("<Button-4>")
         self.canvas.unbind("<Button-5>")
 
-    def _on_mousewheel(self, event):
+    def _on_mousewheel(self, event: Any) -> None:
         # macOS reports delta as ±1 (small integers); Windows uses
         # multiples of 120. ``int(delta / 120)`` truncates to zero on
         # macOS, so use the platform-specific scaling.
@@ -103,12 +107,12 @@ class Sidebar(ttk.Frame):
             steps = -int(event.delta / 120)
         self.canvas.yview_scroll(steps, "units")
 
-    def _on_button4(self, _event):
+    def _on_button4(self, _event: object) -> str:
         self.canvas.yview_scroll(-1, "units")
         return "break"
 
     @staticmethod
-    def _icon(name: str):
+    def _icon(name: str) -> Any:
         """Load a themed PNG icon (replaces emoji in buttons/labels).
 
         Returns a PhotoImage or None (callers pass None to ttk.Button
@@ -122,7 +126,9 @@ class Sidebar(ttk.Frame):
         except Exception:
             return None
 
-    def _icon_section(self, parent, text: str, icon_name: str, padding):
+    def _icon_section(
+        self, parent: tk.Misc, text: str, icon_name: str, padding: Any
+    ) -> ttk.LabelFrame:
         """Build a ttk.LabelFrame whose title carries a themed icon.
 
         ttk.LabelFrame's ``text=`` is plain text only; to show an icon we
@@ -145,7 +151,7 @@ class Sidebar(ttk.Frame):
         return ttk.LabelFrame(parent, text=text, padding=padding)
 
     @staticmethod
-    def _patch_dateentry_nav(entry) -> None:
+    def _patch_dateentry_nav(entry: Any) -> None:
         """Fix tkcalendar's popup-closes-on-month-navigation bug.
 
         tkcalendar's ``_on_focus_out_cal`` withdraws the dropdown when
@@ -157,7 +163,7 @@ class Sidebar(ttk.Frame):
         focus target is inside the calendar's Toplevel (``_top_cal``),
         so arrow navigation works normally.
         """
-        def _safe_focus_out(event):
+        def _safe_focus_out(event: Any) -> None:
             try:
                 focus = entry.focus_get()
             except tk.TclError:
@@ -202,7 +208,7 @@ class Sidebar(ttk.Frame):
         # _calendar widget, so we rebind there with add="+" and let the
         # new handler short-circuit by returning "break" when it wants
         # to suppress withdrawal.
-        def _focus_out_break(event):
+        def _focus_out_break(event: Any) -> str:
             _safe_focus_out(event)
             # Returning "break" stops tkcalendar's original handler from
             # also running (it would withdraw unconditionally).
@@ -214,11 +220,11 @@ class Sidebar(ttk.Frame):
             pass
         entry._calendar.bind("<FocusOut>", _focus_out_break)
 
-    def _on_button5(self, _event):
+    def _on_button5(self, _event: object) -> str:
         self.canvas.yview_scroll(1, "units")
         return "break"
 
-    def _setup_ui(self):
+    def _setup_ui(self) -> None:
         # Local spacing aliases — keep the section bodies readable while
         # guaranteeing that every sidebar section / button uses the same
         # token instead of ad-hoc magic numbers (audit found four
@@ -582,7 +588,7 @@ class Sidebar(ttk.Frame):
         )
 
         # Subscribe to scale changes for adaptive width
-        self._scale_cb = lambda _s, _mode: self.after(0, self._recompute_width)
+        self._scale_cb: Callable[..., Any] = lambda _s, _mode: self.after(0, self._recompute_width)
         ThemeManager.add_scale_listener(self._scale_cb)
         # Register every icon-bearing button with IconManager so a
         # light↔dark switch re-applies the new-theme icon automatically.
@@ -621,14 +627,14 @@ class Sidebar(ttk.Frame):
             if btn is not None:
                 IconManager.register(btn, icon_name)
 
-    def _on_theme_changed(self):
+    def _on_theme_changed(self) -> None:
         """Forward the chosen theme to the master controller."""
         value = self.theme_var.get()
         setter = getattr(self.controller, "set_theme", None)
         if callable(setter):
             setter(value)
 
-    def _on_destroy(self, _event):
+    def _on_destroy(self, _event: object) -> None:
         # Cancel any pending debounced calls so a fast destroy during
         # the user's date-picking does not fire a stale refresh.
         self._date_debouncer.cancel()
@@ -688,7 +694,7 @@ class Sidebar(ttk.Frame):
         except Exception:
             logging.warning("Shortcuts dialog could not be shown", exc_info=True)
 
-    def _toggle_period_section(self):
+    def _toggle_period_section(self) -> None:
         """Expand/collapse the period compilation panel."""
         self._period_expanded = not getattr(self, "_period_expanded", False)
         if self._period_expanded:
@@ -698,12 +704,12 @@ class Sidebar(ttk.Frame):
             self._per_panel.pack_forget()
             self._per_toggle.configure(text="▶  Развернуть")
 
-    def _set_current_month(self):
+    def _set_current_month(self) -> None:
         today = datetime.now()
         self.month_start_entry.set_date(today.replace(day=1))
         self.month_end_entry.set_date(_last_day_of_month(today))
 
-    def _set_previous_month(self):
+    def _set_previous_month(self) -> None:
         today = datetime.now()
         prev_month = _previous_month_start(today)
         self.month_start_entry.set_date(prev_month)
@@ -831,8 +837,9 @@ class Sidebar(ttk.Frame):
         except (tk.TclError, AttributeError):
             pass
 
-    def get_date(self):
-        return self.date_entry.get_date()
+    def get_date(self) -> datetime:
+        result: datetime = self.date_entry.get_date()
+        return result
 
     # ── UX-014: weekday tooltip ─────────────────────────────────
 
@@ -957,7 +964,7 @@ class Sidebar(ttk.Frame):
             except tk.TclError:
                 pass
 
-    def get_curator(self):
+    def get_curator(self) -> str | None:
         value = self.curator_var.get()
         if value == "Куратор Борис":
             return "boris"
@@ -965,7 +972,7 @@ class Sidebar(ttk.Frame):
             return "ivan"
         return None
 
-    def get_month_range(self):
+    def get_month_range(self) -> tuple[Any, Any]:
         """Возвращает (start_date, end_date) для месячного отчёта."""
         start_date = self.month_start_entry.get_date()
         end_date = self.month_end_entry.get_date()
@@ -974,26 +981,8 @@ class Sidebar(ttk.Frame):
             end_date = today
         return start_date, end_date
 
-    def set_refresh_state(self, state):
+    def set_refresh_state(self, state: str) -> None:
         self.refresh_btn.config(state=state)
-
-    def set_consolidate_state(self, state):
-        self.consolidate_btn.config(state=state)
-
-    def set_consolidate_all_state(self, state):
-        self.consolidate_all_btn.config(state=state)
-
-    def set_consolidate_month_state(self, state):
-        self.consolidate_month_btn.config(state=state)
-
-    def set_rsch_state(self, state):
-        self.rsch_btn.config(state=state)
-        if hasattr(self, "rsch_month_btn"):
-            self.rsch_month_btn.config(state=state)
-
-    def set_reconciliation_state(self, state):
-        self.reconciliation_btn.config(state=state)
-        self.auto_reconciliation_btn.config(state=state)
 
     # --- global state ---------------------------------------------------
 
@@ -1010,7 +999,7 @@ class Sidebar(ttk.Frame):
         "auto_reconciliation_btn",
     )
 
-    def apply(self, snap) -> None:
+    def apply(self, snap: Any) -> None:
         """Apply global operation state to all action widgets.
 
         When any operation is running, every action button is disabled.

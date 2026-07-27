@@ -3,7 +3,8 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from openpyxl import load_workbook
+from typing import Iterator
+from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from core.infra.utils import get_local_copy
 from ._types import MasterReconciliationRow, RschReconciliationRow
@@ -14,7 +15,6 @@ from ._utils import (
     _executor_alias_keys,
     _executor_tokens,
     _text_tokens,
-    _weak_customer_tokens,
 )
 
 
@@ -71,27 +71,6 @@ def _customer_matches_loose(left_value: str, right_value: str) -> bool:
     return len(common_tokens) >= 2
 
 
-def _rsch_customer_matches(master_customer: str, rsch_row: RschReconciliationRow) -> bool:
-    return any(
-        _customer_matches_loose(master_customer, candidate)
-        for candidate in (rsch_row.customer, rsch_row.contractor, rsch_row.comment)
-    )
-
-
-def _customer_matches_weak(left_value: str, right_value: str) -> bool:
-    if _customer_matches_loose(left_value, right_value):
-        return False
-    common_tokens = _weak_customer_tokens(left_value) & _weak_customer_tokens(right_value)
-    return len(common_tokens) >= 2
-
-
-def _rsch_customer_matches_weak(master_customer: str, rsch_row: RschReconciliationRow) -> bool:
-    return any(
-        _customer_matches_weak(master_customer, candidate)
-        for candidate in (rsch_row.customer, rsch_row.contractor, rsch_row.comment)
-    )
-
-
 def _sheet_candidates(target_date: date) -> tuple[str, str]:
     return target_date.strftime("%d.%m.%Y"), target_date.strftime("%d.%m")
 
@@ -117,12 +96,12 @@ def _parse_day_month_sheet(sheet_title: str) -> tuple[int, int] | None:
     return parsed.day, parsed.month
 
 
-def _has_sheet_for_date(wb, target_date: date) -> bool:
+def _has_sheet_for_date(wb: Workbook, target_date: date) -> bool:
     candidates = set(_sheet_candidates(target_date))
     return any(ws.title in candidates for ws in wb.worksheets)
 
 
-def _workbook_sheet_dates(wb) -> tuple[set[date], set[tuple[int, int]]]:
+def _workbook_sheet_dates(wb: Workbook) -> tuple[set[date], set[tuple[int, int]]]:
     full_dates: set[date] = set()
     day_months: set[tuple[int, int]] = set()
     for ws in wb.worksheets:
@@ -136,7 +115,7 @@ def _workbook_sheet_dates(wb) -> tuple[set[date], set[tuple[int, int]]]:
     return full_dates, day_months
 
 
-def _common_sheet_dates(master_wb, rsch_wb) -> list[date]:
+def _common_sheet_dates(master_wb: Workbook, rsch_wb: Workbook) -> list[date]:
     master_dates, master_day_months = _workbook_sheet_dates(master_wb)
     rsch_dates, rsch_day_months = _workbook_sheet_dates(rsch_wb)
     common = set(master_dates & rsch_dates)
@@ -149,7 +128,7 @@ def _format_dates(dates: list[date]) -> str:
     return ", ".join(d.strftime("%d.%m.%Y") for d in dates)
 
 
-def _resolve_target_date(master_wb, rsch_wb, target_date: date | None) -> date:
+def _resolve_target_date(master_wb: Workbook, rsch_wb: Workbook, target_date: date | None) -> date:
     if target_date is not None:
         target_date = _coerce_date(target_date)
         if _has_sheet_for_date(master_wb, target_date) and _has_sheet_for_date(
@@ -175,7 +154,7 @@ def _resolve_target_date(master_wb, rsch_wb, target_date: date | None) -> date:
     )
 
 
-def _find_sheet(wb, target_date: date) -> Worksheet:
+def _find_sheet(wb: Workbook, target_date: date) -> Worksheet:
     target_date = _coerce_date(target_date)
     candidates = set(_sheet_candidates(target_date))
     for ws in wb.worksheets:
@@ -186,7 +165,7 @@ def _find_sheet(wb, target_date: date) -> Worksheet:
 
 def _resolve_combined_target_date(
     master_paths: list[tuple[str, Path | str]],
-    rsch_wb,
+    rsch_wb: Workbook,
     target_date: date | None,
     drive_letters: tuple[str, ...],
 ) -> date | None:
@@ -222,7 +201,7 @@ def _resolve_combined_target_date(
 
 
 @contextmanager
-def _local_read_path(path: Path, drive_letters: tuple[str, ...] = ("Q", "Z")):
+def _local_read_path(path: Path, drive_letters: tuple[str, ...] = ("Q", "Z")) -> Iterator[str]:
     target_path, temp_file = get_local_copy(str(path), drive_letters)
     try:
         yield target_path

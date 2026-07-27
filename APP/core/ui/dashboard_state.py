@@ -4,7 +4,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 
 @dataclass(frozen=True)
@@ -156,7 +156,7 @@ def save_runtime_results(
     results: Iterable[RuntimeResult],
 ) -> None:
     path = Path(state_path)
-    payload = []
+    payload: list[dict[str, Any]] = []
     for result in list(results)[:10]:
         payload.append(
             {
@@ -231,11 +231,13 @@ def describe_path(label: str, path: Path | str | None, kind: str = "file") -> Pa
         exists=exists,
         kind=kind,
         mtime=format_mtime(resolved) if exists else "-",
-        size=format_file_size(resolved) if exists and resolved.is_file() else "-",
+        size=format_file_size(resolved)
+        if exists and resolved is not None and resolved.is_file()
+        else "-",
     )
 
 
-def _resolve_config_path(config_controller, value: str | Path | None) -> Path | None:
+def _resolve_config_path(config_controller: Any, value: str | Path | None) -> Path | None:
     if not value:
         return None
     path = Path(str(value))
@@ -248,12 +250,12 @@ def _resolve_config_path(config_controller, value: str | Path | None) -> Path | 
     return (config_path.parent / path).resolve()
 
 
-def _config(config_controller) -> dict:
+def _config(config_controller: Any) -> dict[str, Any]:
     raw = getattr(config_controller, "config", {})
     return raw if isinstance(raw, dict) else {}
 
 
-def collect_report_paths(config_controller, app_root: Path | None = None) -> list[PathInfo]:
+def collect_report_paths(config_controller: Any, app_root: Path | None = None) -> list[PathInfo]:
     cfg = _config(config_controller)
     app_root = app_root or Path(getattr(config_controller, "config_path", ".")).parent
     paths_cfg = cfg.get("paths", {}) if isinstance(cfg.get("paths"), dict) else {}
@@ -304,30 +306,6 @@ def collect_report_paths(config_controller, app_root: Path | None = None) -> lis
     return items
 
 
-def collect_settings_lines(config_controller) -> list[str]:
-    cfg = _config(config_controller)
-    paths_cfg = cfg.get("paths", {}) if isinstance(cfg.get("paths"), dict) else {}
-    network_cfg = cfg.get("network", {}) if isinstance(cfg.get("network"), dict) else {}
-    performance_cfg = cfg.get("performance", {}) if isinstance(cfg.get("performance"), dict) else {}
-    backup_cfg = cfg.get("backup", {}) if isinstance(cfg.get("backup"), dict) else {}
-    rsch_cfg = cfg.get("rsch", {}) if isinstance(cfg.get("rsch"), dict) else {}
-
-    drive_letters = network_cfg.get("drive_letters", [])
-    if isinstance(drive_letters, list):
-        drive_text = ", ".join(str(item) for item in drive_letters) or "-"
-    else:
-        drive_text = str(drive_letters)
-
-    return [
-        f"performance.max_workers: {performance_cfg.get('max_workers') or 'auto'}",
-        f"backup.excel_keep: {backup_cfg.get('excel_keep', 10)}",
-        f"paths.master_file: {paths_cfg.get('master_file', '-')}",
-        f"paths.archive_dir: {paths_cfg.get('archive_dir', '-')}",
-        f"rsch.last_output_dir: {rsch_cfg.get('last_output_dir', '-')}",
-        f"network.drive_letters: {drive_text}",
-    ]
-
-
 def read_recent_log_errors(log_paths: Iterable[Path | str], limit: int = 5) -> list[str]:
     lines: list[str] = []
     for raw_path in log_paths:
@@ -373,7 +351,7 @@ def read_recent_logs(log_paths: Iterable[Path | str], limit: int = 150) -> list[
 
 
 def run_light_diagnostics(
-    config_controller,
+    config_controller: Any,
     app_root: Path | None = None,
     include_network: bool = True,
 ) -> list[DiagnosticItem]:

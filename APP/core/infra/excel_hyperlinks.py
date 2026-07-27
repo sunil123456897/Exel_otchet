@@ -1,11 +1,50 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from openpyxl.cell.cell import Cell
 from openpyxl.styles import Font
 
 _LINK_FONT = Font(color="FF0563C1", underline="single")
+
+# A URL scheme prefix such as http://, https://, ftp://, file://. Used to
+# strip external hyperlink targets read from UNTRUSTED input workbooks.
+_URL_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*://")
+
+
+def sanitize_external_hyperlink(target: Any) -> str | None:
+    """Neutralise dangerous hyperlink targets read from untrusted input files.
+
+    Curator/master workbooks are external input: a malicious author can embed a
+    ``=HYPERLINK(...)`` (or a cell hyperlink) whose target, once copied into a
+    generated report and clicked, phones home or exfiltrates data. External URL
+    schemes (``http(s)://``, ``ftp://``, ``file://``, any ``scheme://``) and
+    ``mailto:`` have no legitimate use as a report "source" link and are
+    dropped (returns ``None``).
+
+    Local drive-letter paths (``Q:\\...``) and UNC paths (``\\\\server\\share``)
+    are kept: both are supported source-root forms in this application, and
+    blocking them would break legitimate links to files on the company file
+    server. Internal in-document anchors (``#...``) are harmless and kept.
+
+    (Residual risk: a UNC target still triggers NTLM auth on click. UNC is a
+    first-class supported path form here, so it is intentionally allowed;
+    tighten to a trusted-server allowlist if the threat model requires it.)
+    """
+    if not target:
+        return None
+    text = str(target).strip()
+    if not text:
+        return None
+    if text.startswith("#"):
+        return text
+    lowered = text.lower()
+    if lowered.startswith("mailto:"):
+        return None
+    if _URL_SCHEME_RE.match(text):
+        return None
+    return text
 
 
 def build_excel_hyperlink(

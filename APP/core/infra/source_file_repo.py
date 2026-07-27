@@ -2,14 +2,14 @@ import json
 import logging
 import threading
 import queue
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional, cast
 from core.infra.db_connection import SQLiteConnectionManager
 
 
 class SourceFileRepository:
     def __init__(self, connection_manager: SQLiteConnectionManager):
         self.connection_manager = connection_manager
-        self.write_queue = queue.Queue()
+        self.write_queue: queue.Queue[Any] = queue.Queue()
         self._write_error: Optional[Exception] = None
         self._write_error_lock = threading.Lock()
         self.writer_thread = threading.Thread(
@@ -35,7 +35,7 @@ class SourceFileRepository:
         with self._write_error_lock:
             return self._write_error
 
-    def _writer_loop(self):
+    def _writer_loop(self) -> None:
         while True:
             try:
                 item = self.write_queue.get(timeout=0.1)
@@ -55,8 +55,8 @@ class SourceFileRepository:
     def save_file_metadata(
         self, session_id: str, files: List[Dict[str, Any]]
     ) -> List[int]:
-        def _save():
-            ids = []
+        def _save() -> List[Any]:
+            ids: List[Any] = []
             conn = self.connection_manager.get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -96,7 +96,7 @@ class SourceFileRepository:
                 conn.close()
             return ids
 
-        return self.connection_manager.execute_with_retry(_save)
+        return cast(List[int], self.connection_manager.execute_with_retry(_save))
 
     def get_file_cache(self, file_path: str) -> Optional[Dict[str, Any]]:
         conn = self.connection_manager.get_connection()
@@ -136,7 +136,7 @@ class SourceFileRepository:
         dates: List[str],
         fingerprint: str | None = None,
     ) -> None:
-        def _save():
+        def _save() -> None:
             conn = self.connection_manager.get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -175,7 +175,7 @@ class SourceFileRepository:
                 (file_path, mtime, size, date_key),
             ).fetchone()
             if row:
-                return json.loads(row["rows_json"])
+                return cast(List[Dict[str, Any]], json.loads(row["rows_json"]))
             return None
         finally:
             conn.close()
@@ -188,7 +188,7 @@ class SourceFileRepository:
         date_key: str,
         rows: List[Dict[str, Any]],
     ) -> None:
-        def _save():
+        def _save() -> None:
             conn = self.connection_manager.get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -224,7 +224,7 @@ class SourceFileRepository:
                 scanned_at = float(row["scanned_at"])
                 ttl = 12 * 3600  # 12 hours default
                 if _time.time() - scanned_at < ttl:
-                    return json.loads(row["files_json"])
+                    return cast(List[Dict[str, Any]], json.loads(row["files_json"]))
             return None
         finally:
             conn.close()
@@ -232,7 +232,7 @@ class SourceFileRepository:
     def save_discovery_cache(
         self, roots_key: str, files: List[Dict[str, Any]]
     ) -> None:
-        def _save():
+        def _save() -> None:
             import time as _time
             conn = self.connection_manager.get_connection()
             try:
@@ -254,10 +254,10 @@ class SourceFileRepository:
 
         self.write_queue.put((_save, ()))
 
-    def close(self):
+    def close(self) -> None:
         self.wait_for_writes()
         self.write_queue.put(None)
         self.writer_thread.join()
 
-    def wait_for_writes(self):
+    def wait_for_writes(self) -> None:
         self.write_queue.join()

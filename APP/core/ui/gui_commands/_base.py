@@ -13,9 +13,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import messagebox
+from tkinter import Misc, messagebox
 from typing import Callable, Optional
 
+from core.app.cancellation import CancelledByUser
+from core.app.cancellation import is_cancelled_message as _is_cancelled_message
 from core.infra import open_path
 from core.ui.operation_state import OperationState
 from core.ui.toast import ToastLevel, ToastManager
@@ -31,7 +33,7 @@ class CommandContext:
     needs to change.
     """
 
-    root: object
+    root: Misc
     config_controller: object
     app_controller: object
     employee_vm: object
@@ -53,38 +55,10 @@ class CommandContext:
         self.root.after(0, fn)
 
 
-class CancelledByUser(str):
-    """Marker signalling a user-initiated cancellation.
-
-    Subclasses ``str`` (rather than ``Exception``) so it flows unchanged
-    through every existing callback that expects a string message —
-    ``logging.info("%s", msg)``, ``messagebox.showerror(..., msg)``,
-    the toast manager, and the duplicate substring check in
-    ``gui_master._on_*_complete``. Detection in :func:`finish` uses
-    ``isinstance(msg, CancelledByUser)`` rather than substring matching
-    on the Russian phrase, so a reworded message or a localized UI no
-    longer breaks the cancelled-vs-error branch.
-
-    The cancellation site (``app_controller._cancel_message``) constructs
-    this marker instead of a bare ``str``; both paths produce identical
-    string output, but only the marker is reliably detectable here.
-    """
-
-    __slots__ = ()
-
-
-def _is_cancelled_message(msg) -> bool:
-    """True if ``msg`` signals a 'cancelled by user' completion.
-
-    Detection is type-based (``isinstance``) instead of Russian substring
-    matching so the cancelled-vs-error branch in :func:`finish` survives
-    a reworded message or a localized UI. The legacy substring fallback
-    covers any cancellation site that still passes a plain ``str``
-    (e.g. ``gui_master`` re-routes completions through its own path).
-    """
-    if isinstance(msg, CancelledByUser):
-        return True
-    return "отменена пользователем" in str(msg or "").lower()
+# ``CancelledByUser`` and ``_is_cancelled_message`` now live in the UI-free
+# ``core.app.cancellation`` (re-exported above) so the controller and the
+# services can use them without importing the UI layer. ``finish`` below and
+# external callers keep using the same names from this module.
 
 
 def finish(

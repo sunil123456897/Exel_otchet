@@ -1,11 +1,15 @@
 import logging
 from decimal import Decimal
+from typing import Any
+
+from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 class ExcelStyles:
-    def __init__(self):
+    def __init__(self) -> None:
         self.clr_header_bg = "1F4E79"
         self.clr_header_text = "FFFFFF"
         self.clr_row_odd = "F2F2F2"
@@ -90,19 +94,21 @@ WARNING_FIELD_TO_HEADER = {
 }
 
 
-def _get_header_and_source_col(ws):
+def _get_header_and_source_col(ws: Worksheet) -> tuple[str, int]:
     source_col = 1 if ws.cell(1, 1).value == "Источник" else 2
     return str(ws.cell(1, source_col).value or "").lower(), source_col
 
 
-def _safe_float(value):
+def _safe_float(value: Any) -> float:
     try:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
 
 
-def _extract_money_snapshot(row_cells, cols):
+def _extract_money_snapshot(
+    row_cells: tuple[Cell | MergedCell, ...], cols: dict[str, int]
+) -> tuple[float, float, float, float]:
     income = _safe_float(row_cells[cols["приход"] - 1].value) if cols["приход"] > 0 else 0.0
     expense = _safe_float(row_cells[cols["расход"] - 1].value) if cols["расход"] > 0 else 0.0
     total = _safe_float(row_cells[cols["итог"] - 1].value) if cols["итог"] > 0 else 0.0
@@ -112,14 +118,18 @@ def _extract_money_snapshot(row_cells, cols):
     return income, expense, total, commission
 
 
-def _is_return_row(rows_data, row_idx, return_keywords):
+def _is_return_row(
+    rows_data: list[dict[str, Any]], row_idx: int, return_keywords: list[str]
+) -> bool:
     if row_idx >= len(rows_data):
         return False
     filters_val = str(rows_data[row_idx].get("фильтры", "")).lower()
     return any(kw in filters_val for kw in return_keywords)
 
 
-def _is_math_error(is_return, income, expense, total, commission):
+def _is_math_error(
+    is_return: bool, income: float, expense: float, total: float, commission: float
+) -> bool:
     if is_return:
         return False
     has_money = abs(income) > 0.02 or abs(expense) > 0.02
@@ -136,7 +146,13 @@ def _is_math_error(is_return, income, expense, total, commission):
     return has_total_only
 
 
-def _apply_base_cell_style(cell, is_critical, is_math_err, fill_row, st: ExcelStyles):
+def _apply_base_cell_style(
+    cell: Cell | MergedCell,
+    is_critical: bool,
+    is_math_err: bool,
+    fill_row: PatternFill,
+    st: ExcelStyles,
+) -> None:
     fill_critical = PatternFill(patternType="solid", fgColor="FF9999")
     cell.border = st.border_thin
     if is_critical:
@@ -149,14 +165,14 @@ def _apply_base_cell_style(cell, is_critical, is_math_err, fill_row, st: ExcelSt
 
 
 def _apply_non_numeric_warning_fill(
-    cell,
-    c_idx,
-    is_warning,
-    is_critical,
-    warning_target_col,
-    source_col,
+    cell: Cell | MergedCell,
+    c_idx: int,
+    is_warning: bool,
+    is_critical: bool,
+    warning_target_col: int | None,
+    source_col: int,
     st: ExcelStyles,
-):
+) -> None:
     cell.alignment = st.align_left
     if is_critical or not is_warning:
         return
@@ -167,7 +183,9 @@ def _apply_non_numeric_warning_fill(
         cell.fill = st.fill_warning
 
 
-def _get_warning_target_column(ws, warning_info):
+def _get_warning_target_column(
+    ws: Worksheet, warning_info: dict[str, Any] | None
+) -> int | None:
     if not warning_info:
         return None
 
@@ -192,7 +210,7 @@ def _get_warning_target_column(ws, warning_info):
     return None
 
 
-def detect_header_columns(ws) -> tuple:
+def detect_header_columns(ws: Worksheet) -> tuple[dict[str, int], set[int], set[int]]:
     num_kw = ["приход", "расход", "комиссия", "итог", "посредник", "транзит"]
     cols = {kw: -1 for kw in num_kw}
     num_indices = set()
@@ -214,19 +232,19 @@ def detect_header_columns(ws) -> tuple:
 
 
 def apply_cell_styling(
-    ws,
-    rows_data,
-    warning_rows,
-    cols,
-    num_indices,
-    percent_broker_cols,
+    ws: Worksheet,
+    rows_data: list[dict[str, Any]],
+    warning_rows: dict[int, dict[str, Any]],
+    cols: dict[str, int],
+    num_indices: set[int],
+    percent_broker_cols: set[int],
     st: ExcelStyles,
-    return_keywords=None,
-    row_to_data_idx=None,
-):
+    return_keywords: list[str] | None = None,
+    row_to_data_idx: dict[int, int] | None = None,
+) -> None:
     return_keywords = [str(v).lower() for v in (return_keywords or ["возврат"])]
     _, source_col = _get_header_and_source_col(ws)
-    warning_target_cache = {}
+    warning_target_cache: dict[Any, Any] = {}
     row_to_data_idx = row_to_data_idx or {}
 
     for r_idx, row_cells in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row)):
@@ -286,25 +304,25 @@ def apply_cell_styling(
 
 
 def format_numeric_cell(
-    cell,
-    c_idx,
-    cols,
-    ws,
-    percent_broker_cols,
-    is_warning,
-    is_critical,
+    cell: Cell | MergedCell,
+    c_idx: int,
+    cols: dict[str, int],
+    ws: Worksheet,
+    percent_broker_cols: set[int],
+    is_warning: bool,
+    is_critical: bool,
     st: ExcelStyles,
-    warning_target_col=None,
-    warning_kind=None,
-    is_math_err=False,
-):
-    val = cell.value or 0
+    warning_target_col: int | None = None,
+    warning_kind: str | None = None,
+    is_math_err: bool = False,
+) -> None:
+    val: Any = cell.value or 0
 
     if c_idx == cols["приход"] and isinstance(val, (int, float, Decimal)) and val > 0.01:
         if not is_critical and not is_math_err:
             cell.fill = st.fill_income
         cell.font = st.font_income
-    elif c_idx == cols["расход"] and isinstance(val, (int, float, Decimal)) and abs(val) > 0.01:
+    elif c_idx == cols["расход"] and isinstance(val, (int, float, Decimal)) and abs(float(val)) > 0.01:
         if not is_critical and not is_math_err:
             cell.fill = st.fill_expense
         cell.font = st.font_expense
@@ -347,7 +365,7 @@ def format_numeric_cell(
         cell.fill = st.fill_warning
 
 
-def _commission_percent_format(value) -> str:
+def _commission_percent_format(value: Any) -> str:
     try:
         numeric_value = float(value)
     except (TypeError, ValueError):
@@ -357,8 +375,8 @@ def _commission_percent_format(value) -> str:
     return '0.##"%"'
 
 
-def build_total_row(ws, num_indices, st: ExcelStyles):
-    total_row = ws.max_row + 1
+def build_total_row(ws: Worksheet, num_indices: set[int], st: ExcelStyles) -> int:
+    total_row: int = ws.max_row + 1
     total_label = ws.cell(total_row, 1, "ИТОГО:")
     total_label.font, total_label.fill, total_label.border = (
         st.font_total,

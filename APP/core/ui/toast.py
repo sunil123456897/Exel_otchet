@@ -19,7 +19,7 @@ import logging
 import tkinter as tk
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +192,7 @@ class ToastManager:
         title_label = tk.Label(
             inner,
             text=f"{icon}  {title}" if level_icon is None else title,
-            image=level_icon,
+            image=level_icon,  # type: ignore[arg-type]  # None means "no image" at runtime
             compound="left",
             bg=bg,
             fg=fg,
@@ -261,13 +261,15 @@ class ToastManager:
             )
             detail_label.pack(fill="x")
 
-            def _toggle_detail(_event=None, t=toast, lbl=toggle_label):
+            def _toggle_detail(
+                _event: tk.Event | None = None, t: _Toast = toast, lbl: tk.Label = toggle_label
+            ) -> None:
                 if t.detail_visible:
-                    t.detail_frame.pack_forget()
+                    t.detail_frame.pack_forget()  # type: ignore[union-attr]
                     lbl.configure(text="Подробнее ▼")
                     t.detail_visible = False
                 else:
-                    t.detail_frame.pack(fill="x", pady=(4, 0))
+                    t.detail_frame.pack(fill="x", pady=(4, 0))  # type: ignore[union-attr]
                     lbl.configure(text="Скрыть ▲")
                     t.detail_visible = True
                 # Repack to reposition all toasts (height changed).
@@ -295,15 +297,26 @@ class ToastManager:
             cursor="hand2",
         )
         close_label.place(relx=1.0, x=-8, y=4, anchor="ne")
-        close_label.bind("<Button-1>", lambda e, t=toast: self._dismiss(t))
-        close_label.bind(
-            "<Enter>",
-            lambda e, lbl=close_label, c=close_bg_hover: lbl.configure(bg=c),
-        )
-        close_label.bind(
-            "<Leave>",
-            lambda e, lbl=close_label, c=bg: lbl.configure(bg=c),
-        )
+
+        # Named callbacks (not lambdas): default args capture the current
+        # toast/widget by value, and explicit annotations keep mypy from
+        # failing to infer the parameter types that a bare lambda loses.
+        def _on_close_click(_e: tk.Event, t: _Toast = toast) -> None:
+            self._dismiss(t)
+
+        def _on_close_enter(
+            _e: tk.Event, lbl: tk.Label = close_label, c: str = close_bg_hover
+        ) -> None:
+            lbl.configure(bg=c)
+
+        def _on_close_leave(
+            _e: tk.Event, lbl: tk.Label = close_label, c: str = bg
+        ) -> None:
+            lbl.configure(bg=c)
+
+        close_label.bind("<Button-1>", _on_close_click)
+        close_label.bind("<Enter>", _on_close_enter)
+        close_label.bind("<Leave>", _on_close_leave)
 
         self._stack.append(toast)
         # Compute target positions for all toasts (also slides older ones up).
@@ -314,20 +327,21 @@ class ToastManager:
         toast.fading_out = False
         self._tick_fade(toast)
         # Auto-dismiss after the requested duration.
-        toast.auto_after_id = self._root.after(
-            duration_ms, lambda t=toast: self._dismiss(t)
-        )
+        def _on_auto_dismiss(t: _Toast = toast) -> None:
+            self._dismiss(t)
 
-    def info(self, title: str, message: str = "", *, detail: str = "", **kwargs) -> None:
+        toast.auto_after_id = self._root.after(duration_ms, _on_auto_dismiss)
+
+    def info(self, title: str, message: str = "", *, detail: str = "", **kwargs: Any) -> None:
         self.show(ToastLevel.INFO, title, message, detail=detail, **kwargs)
 
-    def success(self, title: str, message: str = "", *, detail: str = "", **kwargs) -> None:
+    def success(self, title: str, message: str = "", *, detail: str = "", **kwargs: Any) -> None:
         self.show(ToastLevel.SUCCESS, title, message, detail=detail, **kwargs)
 
-    def warning(self, title: str, message: str = "", *, detail: str = "", **kwargs) -> None:
+    def warning(self, title: str, message: str = "", *, detail: str = "", **kwargs: Any) -> None:
         self.show(ToastLevel.WARNING, title, message, detail=detail, **kwargs)
 
-    def error(self, title: str, message: str = "", *, detail: str = "", **kwargs) -> None:
+    def error(self, title: str, message: str = "", *, detail: str = "", **kwargs: Any) -> None:
         self.show(ToastLevel.ERROR, title, message, detail=detail, **kwargs)
 
     # ------------------------------------------------------------------- internals

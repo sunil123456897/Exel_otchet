@@ -2,16 +2,16 @@
 
 import logging
 import re
-from decimal import Decimal, ROUND_HALF_UP
-from typing import List, Dict, Any, Optional
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, Dict, List, Optional
 
-from core.domain.interfaces import IValidator, ILogicService, IPersistence
+from core.domain.data_schemas import FinancialRowSchema
+from core.domain.interfaces import ILogicService, IPersistence, IValidator
 from core.domain.utils_helpers import (
+    NumericParsingError,
     to_decimal,
     to_decimal_percent,
-    NumericParsingError,
 )
-from core.domain.data_schemas import FinancialRowSchema
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,11 @@ _DEFAULT_HEADER_WORDS = (
 )
 
 
-class Validator(IValidator):
+# Note [misc ignore]: the APP package is an intentional version source of
+# truth, so the same modules resolve under two identities (APP.core.* and
+# core.*) and mypy sees the interface base as Any. The subclassing is correct
+# at runtime; this is a documented mypy limitation, not a real type error.
+class Validator(IValidator):  # type: ignore[misc]
     """Валидатор строк данных — отбрасывает мусор и заголовки."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
@@ -45,7 +49,7 @@ class Validator(IValidator):
         self._header_words = v_cfg.get("header_words", _DEFAULT_HEADER_WORDS)
 
     @staticmethod
-    def _is_header_like(s_norm: str, header_words) -> bool:
+    def _is_header_like(s_norm: str, header_words: tuple[str, ...]) -> bool:
         """Check if a normalised string is a leaked column header.
 
         Uses word-boundary matching so company names like 'Приходько'
@@ -159,7 +163,7 @@ class CuratorStrategy:
         tot: Decimal,
         raw_b2: Decimal,
         pb2_raw: Any,
-    ) -> tuple:
+    ) -> tuple[Any, Decimal, Decimal]:
         """Return (pb_val, pb2_val, broker2_calc)."""
         return pb_val, Decimal("0.00"), Decimal("0.00")
 
@@ -167,7 +171,15 @@ class CuratorStrategy:
 class BorisCuratorStrategy(CuratorStrategy):
     """Boris-specific: keeps intermediary2 values from the source report."""
 
-    def apply(self, curator_config, pb_val, amt, tot, raw_b2, pb2_raw):
+    def apply(
+        self,
+        curator_config: Dict[str, Any],
+        pb_val: Any,
+        amt: Decimal,
+        tot: Decimal,
+        raw_b2: Decimal,
+        pb2_raw: Any,
+    ) -> tuple[Any, Decimal, Decimal]:
         if raw_b2 == 0:
             return pb_val, Decimal("0.00"), Decimal("0.00")
 
@@ -182,7 +194,15 @@ class BorisCuratorStrategy(CuratorStrategy):
 class IvanCuratorStrategy(CuratorStrategy):
     """Ivan-specific layout keeps manually entered intermediary values."""
 
-    def apply(self, curator_config, pb_val, amt, tot, raw_b2, pb2_raw):
+    def apply(
+        self,
+        curator_config: Dict[str, Any],
+        pb_val: Any,
+        amt: Decimal,
+        tot: Decimal,
+        raw_b2: Decimal,
+        pb2_raw: Any,
+    ) -> tuple[Any, Decimal, Decimal]:
         return pb_val, Decimal("0.00"), Decimal("0.00")
 
 
@@ -195,7 +215,7 @@ CURATOR_STRATEGIES: Dict[str, CuratorStrategy] = {
 _DEFAULT_STRATEGY = CuratorStrategy()
 
 
-class LogicService(ILogicService):
+class LogicService(ILogicService):  # type: ignore[misc]  # see note on Validator
     """Сервис консолидации — применяет финансовые правила к данным."""
 
     def __init__(self, persistence: IPersistence, config: Dict[str, Any]) -> None:
@@ -377,7 +397,8 @@ class LogicService(ILogicService):
         }
 
     def apply_financial_rules(
-        self, raw_rows: List[Dict[str, Any]], curator=None, curator_config=None
+        self, raw_rows: List[Dict[str, Any]], curator: Optional[str] = None,
+        curator_config: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Apply commissions, returns, and other business rules to raw rows."""
         res = []
@@ -397,8 +418,17 @@ class LogicService(ILogicService):
 
             source_info = row_model.model_extra.get("_source_info", "Unknown") if row_model.model_extra else "Unknown"
 
+            # Validate the RAW source value, not row_model.amount: the schema's
+            # to_decimal validator silently coerces any unparseable cell to
+            # Decimal("0.00"), so by the time we read row_model.amount the
+            # corruption is already masked and this critical-row path could
+            # never fire (it was dead code). The strict to_decimal() on the raw
+            # value distinguishes "no signal" (None/""/0 → 0, no raise) from
+            # "corrupt cell" ('#N/A', '#REF!', 'Н/Д', text → NumericParsingError),
+            # so a broken transaction surfaces as a red critical row instead of
+            # being silently dropped (undercount) or zeroed into the =SUM().
             try:
-                amt = to_decimal(row_model.amount)
+                amt = to_decimal(r.get("amount"))
             except (NumericParsingError, ValueError) as e:
                 logger.error(
                     f"DATA INTEGRITY ERROR (Logic): {e} | Source: {source_info}"
@@ -411,7 +441,7 @@ class LogicService(ILogicService):
                 amt = Decimal("0.00")
 
             try:
-                tot = to_decimal(row_model.total)
+                tot = to_decimal(r.get("total"))
             except (NumericParsingError, ValueError) as e:
                 logger.error(
                     f"DATA INTEGRITY ERROR (Logic): {e} | Source: {source_info}"
@@ -501,7 +531,8 @@ class LogicService(ILogicService):
         return res
 
     def consolidate(
-        self, session_id: str, curator=None, curator_config=None
+        self, session_id: str, curator: Optional[str] = None,
+        curator_config: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Perform SQL-based aggregation for the final report.
 

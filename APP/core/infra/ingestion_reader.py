@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from datetime import datetime, date
 from decimal import Decimal
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Iterator, Optional
 
 from python_calamine import CalamineWorkbook
 
@@ -117,7 +117,7 @@ def _normalize_header_text(value: Any) -> str:
     return text.rstrip(": ")
 
 
-def extract_date_from_sheet(sheet_name: str, **kwargs) -> Optional[str]:
+def extract_date_from_sheet(sheet_name: str, **kwargs: Any) -> Any:
     """Извлечь дату из имени листа.
 
     Поддерживаемые форматы: DD.MM.YYYY, DD.MM.YY, DD,MM,YY и т.д.
@@ -196,6 +196,11 @@ def _sheet_date_matches_scope(
         return False
     if target is not None:
         return sheet_dt == target
+    # The guard above (line: `target is None and (start is None or end is
+    # None) -> return True`) guarantees that here, with target None, BOTH
+    # start and end are non-None. Assert it so the comparison is provably
+    # safe (and mypy can narrow the Optional[date]).
+    assert start is not None and end is not None
     return start <= sheet_dt <= end
 
 
@@ -212,7 +217,7 @@ class CalamineReader:
         self,
         markers: Dict[str, Any],
         aliases: Dict[str, List[str]],
-        drive_letters: tuple = ("Q", "Z"),
+        drive_letters: tuple[str, ...] = ("Q", "Z"),
     ) -> None:
         self.markers = markers
         self.aliases = aliases
@@ -549,7 +554,7 @@ class CalamineReader:
 
     def _load_sheet_sample_rows(
         self,
-        sheet,
+        sheet: Any,
         sheet_name: str,
         strict_io: bool = False,
     ) -> tuple[Optional[List[Any]], bool]:
@@ -589,7 +594,7 @@ class CalamineReader:
         self,
         rows_sample: List[Any],
         header_search_terms: List[tuple[str, ...]],
-    ) -> tuple[Optional[int], Optional[Dict[str, int]], Optional[str], Optional[str], set, int]:
+    ) -> tuple[Optional[int], Optional[Dict[str, int]], Optional[str], Optional[str], set[str], int]:
         max_score = 0
         standard_keys = set()
         best_header_idx = None
@@ -639,7 +644,7 @@ class CalamineReader:
         best_col_map: Optional[Dict[str, int]],
         best_structure_kind: Optional[str],
         best_structure_reason: Optional[str],
-    ) -> Optional[tuple[Dict[str, int], tuple, Optional[int], Optional[int], Optional[int], bool, Optional[str], Optional[str]]]:
+    ) -> Optional[tuple[Dict[str, int], tuple[tuple[str, int], ...], Optional[int], Optional[int], Optional[int], bool, Optional[str], Optional[str]]]:
         if best_header_idx is None or i != best_header_idx:
             return None
 
@@ -779,7 +784,7 @@ class CalamineReader:
         f_path_abs: str,
         sheet_date: str,
         sheet_year_hint: Optional[int],
-        active_col_items: tuple,
+        active_col_items: tuple[tuple[str, int], ...],
         amount_idx: Optional[int],
         commission_idx: Optional[int],
         total_idx: Optional[int],
@@ -883,11 +888,11 @@ class CalamineReader:
 
     def _iter_sheet_rows_safe(
         self,
-        sheet,
+        sheet: Any,
         use_to_python: bool,
         sheet_name: str,
         strict_io: bool = False,
-    ):
+    ) -> Iterator[tuple[int, Any]]:
         row_iterator = enumerate(sheet.to_python() if use_to_python else sheet.iter_rows())
         while True:
             try:
@@ -905,7 +910,7 @@ class CalamineReader:
 
     def _process_workbook_sheet(
         self,
-        wb,
+        wb: CalamineWorkbook,
         sheet_name: str,
         f_path_abs: str,
         file_basename: str,
@@ -961,7 +966,7 @@ class CalamineReader:
             return
 
         active_col_map = None
-        active_col_items = ()
+        active_col_items: tuple[tuple[str, int], ...] = ()
         amount_idx = None
         commission_idx = None
         total_idx = None

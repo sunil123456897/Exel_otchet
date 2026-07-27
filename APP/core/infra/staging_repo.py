@@ -3,7 +3,7 @@ import logging
 import decimal
 import threading
 import queue
-from typing import List, Dict, Any
+from typing import Any, Callable, Dict, List, Optional
 from pathlib import Path
 from core.infra.db_connection import SQLiteConnectionManager, sanitize_data
 
@@ -17,9 +17,9 @@ class DBWriterThread(threading.Thread):
     def __init__(
         self,
         connection_manager: SQLiteConnectionManager,
-        q: queue.Queue,
-        error_callback=None,
-    ):
+        q: "queue.Queue[Any]",
+        error_callback: Optional[Callable[[Exception], None]] = None,
+    ) -> None:
         super().__init__(name="DBWriterThread", daemon=True)
         self.connection_manager = connection_manager
         self.q = q
@@ -29,9 +29,9 @@ class DBWriterThread(threading.Thread):
 
     _WRITE_RETRIES = 1  # One retry on transient failure before giving up
 
-    def run(self):
+    def run(self) -> None:
         while self.running or not self.q.empty():
-            batch = []
+            batch: List[Any] = []
             try:
                 item = self.q.get(timeout=self.BATCH_TIMEOUT)
                 if item is None:
@@ -68,7 +68,7 @@ class DBWriterThread(threading.Thread):
                     except ValueError:
                         pass
 
-    def _process_batch_with_retry(self, batch):
+    def _process_batch_with_retry(self, batch: List[Any]) -> None:
         """Try to process a batch, retrying once on transient errors.
 
         Previously a single _process_batch failure silently dropped the
@@ -100,9 +100,9 @@ class DBWriterThread(threading.Thread):
                 self.error_callback(retry_err)
             raise
 
-    def _process_batch(self, batch):
+    def _process_batch(self, batch: List[Any]) -> None:
         sql = "INSERT INTO staging_data (file_id, row_index, raw_content_json, date_val, amount, employee_name, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
-        all_data = []
+        all_data: List[Any] = []
         for file_id, rows in batch:
             for r in rows:
                 amt_raw = r.get("amount", 0)
@@ -138,7 +138,7 @@ class DBWriterThread(threading.Thread):
         if not all_data:
             return
 
-        def _save():
+        def _save() -> None:
             conn = self.connection_manager.get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -152,7 +152,7 @@ class DBWriterThread(threading.Thread):
 
         self.connection_manager.execute_with_retry(_save)
 
-    def stop(self):
+    def stop(self) -> None:
         self.running = False
         self.q.put(None)
 
@@ -160,8 +160,8 @@ class DBWriterThread(threading.Thread):
 class StagingDataRepository:
     def __init__(self, connection_manager: SQLiteConnectionManager):
         self.connection_manager = connection_manager
-        self.write_queue = queue.Queue()
-        self._write_error = None
+        self.write_queue: queue.Queue[Any] = queue.Queue()
+        self._write_error: Optional[Exception] = None
         self._write_error_lock = threading.Lock()
         self.writer_thread = DBWriterThread(
             self.connection_manager,
@@ -206,11 +206,11 @@ class StagingDataRepository:
             conn.close()
         return results
 
-    def close(self):
+    def close(self) -> None:
         self.writer_thread.stop()
         self.writer_thread.join()
 
-    def wait_for_writes(self):
+    def wait_for_writes(self) -> None:
         self.write_queue.join()
         with self._write_error_lock:
             if self._write_error is not None:

@@ -1,7 +1,8 @@
-from decimal import Decimal
-from typing import Optional, Any
-from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime
+from decimal import Decimal
+from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class FinancialRowSchema(BaseModel):
@@ -32,7 +33,7 @@ class FinancialRowSchema(BaseModel):
 
     @field_validator("date", mode="before")
     @classmethod
-    def validate_date(cls, v):
+    def validate_date(cls, v: object) -> Optional[str]:
         if v is None:
             return None
         try:
@@ -59,7 +60,7 @@ class FinancialRowSchema(BaseModel):
         mode="before",
     )
     @classmethod
-    def to_decimal(cls, v):
+    def to_decimal(cls, v: object) -> Decimal:
         if v is None or v == "":
             return Decimal("0.00")
         if isinstance(v, Decimal):

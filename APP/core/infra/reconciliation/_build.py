@@ -153,18 +153,6 @@ def _append_reconciliation_row(
             ws.cell(row_idx, col_idx).fill = _MASTER_EXPENSE_FILL
 
 
-def _autosize_columns(ws: Worksheet) -> None:
-    for col_idx in range(1, ws.max_column + 1):
-        max_len = 0
-        for row in ws.iter_rows(min_col=col_idx, max_col=col_idx):
-            value = row[0].value
-            max_len = max(max_len, len(str(value)) if value is not None else 0)
-        ws.column_dimensions[get_column_letter(col_idx)].width = max(
-            10,
-            min(45, max_len + 2),
-        )
-
-
 def _build_workbook(
     target_date: date,
     rows: Iterable[ReconciliationRow],
@@ -172,12 +160,13 @@ def _build_workbook(
 ) -> Workbook:
     wb = Workbook()
     ws = wb.active
+    assert ws is not None  # a fresh Workbook always has an active sheet
     ws.title = target_date.strftime("%d.%m.%Y")
     _write_reconciliation_sheet(ws, rows, master_headers)
     return wb
 
 
-def _reconciliation_sort_key(row: ReconciliationRow) -> tuple:
+def _reconciliation_sort_key(row: ReconciliationRow) -> tuple[int, str, str, str]:
     status_order = {STATUS_VERIFIED: 0, STATUS_REVIEW: 1}
     source = ""
     customer = ""
@@ -212,8 +201,8 @@ def _write_reconciliation_sheet(
 
 
 def _build_reconciliation_sheet_data(
-    master_wb,
-    rsch_wb,
+    master_wb: Workbook,
+    rsch_wb: Workbook,
     target_date: date | None,
     alias_repo: Optional[Any] = None,
 ) -> tuple[date, list[str], list[ReconciliationRow]]:
@@ -452,6 +441,7 @@ def build_combined_reconciliation_report(
                 rows = sorted(rows, key=_reconciliation_sort_key)
 
                 ws = default_ws if idx == 0 else wb_out.create_sheet()
+                assert ws is not None  # active sheet / create_sheet always yield a sheet
                 # Excel sheet names limited to 31 chars; deduplicate if truncated name collides
                 truncated = sheet_name[:31]
                 if truncated in wb_out.sheetnames:

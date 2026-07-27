@@ -19,6 +19,7 @@ def resolve_max_workers(config: Mapping[str, Any] | None) -> int:
     # на многоядерных ПК заказчика (F-PERF-1).
     if raw_value in (None, "", 0):
         return default_max_workers()
+    assert raw_value is not None  # the guard above already excluded None
     try:
         value = int(raw_value)
     except (TypeError, ValueError):

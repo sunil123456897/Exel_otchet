@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from typing import Any
 
 
 class StatsPanel(ttk.LabelFrame):
@@ -16,14 +17,14 @@ class StatsPanel(ttk.LabelFrame):
       :class:`OperationState` snapshots.
     """
 
-    def __init__(self, parent, controller):
+    def __init__(self, parent: tk.Misc, controller: Any) -> None:
         from core.ui.theme import ThemeManager
 
         super().__init__(parent, text="📈 СТАТИСТИКА ДНЯ", padding=ThemeManager.SPACING["sm"])
         self.controller = controller
         self._setup_ui()
 
-    def _setup_ui(self):
+    def _setup_ui(self) -> None:
         self.stats_label = ttk.Label(
             self,
             text="Сотрудников: 0\nОтчетов готово: 0\nОшибок: 0",
@@ -66,7 +67,14 @@ class StatsPanel(ttk.LabelFrame):
         )
         self.operation_bar.pack(fill=tk.X, pady=(2, 0))
 
-    def update_stats(self, ready_count, total_count, total_income=None, total_expense=None, error_count=0):
+    def update_stats(
+        self,
+        ready_count: int,
+        total_count: int,
+        total_income: float | None = None,
+        total_expense: float | None = None,
+        error_count: int = 0,
+    ) -> None:
         text = f"Готово: {ready_count}/{total_count}"
         if total_income is not None and total_expense is not None:
             text += f"\nПриход: {total_income:,.2f}\nРасход: {total_expense:,.2f}"
@@ -81,12 +89,12 @@ class StatsPanel(ttk.LabelFrame):
         """Set the big operation bar to ``value`` (0-100)."""
         self.operation_var.set(max(0.0, min(100.0, value)))
 
-    def set_progress(self, value):
+    def set_progress(self, value: float) -> None:
         """Back-compat shim. Treats the value as the operation progress
         because that was the original single-bar use; the readiness
         bar is updated explicitly via :meth:`set_readiness`.
         """
         self.set_operation(value)
 
-    def get_progress(self):
+    def get_progress(self) -> float:
         return self.operation_var.get()

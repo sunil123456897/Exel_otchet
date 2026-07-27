@@ -28,7 +28,7 @@ def _windows_apps_use_light() -> Optional[bool]:
     registry is inaccessible.
     """
     try:
-        import winreg  # type: ignore[import-not-found]
+        import winreg
     except ImportError:
         return None
 

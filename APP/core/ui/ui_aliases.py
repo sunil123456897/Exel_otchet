@@ -9,6 +9,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +22,10 @@ class AliasesTab:
     next reconciliation run.
     """
 
-    def __init__(self, parent: ttk.Frame, app_controller) -> None:
+    def __init__(self, parent: ttk.Frame, app_controller: Any) -> None:
         self.parent = parent
         self.app = app_controller
-        self._editing: dict | None = None
+        self._editing: dict[str, Any] | None = None
         self._setup_ui()
         self.refresh()
 
@@ -177,7 +178,9 @@ class AliasesTab:
         dlg.title("Добавить алиас" if mode == "add" else "Изменить алиас")
         dlg.geometry("780x280")
         dlg.minsize(640, 240)
-        dlg.transient(self.parent)
+        # tkinter stubs type transient() as Wm | Tcl_Obj, but at runtime any
+        # widget is accepted — the parent Frame is the intended master.
+        dlg.transient(self.parent)  # type: ignore[call-overload]
         dlg.grab_set()
         # Theme the dialog background for dark mode.
         from core.ui.theme import ThemeManager
@@ -228,11 +231,13 @@ class AliasesTab:
                 self.refresh()
                 dlg.destroy()
             except ValueError as e:
-                # TODO(U12-followup): ValueError carries a human-readable
-                # business-validation message, so it is intentionally left
-                # on messagebox for this cycle — migrate once the presenter
-                # gains a "validation" channel that keeps str(e) visible.
-                messagebox.showerror("Ошибка", str(e), parent=dlg)
+                # ValueError from customer_alias_repo carries an audited,
+                # human-readable Russian message (e.g. "Заказчики идентичны
+                # — алиас не нужен"). Use the validation presenter, which
+                # shows the message verbatim while still logging the
+                # traceback for developers.
+                from core.ui.error_presenter import present_validation_error
+                present_validation_error(dlg, str(e))
             except Exception as e:
                 # U12-B: sanitised error presentation (no raw str(e)).
                 from core.ui.error_presenter import present_error

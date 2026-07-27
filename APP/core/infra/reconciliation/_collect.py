@@ -4,7 +4,10 @@ from decimal import Decimal
 from typing import Any, Optional
 from openpyxl.worksheet.worksheet import Worksheet
 from core.domain.data_loss_log import record_loss
-from core.infra.excel_hyperlinks import extract_hyperlink_formula_parts
+from core.infra.excel_hyperlinks import (
+    extract_hyperlink_formula_parts,
+    sanitize_external_hyperlink,
+)
 from ._types import MasterReconciliationRow, RschReconciliationRow, ReconciliationRow
 
 _log = logging.getLogger(__name__)
@@ -140,14 +143,18 @@ def _master_cell_value(
 def _cell_hyperlink_target(ws: Worksheet, row_idx: int, col_idx: int) -> str | None:
     formula_parts = extract_hyperlink_formula_parts(ws.cell(row_idx, col_idx).value)
     if formula_parts is not None:
-        return formula_parts[0]
+        # Untrusted input workbook — strip external URL schemes before the
+        # target is copied into the generated report (see sanitize docstring).
+        sanitized: str | None = sanitize_external_hyperlink(formula_parts[0])
+        return sanitized
     hyperlink = ws.cell(row_idx, col_idx).hyperlink
     if hyperlink is None:
         return None
     target = hyperlink.target or hyperlink.location
     if target is None:
         return None
-    return target.split("#", 1)[0]
+    sanitized_target: str | None = sanitize_external_hyperlink(target.split("#", 1)[0])
+    return sanitized_target
 
 
 def _cell_display_value(ws: Worksheet, row_idx: int, col_idx: int) -> Any:
@@ -168,9 +175,17 @@ def _collect_master_rows(
     executor_col = _header_index(headers, "ИСПОЛНИТЕЛЬ")
     income_col = _header_index(headers, "Приход")
     expense_col = _header_index(headers, "Расход")
+    # The required=True columns above already raised on a missing header;
+    # assert so mypy narrows int | None → int for the cell accesses below.
+    assert source_col is not None
+    assert customer_col is not None
+    assert executor_col is not None
+    assert income_col is not None
+    assert expense_col is not None
     filter_col = _header_index(headers, "Фильтры", required=False)
     rows: list[MasterReconciliationRow] = []
     excluded_rows: list[MasterReconciliationRow] = []
+    zero_amount_text_rows = 0
     for row_idx in range(2, ws.max_row + 1):
         source = _cell_display_value(ws, row_idx, source_col)
         if _is_total_row(source):
@@ -194,6 +209,10 @@ def _collect_master_rows(
             source=_sheet_source(ws),
         )
         if income == 0 and expense == 0:
+            # A row WITH customer/executor text but no amounts is suspicious:
+            # the dominant cause is a source saved without cached formula
+            # values (data_only reads them as None). Count and advise once.
+            zero_amount_text_rows += 1
             continue
         values = [_master_cell_value(ws, row_idx, headers, header) for header in output_headers]
         row = MasterReconciliationRow(
@@ -212,12 +231,21 @@ def _collect_master_rows(
             excluded_rows.append(row)
         else:
             rows.append(row)
+    if zero_amount_text_rows:
+        _log.warning(
+            "Сверка: %d строк(и) на листе '%s' имеют заказчика/исполнителя, "
+            "но нулевые Приход/Расход и пропущены. Если это неожиданно, источник "
+            "может содержать формулы без кешированных значений — пересохраните "
+            "файл в Excel (режим чтения data_only видит только кеш формул).",
+            zero_amount_text_rows, ws.title,
+        )
     return output_headers, rows, excluded_rows
 
 
 def _collect_rsch_rows(ws: Worksheet) -> list[RschReconciliationRow]:
     headers = _header_map(ws, prefer_last=True)
     rows: list[RschReconciliationRow] = []
+    zero_amount_rows = 0
     for row_idx in range(2, ws.max_row + 1):
         first = ws.cell(row_idx, 1).value
         if _is_total_row(first):
@@ -237,6 +265,7 @@ def _collect_rsch_rows(ws: Worksheet) -> list[RschReconciliationRow]:
             source=_sheet_source(ws),
         )
         if income == 0 and expense == 0:
+            zero_amount_rows += 1
             continue
         customer = str(ws.cell(row_idx, headers["ЗАКАЗЧИК"]).value or "").strip()
         if _is_excluded_customer(customer):
@@ -256,6 +285,13 @@ def _collect_rsch_rows(ws: Worksheet) -> list[RschReconciliationRow]:
                 source_link=_cell_hyperlink_target(ws, row_idx, headers.get("Источник", 1)),
                 row_index=row_idx,
             )
+        )
+    if zero_amount_rows:
+        _log.warning(
+            "Сверка (РСЧ): %d строк(и) на листе '%s' имеют нулевые Приход/Расход "
+            "и пропущены. Если это неожиданно, источник может содержать формулы "
+            "без кешированных значений — пересохраните файл в Excel.",
+            zero_amount_rows, ws.title,
         )
     return rows
 

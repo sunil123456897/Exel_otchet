@@ -14,16 +14,20 @@ Layout:
         _rsch.py           - RSCH commands + helpers
         _reconciliation.py - reconciliation commands
 """
+from typing import Any
+
 from core.ui.gui_commands._base import CommandContext
 from core.ui.gui_commands._consolidation import ConsolidationCommandsMixin
 from core.ui.gui_commands._employee import EmployeeCommandsMixin
 from core.ui.gui_commands._reconciliation import ReconciliationCommandsMixin
 
 
+# Note [misc ignore]: dual module identity (APP.core.* vs core.*) makes mypy
+# see the mixin bases as Any; the composition is correct at runtime.
 class GuiCommands(
-    EmployeeCommandsMixin,
-    ConsolidationCommandsMixin,
-    ReconciliationCommandsMixin,
+    EmployeeCommandsMixin,  # type: ignore[misc]
+    ConsolidationCommandsMixin,  # type: ignore[misc]
+    ReconciliationCommandsMixin,  # type: ignore[misc]
 ):
     # ReconciliationCommandsMixin transitively provides RschCommandsMixin
     # (it inherits from it for the source-file resolution helpers), so
@@ -41,18 +45,18 @@ class GuiCommands(
 
     def __init__(
         self,
-        root,
-        config_controller,
-        app_controller,
-        employee_vm,
-        consolidation_vm,
-        sidebar,
-        employee_table,
-        stats_panel,
-        dashboard_tabs=None,
-        operation_state=None,
-        toasts=None,
-    ):
+        root: Any,
+        config_controller: Any,
+        app_controller: Any,
+        employee_vm: Any,
+        consolidation_vm: Any,
+        sidebar: Any,
+        employee_table: Any,
+        stats_panel: Any,
+        dashboard_tabs: Any = None,
+        operation_state: Any = None,
+        toasts: Any = None,
+    ) -> None:
         self.ctx = CommandContext(
             root=root,
             config_controller=config_controller,
@@ -74,7 +78,7 @@ class GuiCommands(
         self.toasts = self.ctx.toasts
         self._apply_saved_rsch_mode()
 
-    def _record_dashboard_result(self, label, ok, msg, path) -> None:
+    def _record_dashboard_result(self, label: Any, ok: Any, msg: Any, path: Any) -> None:
         if self.ctx.dashboard_tabs is not None:
             self.ctx.dashboard_tabs.record_result(label, ok, msg, path)
 

@@ -18,6 +18,8 @@ from core.ui.theme import ThemeManager
 from core.infra.settings_store import SettingsStore, UIPreferences
 
 if TYPE_CHECKING:
+    import tkinter as tk
+
     from core.infra.config_controller import ConfigController
 
 _log = logging.getLogger(__name__)
@@ -32,6 +34,9 @@ class GuiMasterSettingsMixin:
     - ``self.sidebar: Sidebar``
     - ``self.employee_table: EmployeeTable``
     """
+
+    # Provided by the composed GuiMaster; declared so the mixin type-checks.
+    root: tk.Tk
 
     # ── public setup — call from GuiMaster.__init__ ───────────
 

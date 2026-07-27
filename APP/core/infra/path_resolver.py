@@ -10,7 +10,7 @@ def _normalize_path_parts(path_str: str) -> List[str]:
     return [part for part in path_str.replace("\\", "/").split("/") if part not in ("", ".", "..")]
 
 
-def _resolve_reports_alias(path_str: str, config_controller) -> Optional[Path]:
+def _resolve_reports_alias(path_str: str, config_controller: Any) -> Optional[Path]:
     if not (config_controller and hasattr(config_controller, "get_paths")):
         return None
 
@@ -77,7 +77,7 @@ def _path_suffix_candidates(path_str: str) -> List[str]:
     return deduped
 
 
-def _resolve_with_config_controller(path_str: str, config_controller) -> Path:
+def _resolve_with_config_controller(path_str: str, config_controller: Any) -> Path:
     p_abs = Path(path_str)
     if not (config_controller and hasattr(config_controller, "resolve_path")):
         return p_abs
@@ -108,9 +108,9 @@ def _resolve_with_config_controller(path_str: str, config_controller) -> Path:
 def _find_discovered_meta(
     path_str: str,
     discovered_files: List[Dict[str, Any]],
-    file_id=None,
-    file_hash=None,
-):
+    file_id: Any = None,
+    file_hash: Any = None,
+) -> Optional[Dict[str, Any]]:
     suffixes = _path_suffix_candidates(path_str)
     for df in discovered_files:
         df_norm = df["path"].replace("\\", "/").lower()
@@ -128,8 +128,8 @@ def _find_discovered_meta(
     return None
 
 
-def _build_meta(path_value: str, file_id=None, file_hash=None) -> Dict[str, Any]:
-    meta = {"path": path_value}
+def _build_meta(path_value: str, file_id: Any = None, file_hash: Any = None) -> Dict[str, Any]:
+    meta: Dict[str, Any] = {"path": path_value}
     if file_id is not None:
         meta["id"] = file_id
     if file_hash is not None:
@@ -137,7 +137,7 @@ def _build_meta(path_value: str, file_id=None, file_hash=None) -> Dict[str, Any]
     return meta
 
 
-def _resolve_relative_from_config(p_abs: Path, config_controller) -> Path:
+def _resolve_relative_from_config(p_abs: Path, config_controller: Any) -> Path:
     if p_abs.is_absolute():
         return p_abs
     if not (config_controller and hasattr(config_controller, "config_path")):
@@ -147,11 +147,11 @@ def _resolve_relative_from_config(p_abs: Path, config_controller) -> Path:
 
 def resolve_employee_path(
     path_str: str,
-    file_id=None,
-    file_hash=None,
+    file_id: Any = None,
+    file_hash: Any = None,
     discovered_files: Optional[List[Dict[str, Any]]] = None,
-    config_controller=None,
-) -> tuple:
+    config_controller: Any = None,
+) -> tuple[str, Optional[Dict[str, Any]], bool]:
     """Резолвит путь к файлу сотрудника с обнаружением переименований.
 
     Returns:

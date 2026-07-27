@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, cast
 
 from core.infra import DiscoveryService, is_file_writable
 from core.infra.utils_logging import scrub_path
@@ -15,7 +15,7 @@ from core.app.file_processor import (
     run_engine,
     date_matches_target,
 )
-from core.app.performance import default_max_workers, resolve_max_workers
+from core.app.performance import resolve_max_workers
 from core.app.message_formatting import (
     build_empty_data_message as build_controller_empty_data_message,
     build_issue_preview,
@@ -27,10 +27,20 @@ from core.infra.reconciliation import build_combined_reconciliation_report
 from core.infra.rsch import build_rsch_report
 from core.services.rsch_service import RschService
 from core.services.reconciliation_service import ReconciliationService
-from core.app.partial import format_partial_note, mark_partial
-from core.infra.utils import cleanup_local_copy_cache
-
-_ADAPTIVE_WORKERS = default_max_workers()
+from core.infra.config_controller import ConfigController
+from core.domain.interfaces import (
+    IDataSource,
+    IPersistence,
+    IValidator,
+    ILogicService,
+    IExporter,
+)
+# Cancellation primitives live in a UI-free module (core.app.cancellation) so
+# this controller no longer imports core.ui, and the services can import them
+# without creating a services -> app_controller cycle. Re-exported under their
+# historical underscore names so existing call sites stay unchanged.
+from core.app.cancellation import cancel_message as _cancel_message
+from core.app.cancellation import is_cancelled as _is_cancelled
 
 
 class ConsolidationRunError(RuntimeError):
@@ -39,65 +49,19 @@ class ConsolidationRunError(RuntimeError):
         self.code = code
 
 
-def _is_cancelled(cancel_event: Optional[threading.Event]) -> bool:
-    """Return True when the user requested cancellation.
-
-    Helper for the threaded run_* entry points. The cancel_event is set
-    by the GUI when the user clicks the Cancel button on the
-    OperationStatusBar; the helper exists so call sites stay short and
-    the check stays cheap (no allocation per iteration).
-    """
-    return cancel_event is not None and cancel_event.is_set()
-
-
-def _cancel_message(
-    on_complete: Callable[[bool, str, Optional[Path]], None],
-    *output_paths: Optional[Path],
-) -> None:
-    """Wrap the standard cancel completion in a partial-files note.
-
-    All six ``run_*`` methods funnel their cancel branch through this
-    helper so the user gets a consistent message and the on-disk
-    partial files are renamed (not deleted) before the GUI shows the
-    toast. Network cache files are scrubbed in the same call.
-
-    Pass each candidate output path (file or directory) that the
-    operation may have started writing; the helper marks every
-    existing ``*.xlsx`` under those paths as ``.partial`` and appends
-    a short note to the user-facing message.
-    """
-    cleanup_local_copy_cache(max_age_days=0, min_delete_age_seconds=0)
-    partials: List[Path] = []
-    for path in output_paths:
-        partials.extend(mark_partial(path))
-    note = format_partial_note(partials)
-    message = "Операция отменена пользователем." + note
-    try:
-        # Tag the message so the GUI completion handler can detect
-        # cancellation by type (isinstance) instead of Russian substring
-        # matching — see core.ui.gui_commands._base.CancelledByUser.
-        # Lazy import keeps the controller decoupled from tkinter at
-        # module load (headless paths do not import the UI layer).
-        from core.ui.gui_commands._base import CancelledByUser
-        tagged = CancelledByUser(message)
-    except Exception:
-        tagged = message
-    on_complete(False, tagged, None)
-
-
 class AppController:
     """Main orchestrator — coordinates file discovery, ingestion, and export."""
 
     def __init__(
         self,
-        config_controller,
-        ingestion,
-        persistence,
-        validator,
-        logic_service,
-        writer,
-        alias_repo=None,
-    ):
+        config_controller: ConfigController,
+        ingestion: IDataSource,
+        persistence: IPersistence,
+        validator: IValidator,
+        logic_service: ILogicService,
+        writer: IExporter,
+        alias_repo: Any = None,
+    ) -> None:
         self.config_controller = config_controller
         self.ingestion = ingestion
         self.persistence = persistence
@@ -115,7 +79,7 @@ class AppController:
             thread_name_prefix="hermes-worker",
         )
         self._lock = threading.Lock()
-        self._cached_employees = {}
+        self._cached_employees: Dict[str, List[Dict[str, Any]]] = {}
         self._active_threads: List[threading.Thread] = []
         self._rsch = RschService(
             start_thread_fn=self._start_thread,
@@ -142,14 +106,17 @@ class AppController:
             logging.warning("Startup session purge failed (non-fatal)", exc_info=True)
 
     @property
-    def rename_detected(self):
-        return self.discovery.rename_detected
+    def rename_detected(self) -> bool:
+        return cast(bool, self.discovery.rename_detected)
 
     def _get_employees_map(
         self, *, allow_network_scan: bool = True
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Discover and return employee-to-file mapping."""
-        return self.discovery.get_employees_map(allow_network_scan=allow_network_scan)
+        return cast(
+            Dict[str, List[Dict[str, Any]]],
+            self.discovery.get_employees_map(allow_network_scan=allow_network_scan),
+        )
 
     def _resolve_master_path(self) -> Path:
         """Resolve the output master report path."""
@@ -166,7 +133,7 @@ class AppController:
                 save_config()
         try:
             master_path.parent.mkdir(parents=True, exist_ok=True)
-            return master_path
+            return cast(Path, master_path)
         except OSError as e:
             logging.warning(
                 "Master path unavailable (%s). Using fallback: %s",
@@ -193,18 +160,21 @@ class AppController:
 
     def _resolve_report_path(self, curator_config: Optional[Dict[str, Any]]) -> Path:
         if curator_config and curator_config.get("output_path"):
-            return self.config_controller.resolve_path(str(curator_config["output_path"]))
+            return cast(
+                Path,
+                self.config_controller.resolve_path(str(curator_config["output_path"])),
+            )
         return self._resolve_master_path()
 
     def _is_report_writable(self, curator_config: Optional[Dict[str, Any]]) -> bool:
         if not curator_config:
-            return check_master_lock(self.config_controller)
+            return cast(bool, check_master_lock(self.config_controller))
         path = self._resolve_report_path(curator_config)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
         except OSError:
             return False
-        return is_file_writable(str(path))
+        return cast(bool, is_file_writable(str(path)))
 
     def _get_enabled_curator_employee_keys(self) -> set[str]:
         curators = self.config_controller.config.get("curators", {})
@@ -253,7 +223,7 @@ class AppController:
             if AppController._employee_name_matches_any_key(name, included_keys)
         }
 
-    def _start_thread(self, target: Callable) -> None:
+    def _start_thread(self, target: Callable[..., Any]) -> None:
         """Start a task thread and track it for graceful shutdown."""
         t = threading.Thread(target=target, daemon=True)
         with self._lock:
@@ -262,7 +232,7 @@ class AppController:
         t.start()
 
     @staticmethod
-    def _normalize_selected_datetime(selected_date) -> datetime:
+    def _normalize_selected_datetime(selected_date: Any) -> datetime:
         if isinstance(selected_date, datetime):
             return selected_date
         return datetime.combine(selected_date, datetime.min.time())
@@ -376,9 +346,9 @@ class AppController:
 
     def _run_refresh_status(
         self,
-        selected_date,
+        selected_date: Any,
         on_progress: Callable[[float], None],
-        on_complete: Callable[[List[tuple], Dict, bool], None],
+        on_complete: Callable[[List[tuple[Any, ...]], Dict[str, Any], bool], None],
         on_error: Optional[Callable[[str], None]] = None,
     ) -> None:
         try:
@@ -394,7 +364,7 @@ class AppController:
             target_date_obj = self._normalize_selected_datetime(selected_date)
             today = datetime.now()
             total_count = len(unique_names)
-            local_data: List[tuple] = []
+            local_data: List[tuple[Any, ...]] = []
 
             executor = self._executor
             futures = {
@@ -469,7 +439,10 @@ class AppController:
             return employees_map
 
         with self._lock:
-            employees_map = dict(self._cached_employees) if self._cached_employees else None
+            employees_map = cast(
+                Dict[str, List[Dict[str, Any]]],
+                dict(self._cached_employees) if self._cached_employees else None,
+            )
         if employees_map:
             return employees_map
 
@@ -481,7 +454,7 @@ class AppController:
 
     @staticmethod
     def _format_file_error_note(file_errors: List[Dict[str, str]]) -> Optional[str]:
-        return format_controller_file_error_note(file_errors)
+        return cast(Optional[str], format_controller_file_error_note(file_errors))
 
     @staticmethod
     def _build_empty_data_message(
@@ -491,12 +464,15 @@ class AppController:
         range_note: Optional[str],
         file_error_note: Optional[str],
     ) -> str:
-        return build_controller_empty_data_message(
-            target_date_str,
-            start_date_str,
-            end_date_str,
-            range_note,
-            file_error_note,
+        return cast(
+            str,
+            build_controller_empty_data_message(
+                target_date_str,
+                start_date_str,
+                end_date_str,
+                range_note,
+                file_error_note,
+            ),
         )
 
     def _build_no_files_message(self) -> str:
@@ -517,12 +493,15 @@ class AppController:
         range_note: Optional[str],
         file_error_note: Optional[str],
     ) -> str:
-        return build_controller_success_message(
-            session_type,
-            start_date_str,
-            end_date_str,
-            range_note,
-            file_error_note,
+        return cast(
+            str,
+            build_controller_success_message(
+                session_type,
+                start_date_str,
+                end_date_str,
+                range_note,
+                file_error_note,
+            ),
         )
 
     @staticmethod
@@ -531,10 +510,13 @@ class AppController:
         start_date_str: Optional[str],
         end_date_str: Optional[str],
     ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
-        return normalize_controller_consolidation_dates(
-            target_date_str,
-            start_date_str,
-            end_date_str,
+        return cast(
+            tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]],
+            normalize_controller_consolidation_dates(
+                target_date_str,
+                start_date_str,
+                end_date_str,
+            ),
         )
 
     def _execute_consolidation(
@@ -713,12 +695,12 @@ class AppController:
 
     def refresh_status(
         self,
-        selected_date,
+        selected_date: Any,
         on_progress: Callable[[float], None],
-        on_complete: Callable[[List[tuple], Dict, bool], None],
-        curator=None,
+        on_complete: Callable[[List[tuple[Any, ...]], Dict[str, Any], bool], None],
+        curator: Optional[str] = None,
         on_error: Optional[Callable[[str], None]] = None,
-    ):
+    ) -> None:
         """Refresh employee file status for the selected date."""
         if not check_master_lock(self.config_controller):
             on_complete([], {}, False)
@@ -728,7 +710,7 @@ class AppController:
                 on_error(msg)
             return
 
-        def task():
+        def task() -> None:
             self._run_refresh_status(
                 selected_date,
                 on_progress,
@@ -752,7 +734,7 @@ class AppController:
         curator: Optional[str] = None,
         cancel_event: Optional[threading.Event] = None,
         on_current_file: Optional[Callable[[str, int, int], None]] = None,
-    ):
+    ) -> None:
         """Core consolidation logic shared by all consolidation entry points.
 
         Builds one Master report for all employees.
@@ -775,7 +757,7 @@ class AppController:
             )
             return
 
-        def task():
+        def task() -> None:
             self._execute_consolidation(
                 on_progress,
                 on_complete,
@@ -793,13 +775,13 @@ class AppController:
 
     def run_consolidation(
         self,
-        selected_date,
+        selected_date: Any,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
         cancel_event: Optional[threading.Event] = None,
         on_current_file: Optional[Callable[[str, int, int], None]] = None,
-    ):
+    ) -> None:
         """Run consolidation for a single selected date."""
         self._run_consolidation_core(
             on_progress,
@@ -818,7 +800,7 @@ class AppController:
         curator: Optional[str] = None,
         cancel_event: Optional[threading.Event] = None,
         on_current_file: Optional[Callable[[str, int, int], None]] = None,
-    ):
+    ) -> None:
         """Run consolidation for all available dates."""
         self._run_consolidation_core(
             on_progress,
@@ -832,14 +814,14 @@ class AppController:
 
     def run_consolidation_month(
         self,
-        start_date,
-        end_date,
+        start_date: Any,
+        end_date: Any,
         on_progress: Callable[[float], None],
         on_complete: Callable[[bool, str, Optional[Path]], None],
         curator: Optional[str] = None,
         cancel_event: Optional[threading.Event] = None,
         on_current_file: Optional[Callable[[str, int, int], None]] = None,
-    ):
+    ) -> None:
         """Run consolidation for a date range (monthly)."""
         self._run_consolidation_core(
             on_progress,
@@ -898,7 +880,7 @@ class AppController:
             raise RuntimeError("Отчет собран, но путь к файлу не получен")
         return Path(path)
 
-    def _write_empty_auto_reconciliation_report(self, curator: str, target_date) -> Path:
+    def _write_empty_auto_reconciliation_report(self, curator: str, target_date: Any) -> Path:
         curator_config = self._get_curator_config(curator)
         if not curator_config:
             raise RuntimeError(f"Не настроен отчет куратора {curator}")
@@ -925,7 +907,7 @@ class AppController:
         label: str,
         curator: Optional[str],
         date_suffix: str,
-        target_date,
+        target_date: Any,
     ) -> Path:
         try:
             return self._run_consolidation_blocking(
@@ -948,7 +930,7 @@ class AppController:
         self,
         source_paths: Path | Sequence[Path],
         output_path: Path,
-        selected_date,
+        selected_date: Any,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
     ) -> None:
@@ -1056,7 +1038,7 @@ class AppController:
         master_paths: Dict[str, Path],
         rsch_path: Path,
         output_path: Path,
-        selected_date,
+        selected_date: Any,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
     ) -> None:
@@ -1069,7 +1051,7 @@ class AppController:
         self,
         source_paths: Path | Sequence[Path],
         output_path: Path,
-        selected_date,
+        selected_date: Any,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
         on_progress: Optional[Callable[[float], None]] = None,
@@ -1090,8 +1072,8 @@ class AppController:
         self,
         source_paths: Path | Sequence[Path],
         output_path: Path,
-        start_date,
-        end_date,
+        start_date: Any,
+        end_date: Any,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
         on_progress: Optional[Callable[[float], None]] = None,
@@ -1113,8 +1095,8 @@ class AppController:
         self,
         source_paths: Path | Sequence[Path],
         output_dir: Path,
-        start_date,
-        end_date,
+        start_date: Any,
+        end_date: Any,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
     ) -> None:
@@ -1127,7 +1109,7 @@ class AppController:
         self,
         source_paths: Sequence[Path],
         output_paths: Sequence[Path],
-        selected_date,
+        selected_date: Any,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
     ) -> None:
@@ -1136,7 +1118,7 @@ class AppController:
             source_paths, output_paths, selected_date, on_complete, cancel_event
         )
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Gracefully shut down: wait for threads and close DB."""
         logging.info("[APP] Завершение: ожидаю завершения записей в БД...")
         self.persistence.wait_for_writes()
@@ -1156,17 +1138,17 @@ class AppController:
 
     # ── Customer aliases (reconciliation mapping) ───────────
 
-    def get_customer_aliases(self):
+    def get_customer_aliases(self) -> List[Any]:
         """Return all customer alias entries for UI display."""
         if self.alias_repo is None:
             return []
-        return self.alias_repo.get_all_aliases()
+        return cast(List[Any], self.alias_repo.get_all_aliases())
 
     def add_customer_alias(self, master_customer: str, rsch_customer: str, notes: str = "") -> int:
         """Add a new customer alias mapping. Returns new alias id."""
         if self.alias_repo is None:
             raise RuntimeError("Алиасы не настроены")
-        return self.alias_repo.add_alias(master_customer, rsch_customer, notes)
+        return cast(int, self.alias_repo.add_alias(master_customer, rsch_customer, notes))
 
     def update_customer_alias(
         self, alias_id: int, master_customer: str, rsch_customer: str, notes: str = ""

@@ -7,6 +7,7 @@ Maintained for high modularity, testability, and structural integrity.
 import logging
 import queue
 import re
+from typing import Any
 
 # TD-007: path-scrubbing helpers now live in core.shared.path_scrub so
 # that domain code can import them without depending on infra. This
@@ -18,19 +19,19 @@ from core.shared.path_scrub import scrub_path, safe_file_label  # noqa: F401
 try:
     import tkinter as tk
 except ModuleNotFoundError:  # pragma: no cover - headless environments
-    tk = None
+    tk = None  # type: ignore[assignment]  # headless fallback: no tkinter module
 
 
 WINDOWS_USER_RE = re.compile(r"C:\\Users\\[^\\]+", re.IGNORECASE)
 SMB_RE = re.compile(r"\\\\[^\\]+\\[^\\]+")
 
 class TextHandler(logging.Handler):
-    def __init__(self, text_widget):
+    def __init__(self, text_widget: Any) -> None:
         super().__init__()
         self.text_widget = text_widget
-        self.msg_queue = queue.Queue(maxsize=10000)
+        self.msg_queue: queue.Queue[str] = queue.Queue(maxsize=10000)
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         msg = self.format(record)
         try:
             self.msg_queue.put_nowait(msg)
@@ -41,7 +42,7 @@ class TextHandler(logging.Handler):
             except queue.Empty:
                 pass
 
-    def _process_queue(self):
+    def _process_queue(self) -> None:
         try:
             self.text_widget.configure(state='normal')
             count = 0
@@ -67,7 +68,7 @@ class TextHandler(logging.Handler):
                 # Widget may have been destroyed during shutdown; ignore.
                 pass
 
-def setup_gui_logging(log_widget):
+def setup_gui_logging(log_widget: Any) -> "TextHandler":
     if tk is None:
         raise RuntimeError("tkinter is not available in this environment")
     handler = TextHandler(log_widget)

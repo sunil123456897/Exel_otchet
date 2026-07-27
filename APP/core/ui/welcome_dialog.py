@@ -20,7 +20,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import tkinter as tk
 from tkinter import ttk
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 _FLAG_PATH = Path(__file__).resolve().parents[2] / "first_run.json"
 
 
-def _load_flag() -> dict:
+def _load_flag() -> dict[str, Any]:
     """Read the first-run flag file. Returns ``{}`` on any error."""
     try:
         if _FLAG_PATH.exists():
@@ -108,7 +108,9 @@ class WelcomeDialog:
         top = tk.Toplevel(self.parent)
         top.title("Добро пожаловать в Master-Report")
         top.configure(background=c.get("bg_main", "#f5f6f8"))
-        top.transient(self.parent)
+        # tkinter stubs type transient() as Wm | Tcl_Obj, but at runtime any
+        # widget is accepted — the parent Frame is the intended master.
+        top.transient(self.parent)  # type: ignore[call-overload]
         top.resizable(False, False)
         self.top = top
 

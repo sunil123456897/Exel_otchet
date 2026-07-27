@@ -41,7 +41,7 @@ class OperationStatusBar(ttk.Frame):
 
     def __init__(
         self,
-        parent,
+        parent: tk.Misc,
         operation_state: OperationState,
         on_cancel: Callable[[], None],
     ) -> None:

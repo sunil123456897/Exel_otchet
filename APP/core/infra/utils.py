@@ -10,6 +10,7 @@ import time
 import concurrent.futures
 from types import SimpleNamespace
 from pathlib import Path
+from typing import Any, Callable
 
 
 # Таймауты на блокирующие сетевые операции внутри get_local_copy.
@@ -22,7 +23,7 @@ NETWORK_STAT_TIMEOUT_SECONDS = 3.0
 NETWORK_COPY_TIMEOUT_SECONDS = 30.0
 
 
-def _run_io_with_timeout(fn, *args, timeout: float):
+def _run_io_with_timeout(fn: Callable[..., Any], *args: Any, timeout: float) -> Any:
     """Run a blocking I/O callable with a wall-clock timeout.
 
     Uses a throwaway thread. On timeout the worker thread is NOT killed
@@ -44,7 +45,7 @@ def _run_io_with_timeout(fn, *args, timeout: float):
         executor.shutdown(wait=False)
 
 
-def open_path(path: str):
+def open_path(path: str) -> None:
     if platform.system() == "Windows":
         os.startfile(path)
     elif platform.system() == "Darwin":
@@ -53,7 +54,7 @@ def open_path(path: str):
         subprocess.run(["xdg-open", path], check=False)
 
 
-def atomic_save_workbook(wb, output_path: Path) -> None:
+def atomic_save_workbook(wb: Any, output_path: Path) -> None:
     """Save an openpyxl workbook to output_path atomically.
 
     Writes to a sibling temp file then os.replace's it over the target, so a
@@ -102,10 +103,9 @@ _CACHE_CLEANUP_LOCK = threading.Lock()
 _CACHE_CLEANUP_DONE = False
 _CACHE_COPY_LOCK = threading.Lock()  # threading.Lock is sufficient for ThreadPoolExecutor; multiprocessing.Lock was overkill and could cause pickle errors on Windows
 _CACHE_MIN_DELETE_AGE_SECONDS = 30 * 60
-_DIGEST_CHUNK_SIZE = 1024 * 1024
 
 
-def _is_configured_drive_path(path: str, drive_letters: tuple) -> bool:
+def _is_configured_drive_path(path: str, drive_letters: tuple[str, ...]) -> bool:
     if len(path) < 2 or path[1] != ":":
         return False
 
@@ -117,22 +117,11 @@ def _is_configured_drive_path(path: str, drive_letters: tuple) -> bool:
     return path[0].upper() in configured_drives
 
 
-def _is_network_path(path: str, drive_letters: tuple) -> bool:
+def _is_network_path(path: str, drive_letters: tuple[str, ...]) -> bool:
     return path.startswith("\\\\") or _is_configured_drive_path(path, drive_letters)
 
 
-def file_content_fingerprint(path: str | Path) -> str | None:
-    digest = hashlib.sha256()
-    try:
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(_DIGEST_CHUNK_SIZE), b""):
-                digest.update(chunk)
-    except OSError:
-        return None
-    return digest.hexdigest()
-
-
-def _cache_copy_is_fresh(local_path: Path, remote_path: str, remote_stat) -> bool:
+def _cache_copy_is_fresh(local_path: Path, remote_path: str, remote_stat: Any) -> bool:
     try:
         cached_stat = os.stat(local_path)
     except OSError:
@@ -212,10 +201,10 @@ def _maybe_cleanup_local_copy_cache() -> None:
 
 def get_local_copy(
     network_path: str,
-    drive_letters: tuple = ("Q", "Z"),
+    drive_letters: tuple[str, ...] = ("Q", "Z"),
     remote_mtime: float | None = None,
     remote_size: int | None = None,
-) -> tuple:
+) -> tuple[str, str | None]:
     """Get a local cached copy of a network file.
 
     Cache is invalidated when mtime or size changes on the remote file.

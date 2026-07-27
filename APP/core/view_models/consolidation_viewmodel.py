@@ -1,16 +1,24 @@
 """Consolidation ViewModel — состояние и логика консолидации."""
 
 import threading
-from typing import Callable
+from typing import Any, Callable
 from datetime import datetime
 from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
 
+# Signature of the worker passed to ``_execute``: it receives an
+# ``(on_progress, on_complete)`` pair. Giving the lambdas in ``run_*`` a
+# concrete expected type keeps mypy from failing to infer their parameter
+# types (a bare ``Any`` target would trigger "Cannot infer type of lambda").
+_ActionFn = Callable[
+    [Callable[[float], None], Callable[[bool, str, Path | None], None]], None
+]
+
 
 class ConsolidationViewModel:
-    def __init__(self, app_controller=None, operation_state=None) -> None:
+    def __init__(self, app_controller: Any = None, operation_state: Any = None) -> None:
         self._app_controller = app_controller
         self._operation_state = operation_state
         self._lock = threading.Lock()
@@ -30,7 +38,7 @@ class ConsolidationViewModel:
         self._on_complete = on_complete
         self._on_current_file = on_current_file
 
-    def _execute(self, action_fn) -> None:
+    def _execute(self, action_fn: _ActionFn) -> None:
         with self._lock:
             if self._is_running:
                 return
@@ -66,7 +74,7 @@ class ConsolidationViewModel:
         return missing_count == 0
 
     def run_consolidation(
-        self, app_controller=None, selected_date: datetime | None = None, curator=None,
+        self, app_controller: Any = None, selected_date: datetime | None = None, curator: Any = None,
     ) -> None:
         ctl = app_controller or self._app_controller
         cancel_event = (
@@ -81,7 +89,7 @@ class ConsolidationViewModel:
         )
 
     def run_consolidation_all_dates(
-        self, app_controller=None, curator=None,
+        self, app_controller: Any = None, curator: Any = None,
     ) -> None:
         ctl = app_controller or self._app_controller
         cancel_event = (
@@ -97,10 +105,10 @@ class ConsolidationViewModel:
 
     def run_consolidation_month(
         self,
-        app_controller=None,
+        app_controller: Any = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
-        curator=None,
+        curator: Any = None,
     ) -> None:
         ctl = app_controller or self._app_controller
         cancel_event = (

@@ -1,40 +1,19 @@
 import tkinter as tk
 from tkinter import ttk
+from typing import Any
 
 from core.ui.debounce import Debouncer
-from core.ui.theme import ThemeManager
+from core.ui.theme import ThemeManager, color as _c, status_tint
 
 # UX-010: Optional drag-and-drop support via tkinterdnd2.
 # If the package is not installed, drag-drop is silently disabled
 # and the user attaches files via the "Привязать" button as before.
 try:
-    import tkinterdnd2  # type: ignore
+    import tkinterdnd2
     _DND_AVAILABLE = True
 except ImportError:
     tkinterdnd2 = None
     _DND_AVAILABLE = False
-
-
-def _c(key, fallback=None):
-    """Safe theme-color lookup with optional fallback.
-
-    ``fallback`` defaults to None for keys that are part of the canonical
-    token set (success, danger, bg_panel, …) — those always exist, so a
-    stale hex fallback would only drift from the real palette.
-    """
-    return ThemeManager.COLORS.get(key, fallback)
-
-
-def _blend(base: str, tint: str, ratio: float) -> str:
-    """Blend ``tint`` into ``base`` at ``ratio`` (0..1) → hex string.
-
-    Thin wrapper over theme._lerp_hex so the blend math lives in one
-    place. Used to derive faint status row-washes from the semantic
-    palette colours without hard-coding per-theme hex values.
-    """
-    from core.ui.theme import _lerp_hex
-
-    return _lerp_hex(base, tint, ratio)
 
 
 _COLUMN_WEIGHTS = {
@@ -45,14 +24,14 @@ _COLUMN_WEIGHTS = {
 
 
 class EmployeeTable(ttk.Frame):
-    def __init__(self, parent, controller):
+    def __init__(self, parent: tk.Misc, controller: Any) -> None:
         super().__init__(parent, style="Main.TFrame")
         self.controller = controller
         self._search_debouncer = Debouncer(self, self.controller.filter_tree, delay_ms=300)
         # Row index for alternating stripes (reset on clear_tree); and
         # the current hovered item id for hover-row highlight.
         self._row_index = 0
-        self._hover_row = None
+        self._hover_row: str | None = None
         # UX-012: sort state — (column, reverse). None = no sort.
         self._sort_column: str | None = None
         self._sort_reverse: bool = False
@@ -60,7 +39,7 @@ class EmployeeTable(ttk.Frame):
         self._status_filter: str | None = None
         self._setup_ui()
 
-    def _setup_ui(self):
+    def _setup_ui(self) -> None:
         # Header with actions
         header_frame = ttk.Frame(self, style="Main.TFrame")
         header_frame.pack(fill=tk.X, pady=(0, ThemeManager.SPACING["sm"]))
@@ -178,12 +157,14 @@ class EmployeeTable(ttk.Frame):
         # .xlsx file onto a row attaches it to that employee.
         if _DND_AVAILABLE:
             try:
-                self.tree.drop_target_register(tkinterdnd2.DND_FILES)
-                self.tree.dnd_bind("<<Drop>>", self._on_file_drop)
+                # tkinterdnd2 monkey-patches these methods onto the widget
+                # at runtime; the ttk stubs don't know about them.
+                self.tree.drop_target_register(tkinterdnd2.DND_FILES)  # type: ignore[attr-defined]
+                self.tree.dnd_bind("<<Drop>>", self._on_file_drop)  # type: ignore[attr-defined]
             except (tk.TclError, AttributeError):
                 pass  # DnD not supported on this platform/config
 
-    def _on_file_drop(self, event) -> None:
+    def _on_file_drop(self, event: Any) -> None:
         """UX-010: Handle a dropped file — attach to the selected employee."""
         # event.data contains the dropped file path(s), possibly wrapped in {}.
         raw = event.data.strip()
@@ -237,14 +218,14 @@ class EmployeeTable(ttk.Frame):
         self.tree.tag_configure(
             "ready",
             foreground=_c("success"),
-            background=self._status_tint("success"),
+            background=status_tint("success"),
             font=bold,
         )
         # missing — danger: red tint + bold red text.
         self.tree.tag_configure(
             "missing",
             foreground=_c("danger"),
-            background=self._status_tint("danger"),
+            background=status_tint("danger"),
             font=bold,
         )
         # partial — warning: amber tint + bold amber text.
@@ -257,31 +238,11 @@ class EmployeeTable(ttk.Frame):
         self.tree.tag_configure(
             "partial",
             foreground=_c("warning"),
-            background=self._status_tint("warning"),
+            background=status_tint("warning"),
             font=bold,
         )
         # UX-021: empty-state placeholder — italic, muted colour
         self.tree.tag_configure("empty_state", foreground=_c("text_secondary"))
-
-    @staticmethod
-    def _status_tint(sem_key: str) -> str:
-        """A very faint wash derived from a semantic colour.
-
-        ttk Treeview can only colour a whole row (not a single cell), so
-        a status "badge" has to be a row-level tint. Pure semantic fills
-        (#1a8a4e success) would swamp the table and fight the odd/even
-        stripes; a ~8% wash keeps the stripe visible while still marking
-        the row. Computed by blending the semantic colour with the
-        sidebar background at 92:8 (sidebar:tint).
-        """
-        from core.ui.theme import ThemeManager
-
-        try:
-            sem = ThemeManager.COLORS[sem_key]
-            base = ThemeManager.COLORS["bg_sidebar"]
-        except KeyError:
-            return ThemeManager.COLORS.get("bg_sidebar", "#ffffff")
-        return _blend(base, sem, 0.08)
 
     def refresh_theme(self) -> None:
         """Re-apply theme-dependent tag colours after a palette switch."""
@@ -309,25 +270,25 @@ class EmployeeTable(ttk.Frame):
         except (tk.TclError, AttributeError):
             pass
 
-    def _on_destroy(self, _event):
+    def _on_destroy(self, _event: object) -> None:
         self._search_debouncer.cancel()
 
-    def _show_context_menu(self, event):
+    def _show_context_menu(self, event: Any) -> None:
         item = self.tree.identify_row(event.y)
         if item:
             self.tree.selection_set(item)
             self.menu.post(event.x_root, event.y_root)
 
-    def get_search_query(self):
+    def get_search_query(self) -> str:
         return self.search_var.get().lower()
 
-    def clear_tree(self):
+    def clear_tree(self) -> None:
         self._row_index = 0
         self._hover_row = None
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-    def insert_row(self, values, tag):
+    def insert_row(self, values: Any, tag: str | None) -> None:
         # Remove empty-state placeholder if present
         children = self.tree.get_children()
         if children and self.tree.item(children[0], "tags") == ("empty_state",):
@@ -351,7 +312,7 @@ class EmployeeTable(ttk.Frame):
             tags=("empty_state",),
         )
 
-    def _on_tree_motion(self, event):
+    def _on_tree_motion(self, event: Any) -> None:
         """Highlight the row under the cursor for visual scanning."""
         row = self.tree.identify_row(event.y)
         if row == self._hover_row:
@@ -364,16 +325,16 @@ class EmployeeTable(ttk.Frame):
             self.tree.item(row, tags=tags)
         self._hover_row = row or None
 
-    def _on_tree_leave(self, _event):
+    def _on_tree_leave(self, _event: object) -> None:
         if self._hover_row:
             self._strip_hover_tag(self._hover_row)
             self._hover_row = None
 
-    def _strip_hover_tag(self, item):
+    def _strip_hover_tag(self, item: str) -> None:
         existing = [t for t in self.tree.item(item, "tags") if t != "hover"]
         self.tree.item(item, tags=existing)
 
-    def get_selected_employee(self):
+    def get_selected_employee(self) -> Any:
         sel = self.tree.selection()
         if not sel:
             return None

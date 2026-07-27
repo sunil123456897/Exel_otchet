@@ -4,7 +4,7 @@ import hashlib
 import re
 import threading
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List, cast
 from ruamel.yaml import YAML
 
 from core.infra.utils_logging import scrub_path
@@ -31,7 +31,7 @@ class ConfigController:
             logging.error(f"Error loading employees: {e}")
         return {}
 
-    def _save_employees(self):
+    def _save_employees(self) -> None:
         try:
             with open(self.employees_path, "w", encoding="utf-8") as f:
                 self.yaml.dump(self.employees, f)
@@ -85,10 +85,14 @@ class ConfigController:
             logging.warning(f"Config file not found: {self.config_path}")
             return {}
         except Exception as e:
-            logging.error(f"Error loading config: {e}")
+            logging.error(
+                "Error loading config: %s. Running on built-in defaults; "
+                "settings will NOT be saved this session. If config.yaml or "
+                "config.example.yaml is corrupt, restore it.", e,
+            )
             return {}
 
-    def save_config(self):
+    def save_config(self) -> None:
         """Saves the current configuration to the YAML file."""
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
@@ -105,11 +109,11 @@ class ConfigController:
         except Exception as e:
             logging.error(f"Error saving config: {e}")
 
-    def _invalidate_discovery_cache(self):
+    def _invalidate_discovery_cache(self) -> None:
         if isinstance(self.config, dict):
             self.config.pop("discovery_cache", None)
 
-    def add_employee(self, name: str):
+    def add_employee(self, name: str) -> None:
         name = name.strip()
         if not name:
             return
@@ -118,18 +122,18 @@ class ConfigController:
         self._invalidate_discovery_cache()
         self._save_employees()
 
-    def delete_employee(self, name: str):
+    def delete_employee(self, name: str) -> None:
         with self._employees_lock:
             if name in self.employees:
                 del self.employees[name]
         self._invalidate_discovery_cache()
         self._save_employees()
 
-    def attach_files(self, emp_name: str, files: List[str], append: bool = True):
+    def attach_files(self, emp_name: str, files: List[str], append: bool = True) -> None:
         """Attaches files to an employee, updating metadata for smart tracking."""
-        new_metas = []
+        new_metas: List[Any] = []
         for fp in files:
-            p = Path(fp).absolute()
+            p: Any = Path(fp).absolute()
             if not p.exists():
                 continue
             try:
@@ -150,8 +154,8 @@ class ConfigController:
 
         combined = current + new_metas if append else new_metas
 
-        final = []
-        seen = set()
+        final: List[Any] = []
+        seen: set[Any] = set()
         for m in combined:
             p = m["path"] if isinstance(m, dict) else m
             if p not in seen:
@@ -254,4 +258,4 @@ class ConfigController:
 
     def get_paths(self) -> Dict[str, str]:
         """Returns the general paths configuration."""
-        return self.config.get("paths", {})
+        return cast(Dict[str, str], self.config.get("paths", {}))

@@ -1,0 +1,144 @@
+/* =========================================================================
+   DESIGN TOKENS — machine-readable mirror of DESIGN.md
+   Source of truth: DESIGN.md (YAML front-matter). This file is the
+   CSS-variable rendering. If a value disagrees, DESIGN.md wins.
+   ========================================================================= */
+
+:root,
+[data-theme="light"] {
+  /* ── Brand accent (single chromatic voice) ── */
+  --primary: #1b4b8a;
+  --primary-hover: #163d70;
+  --primary-active: #143560;
+  --primary-focus: #5b8def;
+  --primary-soft: rgba(27, 75, 138, 0.08);
+  --on-primary: #ffffff;
+
+  /* ── Secondary (informational, <5% usage) ── */
+  --secondary: #0e6e8c;
+  --on-secondary: #ffffff;
+
+  /* ── Surface ladder (depth via colour, not shadow) ── */
+  --canvas: #f5f6f8;
+  --surface-1: #ffffff;
+  --surface-2: #eceef2;
+  --surface-3: #e2e5eb;
+
+  /* ── Ink (text) ── */
+  --ink: #1a2332;
+  --ink-secondary: #3d4859;
+  --ink-muted: #6b7588;
+  --ink-subtle: #8b94a5;
+
+  /* ── Hairlines ── */
+  --hairline: #e2e5eb;
+  --hairline-strong: #c4cad4;
+
+  /* ── Semantic (muted earth tones, not neon) ── */
+  --success: #1a8a4e;
+  --success-soft: rgba(26, 138, 78, 0.08);
+  --warning: #b45309;
+  --warning-soft: rgba(180, 83, 9, 0.08);
+  --error: #c0492f;
+  --error-soft: rgba(192, 73, 47, 0.08);
+  --info: #0e6e8c;
+
+  /* ── Elevation (shadow — secondary to surface ladder) ── */
+  --shadow-subtle: 0 1px 2px rgba(26, 35, 50, 0.05);
+  --shadow-medium: 0 4px 12px rgba(26, 35, 50, 0.08);
+  --shadow-elevated: 0 12px 32px rgba(26, 35, 50, 0.12);
+}
+
+[data-theme="dark"] {
+  --primary: #5b8def;
+  --primary-hover: #7aa2f7;
+  --primary-active: #3b6fd0;
+  --primary-focus: #5b8def;
+  --primary-soft: rgba(91, 141, 239, 0.12);
+  --on-primary: #111418;
+
+  --secondary: #4db0c9;
+  --on-secondary: #111418;
+
+  --canvas: #111418;
+  --surface-1: #171b21;
+  --surface-2: #1e232b;
+  --surface-3: #2a3038;
+
+  --ink: #e7ebf3;
+  --ink-secondary: #b8c0cc;
+  --ink-muted: #8b94a5;
+  --ink-subtle: #6b7588;
+
+  --hairline: #232830;
+  --hairline-strong: #363d48;
+
+  --success: #5fb87a;
+  --success-soft: rgba(95, 184, 122, 0.10);
+  --warning: #e0a341;
+  --warning-soft: rgba(224, 163, 65, 0.10);
+  --error: #ec6a5f;
+  --error-soft: rgba(236, 106, 95, 0.10);
+  --info: #4db0c9;
+
+  /* Dark shadows use pure-black alphas */
+  --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.40);
+  --shadow-elevated: 0 12px 32px rgba(0, 0, 0, 0.50);
+}
+
+/* ── Theme-independent tokens ── */
+:root {
+  /* Spacing scale (base 4px) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-xxl: 32px;
+  --space-xxxl: 48px;
+  --space-section: 64px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 9999px;
+
+  /* Typography */
+  --font-sans: "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+  --font-sans-semibold: "Segoe UI Semibold", Inter, system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "JetBrains Mono", ui-monospace, Consolas, monospace;
+
+  --text-display: 24px;
+  --text-heading: 16px;
+  --text-body: 14px;
+  --text-small: 13px;
+  --text-caption: 12px;
+  --text-mono: 13px;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.6;
+
+  --tracking-tight: -0.4px;
+  --tracking-heading: -0.2px;
+  --tracking-normal: 0;
+
+  --weight-regular: 400;
+  --weight-semibold: 600;
+
+  /* Layout */
+  --sidebar-width: 260px;
+  --sidebar-min: 240px;
+  --sidebar-max: 380px;
+  --topbar-height: 56px;
+  --container-max: 1280px;
+  --row-height: 36px;
+  --row-height-touch: 48px;
+
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+}

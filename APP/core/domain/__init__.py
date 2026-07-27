@@ -11,7 +11,11 @@ from core.domain.utils_helpers import (
     to_decimal_percent as to_decimal_percent,
 )
 from core.domain.data_schemas import FinancialRowSchema as FinancialRowSchema
-from core.domain.logic_service import (
-    LogicService as LogicService,
-    Validator as Validator,
-)
+
+# NOTE: ``LogicService`` / ``Validator`` are intentionally NOT re-exported
+# here. Doing so made ``core.domain`` import ``logic_service`` at package
+# init while ``logic_service`` imports ``core.domain.interfaces`` — an import
+# cycle that made mypy resolve the interfaces as ``Any`` and flag every
+# ``class X(IValidator/ILogicService/IPersistence/…)`` as "cannot subclass
+# (has type Any)". Import the implementations directly from
+# ``core.domain.logic_service`` instead.

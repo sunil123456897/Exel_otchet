@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Master-Report v5.6 — Дизайн-прототип</title>
+<link rel="stylesheet" href="design-tokens.css">
+<link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Перейти к содержимому</a>
+
+<!-- ====================== ЭКРАН 1: ГЛАВНАЯ (ДАШБОРД) ====================== -->
+<div class="screen" id="screen-dashboard" role="application" aria-label="Главный экран Master-Report">
+
+  <!-- ── Sidebar ────────────────────────────────────────────── -->
+  <aside class="sidebar" aria-label="Панель действий">
+    <div class="sidebar__brand">
+      <span class="brand-mark" aria-hidden="true">TK</span>
+      <span class="brand-name">Master-Report</span>
+    </div>
+
+    <div class="net-indicator" role="status" aria-live="polite">
+      <span class="dot dot--ok" aria-hidden="true"></span>
+      <span class="net-indicator__text">Сеть: 1/1 дисков доступны</span>
+    </div>
+
+    <!-- Section: Date -->
+    <section class="side-section" aria-labelledby="sec-date">
+      <h2 id="sec-date" class="side-section__title">📅 Выбор даты</h2>
+      <div class="field-row">
+        <label class="field">
+          <span class="field__label">Дата консолидации</span>
+          <input type="date" class="input" value="2026-07-09" aria-describedby="date-help">
+        </label>
+        <button class="btn btn--ghost btn--icon" aria-label="Обновить статус" title="Обновить (F5)">🔄</button>
+      </div>
+      <p id="date-help" class="help-text">Среда, 9 июля 2026</p>
+    </section>
+
+    <!-- Section: Employees -->
+    <section class="side-section" aria-labelledby="sec-emp">
+      <h2 id="sec-emp" class="side-section__title">👤 Сотрудники</h2>
+      <button class="btn btn--secondary btn--block">➕ Добавить</button>
+      <button class="btn btn--secondary btn--block">📎 Привязать</button>
+    </section>
+
+    <!-- Section: Build -->
+    <section class="side-section" aria-labelledby="sec-build">
+      <h2 id="sec-build" class="side-section__title">🚀 Сборка</h2>
+      <select class="select" aria-label="Куратор">
+        <option>Общий отчет</option>
+        <option>Куратор Борис</option>
+        <option>Куратор Иван</option>
+      </select>
+      <button class="btn btn--primary btn--block">⚡ Собрать день <kbd>Ctrl+D</kbd></button>
+      <button class="btn btn--secondary btn--block">🌍 Все даты</button>
+      <button class="btn btn--secondary btn--block">🧾 РСЧ</button>
+      <button class="btn btn--secondary btn--block">✅ Сверить</button>
+      <button class="btn btn--primary btn--block">✅ Автосверка</button>
+    </section>
+
+    <!-- Section: Period -->
+    <details class="side-section side-section--collapsible">
+      <summary class="side-section__title">📆 За период</summary>
+      <div class="field-row">
+        <label class="field"><span class="field__label">С</span><input type="date" class="input" value="2026-07-01"></label>
+        <label class="field"><span class="field__label">По</span><input type="date" class="input" value="2026-07-31"></label>
+      </div>
+      <button class="btn btn--primary btn--block" disabled>📊 Собрать период <kbd>Ctrl+M</kbd></button>
+    </details>
+
+    <!-- Section: Theme -->
+    <section class="side-section" aria-labelledby="sec-theme">
+      <h2 id="sec-theme" class="side-section__title">🎨 Тема</h2>
+      <div class="radio-group" role="radiogroup" aria-label="Тема оформления">
+        <label class="radio"><input type="radio" name="theme" value="light" checked> ☀️ Светлая</label>
+        <label class="radio"><input type="radio" name="theme" value="dark"> 🌙 Тёмная</label>
+        <label class="radio"><input type="radio" name="theme" value="system"> 💻 Системная</label>
+      </div>
+    </section>
+
+    <!-- Footer actions -->
+    <div class="sidebar__footer">
+      <button class="btn btn--ghost btn--block" id="open-settings">⚙ Настройки</button>
+      <button class="btn btn--ghost btn--block" id="open-shortcuts">⌨ Горячие клавиши</button>
+    </div>
+  </aside>
+
+  <!-- ── Main area ──────────────────────────────────────────── -->
+  <main class="main" id="main">
+    <header class="topbar">
+      <h1 class="topbar__title">Статус готовности отчётов</h1>
+      <div class="topbar__actions">
+        <input type="search" class="input input--search" placeholder="Поиск сотрудника…" aria-label="Поиск">
+        <select class="select" aria-label="Фильтр статуса">
+          <option>Все</option><option>Готово</option><option>Нет файла</option><option>Должники</option>
+        </select>
+        <button class="btn btn--secondary">📂 Папка Master</button>
+        <button class="btn btn--secondary">📋 Должники</button>
+      </div>
+    </header>
+
+    <!-- KPI cards -->
+    <section class="kpi-row" aria-label="Сводка">
+      <article class="card kpi">
+        <span class="kpi__label">Готовы</span>
+        <span class="kpi__value mono">18</span>
+        <span class="kpi__delta kpi__delta--ok">+2 за сегодня</span>
+      </article>
+      <article class="card kpi">
+        <span class="kpi__label">Нет файла</span>
+        <span class="kpi__value mono">3</span>
+        <span class="kpi__delta kpi__delta--err">требуют внимания</span>
+      </article>
+      <article class="card kpi">
+        <span class="kpi__label">Нет данных</span>
+        <span class="kpi__value mono">2</span>
+        <span class="kpi__delta kpi__delta--warn">проверьте дату</span>
+      </article>
+      <article class="card kpi">
+        <span class="kpi__label">Готовность</span>
+        <span class="kpi__value mono">78%</span>
+        <progress class="progress" value="78" max="100" aria-label="Готовность 78%"></progress>
+      </article>
+    </section>
+
+    <!-- Employee table -->
+    <section class="card table-card" aria-label="Таблица сотрудников">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th scope="col">Сотрудник</th>
+            <th scope="col">Статус</th>
+            <th scope="col">Файл отчёта</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="row row--ready">
+            <td>Амалия К.</td>
+            <td><span class="badge badge--success">● Готово</span></td>
+            <td class="mono">/otchet_kuratorov_1/amaliya.xlsx</td>
+          </tr>
+          <tr class="row row--ready">
+            <td>Антон К.</td>
+            <td><span class="badge badge--success">● Готово</span></td>
+            <td class="mono">/otchet_kuratorov_1/anton_k.xlsx</td>
+          </tr>
+          <tr class="row row--missing">
+            <td>Иван П.</td>
+            <td><span class="badge badge--error">● Нет файла</span></td>
+            <td class="mono muted">— не найден —</td>
+          </tr>
+          <tr class="row row--partial">
+            <td>Дарья Б.</td>
+            <td><span class="badge badge--warning">● Нет данных</span></td>
+            <td class="mono">/otchet_kuratorov_1/darya_b.xlsx</td>
+          </tr>
+          <tr class="row row--ready">
+            <td>Борис Ж.</td>
+            <td><span class="badge badge--success">● Готово</span></td>
+            <td class="mono">/otchet_kuratorov_2/boris_zh.xlsx</td>
+          </tr>
+          <tr class="row row--missing">
+            <td>Лола Б.</td>
+            <td><span class="badge badge--error">● Нет файла</span></td>
+            <td class="mono muted">— не найден —</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- Toast example -->
+  <div class="toast toast--success" role="alert" aria-live="assertive">
+    <div class="toast__icon" aria-hidden="true">✅</div>
+    <div class="toast__body">
+      <p class="toast__title">Master-отчёт</p>
+      <p class="toast__msg">Консолидация завершена. 18 сотрудников, 1240 строк.</p>
+    </div>
+    <button class="toast__close" aria-label="Закрыть">×</button>
+  </div>
+</div>
+
+<!-- ====================== ЭКРАН 2: НАСТРОЙКИ ====================== -->
+<dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title">
+  <div class="dialog__header">
+    <h2 id="settings-title" class="dialog__title">Настройки</h2>
+    <button class="btn btn--ghost btn--icon" aria-label="Закрыть" id="close-settings">×</button>
+  </div>
+  <div class="dialog__body">
+    <nav class="settings-nav" aria-label="Разделы настроек">
+      <button class="settings-nav__item is-active" type="button">🎨 Внешний вид</button>
+      <button class="settings-nav__item" type="button">📁 Пути</button>
+      <button class="settings-nav__item" type="button">⚡ Производительность</button>
+      <button class="settings-nav__item" type="button">🌐 Сеть</button>
+      <button class="settings-nav__item" type="button">🧮 Логика</button>
+      <button class="settings-nav__item" type="button">🗄 База данных</button>
+      <button class="settings-nav__item" type="button">💾 Бэкапы</button>
+      <button class="settings-nav__item" type="button">ℹ О программе</button>
+    </nav>
+    <div class="settings-content">
+      <h3 class="settings-content__heading">Внешний вид</h3>
+
+      <div class="form-row">
+        <label class="field">
+          <span class="field__label">Тема</span>
+          <select class="select"><option>Системная</option><option>Светлая</option><option>Тёмная</option></select>
+        </label>
+      </div>
+
+      <div class="form-row">
+        <label class="field">
+          <span class="field__label">Масштаб интерфейса</span>
+          <input type="range" class="range" min="80" max="150" value="100">
+          <span class="mono">100%</span>
+        </label>
+      </div>
+
+      <div class="form-row">
+        <span class="field__label">Плотность</span>
+        <div class="segmented" role="radiogroup" aria-label="Плотность">
+          <button class="segmented__btn" type="button">Компактная</button>
+          <button class="segmented__btn is-active" type="button">Обычная</button>
+          <button class="segmented__btn" type="button">Просторная</button>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="field">
+          <span class="field__label">Путь к Master-файлу <span class="req" aria-hidden="true">*</span></span>
+          <input type="text" class="input" value="Q:\Master_Report.xlsx" aria-invalid="false">
+        </label>
+      </div>
+
+      <div class="form-row">
+        <label class="field field--error">
+          <span class="field__label">Путь к источникам</span>
+          <input type="text" class="input" value="" placeholder="Укажите папку…" aria-invalid="true" aria-describedby="path-err">
+          <span id="path-err" class="field__error">⚠ Путь не существует</span>
+        </label>
+      </div>
+
+      <div class="form-row">
+        <label class="field field--disabled">
+          <span class="field__label">Таймаут сети (заблокировано)</span>
+          <input type="number" class="input" value="30" disabled>
+        </label>
+      </div>
+    </div>
+  </div>
+  <footer class="dialog__footer">
+    <button class="btn btn--ghost" id="settings-cancel">Отмена</button>
+    <button class="btn btn--primary" id="settings-apply">Применить</button>
+  </footer>
+</dialog>
+
+<script>
+  // Theme toggle (light/dark) — toggles data-theme on <html>
+  document.querySelectorAll('input[name="theme"]').forEach(r => {
+    r.addEventListener('change', e => {
+      document.documentElement.setAttribute('data-theme', e.target.value);
+    });
+  });
+  // Settings dialog open/close
+  const dlg = document.getElementById('settings-dialog');
+  document.getElementById('open-settings')?.addEventListener('click', () => dlg.showModal());
+  document.getElementById('open-shortcuts')?.addEventListener('click', () => alert('Горячие клавиши: Ctrl+D/M/R/E, F1/F5, Esc'));
+  document.getElementById('close-settings')?.addEventListener('click', () => dlg.close());
+  document.getElementById('settings-cancel')?.addEventListener('click', () => dlg.close());
+  // Settings nav active state
+  document.querySelectorAll('.settings-nav__item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.settings-nav__item').forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+    });
+  });
+  // Segmented control
+  document.querySelectorAll('.segmented__btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.parentElement.querySelectorAll('.segmented__btn').forEach(b => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+    });
+  });
+  // Toast dismiss
+  document.querySelector('.toast__close')?.addEventListener('click', e => e.target.closest('.toast').remove());
+</script>
+</body>
+</html>

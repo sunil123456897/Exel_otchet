@@ -2,12 +2,17 @@ import logging
 import tkinter as tk
 from tkinter import ttk, messagebox, PhotoImage
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 try:
+    # Prefer the top-level APP package (parent of APP/ on sys.path).
     from APP import __version__ as APP_VERSION
-except Exception:  # pragma: no cover - APP package always on path at runtime
-    APP_VERSION = "5.6"
+except Exception:
+    # Runtime fallback: APP/ is on sys.path (not its parent), so we
+    # import via the core package which mirrors __version__ in
+    # APP/core/__init__.py. The single-version-source test pins that
+    # both literals stay in sync.
+    from core import __version__ as APP_VERSION  # type: ignore[no-redef]
 
 from core.ui.ui_sidebar import Sidebar
 from core.ui.ui_employee_table import EmployeeTable
@@ -56,13 +61,15 @@ def _resolve_initial_geometry(
     1. Persisted geometry (if it still fits the current display).
     2. Auto-fitted default (centred, capped to 82% of screen width).
     """
-    saved = load_geometry()
+    saved: str | None = load_geometry()
     if saved and is_geometry_visible(saved, screen_width, screen_height):
         return saved
     return _fit_window_geometry(preferred[0], preferred[1], screen_width, screen_height)
 
 
-class GuiMaster(GuiMasterSettingsMixin):
+# mypy resolves this module as APP.core.ui.*, so the runtime ``core.*``
+# import above is unresolvable to it and the mixin degrades to Any.
+class GuiMaster(GuiMasterSettingsMixin):  # type: ignore[misc]
     def __init__(
         self,
         root: tk.Tk,
@@ -70,7 +77,7 @@ class GuiMaster(GuiMasterSettingsMixin):
         app_controller: AppController,
         *,
         view_only: bool = False,
-    ):
+    ) -> None:
         self.root, self.config_controller, self.app_controller = (
             root,
             config_controller,
@@ -129,7 +136,7 @@ class GuiMaster(GuiMasterSettingsMixin):
         #    edge case where the virtual event is dropped.
         self._base_title = f"Master-Report v{APP_VERSION}"
 
-        def _refresh_title(_event=None) -> None:
+        def _refresh_title(_event: object = None) -> None:
             try:
                 snap = self.operation_state.snapshot()
                 if snap.current:
@@ -161,7 +168,7 @@ class GuiMaster(GuiMasterSettingsMixin):
         # its own root.after(0, ...) — doubling the queued callbacks per
         # progress tick and contributing to event-queue flooding during
         # consolidation/RSC. Coalescing halves the per-tick GUI work.
-        def _on_operation_state(snap) -> None:
+        def _on_operation_state(snap: Any) -> None:
             def _apply() -> None:
                 try:
                     self.sidebar.apply(snap)
@@ -226,7 +233,8 @@ class GuiMaster(GuiMasterSettingsMixin):
         png_path = icons_dir / "app.png"
         try:
             if ico_path.exists():
-                self.root.iconbitmap(str(ico_path))
+                # wm_iconbitmap is left unannotated in typeshed.
+                self.root.iconbitmap(str(ico_path))  # type: ignore[no-untyped-call]
                 return
         except tk.TclError:
             pass
@@ -251,8 +259,8 @@ class GuiMaster(GuiMasterSettingsMixin):
         """
         root = self.root
         # Guard: if a text entry has focus, let it handle Ctrl+* keys.
-        def _guard(fn):
-            def wrapped(event=None):
+        def _guard(fn: Callable[[], Any]) -> Callable[..., Any]:
+            def wrapped(event: Any = None) -> None:
                 w = event.widget if event else None
                 if w is not None and hasattr(w, "winfo_class"):
                     try:
@@ -275,14 +283,14 @@ class GuiMaster(GuiMasterSettingsMixin):
         # U12-A: F1 opens the shortcuts reference dialog. Guarded like
         # the other shortcuts so F1 inside a Text/Entry does not hijack
         # the native caret behaviour.
-        def _show_shortcuts():
+        def _show_shortcuts() -> None:
             from core.ui.shortcuts_dialog import show_shortcuts
 
             show_shortcuts(self.root)
 
         root.bind("<F1>", _guard(_show_shortcuts))
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
         self.sidebar = Sidebar(self.root, self)
         self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
 
@@ -364,7 +372,7 @@ class GuiMaster(GuiMasterSettingsMixin):
         except Exception:
             pass
 
-    def _on_employee_vm_update(self):
+    def _on_employee_vm_update(self) -> None:
         self.root.after(0, self.commands._sync_employee_ui)
 
     def _request_cancel(self) -> None:
@@ -374,7 +382,7 @@ class GuiMaster(GuiMasterSettingsMixin):
         if cancelled:
             self.toasts.info("Отмена", "Операция будет остановлена на ближайшей контрольной точке")
 
-    def _on_consolidation_progress(self, progress: float):
+    def _on_consolidation_progress(self, progress: float) -> None:
         # Called from the consolidation worker thread. OperationState is
         # thread-safe, but ``event_generate`` (and any Tk call) must run
         # on the GUI thread — calling it directly from the worker races
@@ -392,35 +400,15 @@ class GuiMaster(GuiMasterSettingsMixin):
         """
         self.operation_state.set_current_file(file_label)
 
-    def _update_title_from_state(self, _event=None) -> None:
-        """Refresh window title from OperationState — always runs on GUI thread."""
-        snap = self.operation_state.snapshot()
-        # UX-019: include the selected date in the title so the user
-        # always knows which date they're working with.
-        try:
-            date_str = self.sidebar.get_date()
-            if hasattr(date_str, "strftime"):
-                date_str = date_str.strftime("%d.%m.%Y")
-            date_part = f" — {date_str}" if date_str else ""
-        except Exception:
-            date_part = ""
-        if snap.current:
-            label = OPERATION_LABELS.get(snap.current, "")
-            self.root.title(
-                f"{self._base_title}{date_part} — {label} {snap.progress:.0f}%"
-            )
-        else:
-            self.root.title(f"{self._base_title}{date_part}")
-
-    def _on_operation_snapshot(self, snap) -> None:
+    def _on_operation_snapshot(self, snap: Any) -> None:
         """Forward the operation progress to the StatsPanel bar."""
         try:
             self.stats_panel.set_operation(snap.progress)
         except (AttributeError, tk.TclError):
             pass
 
-    def _on_consolidation_complete(self, ok: bool, msg: str, path: Optional[Path]):
-        def fin():
+    def _on_consolidation_complete(self, ok: bool, msg: str, path: Optional[Path]) -> None:
+        def fin() -> None:
             self.operation_state.end()
             cancelled = "отменена пользователем" in (msg or "").lower()
 
@@ -451,37 +439,37 @@ class GuiMaster(GuiMasterSettingsMixin):
 
         self.root.after(0, fin)
 
-    def refresh_status(self):
+    def refresh_status(self) -> None:
         self.commands.refresh_status()
 
-    def run_consolidation(self):
+    def run_consolidation(self) -> None:
         self.commands.run_consolidation()
 
-    def run_consolidation_all_dates(self):
+    def run_consolidation_all_dates(self) -> None:
         self.commands.run_consolidation_all_dates()
 
-    def run_consolidation_month(self):
+    def run_consolidation_month(self) -> None:
         self.commands.run_consolidation_month()
 
-    def run_rsch_report(self):
+    def run_rsch_report(self) -> None:
         self.commands.run_rsch_report()
 
-    def run_rsch_report_month(self):
+    def run_rsch_report_month(self) -> None:
         self.commands.run_rsch_report_month()
 
-    def run_reconciliation_report(self):
+    def run_reconciliation_report(self) -> None:
         self.commands.run_reconciliation_report()
 
-    def run_auto_reconciliation_day(self):
+    def run_auto_reconciliation_day(self) -> None:
         self.commands.run_auto_reconciliation_day()
 
-    def add_employee_dialog(self):
+    def add_employee_dialog(self) -> None:
         self.commands.add_employee_dialog()
 
-    def attach_file_dialog(self):
+    def attach_file_dialog(self) -> None:
         self.commands.attach_file_dialog()
 
-    def open_master_folder(self):
+    def open_master_folder(self) -> None:
         self.commands.open_master_folder()
 
     def show_shortcuts(self) -> None:
@@ -490,19 +478,19 @@ class GuiMaster(GuiMasterSettingsMixin):
 
         show_shortcuts(self.root)
 
-    def copy_missing_to_clipboard(self):
+    def copy_missing_to_clipboard(self) -> None:
         self.commands.copy_missing_to_clipboard()
 
-    def filter_tree(self):
+    def filter_tree(self) -> None:
         self.commands.filter_tree()
 
-    def open_employee_folder(self):
+    def open_employee_folder(self) -> None:
         self.commands.open_employee_folder()
 
-    def open_employee_file(self):
+    def open_employee_file(self) -> None:
         self.commands.open_employee_file()
 
-    def delete_employee(self):
+    def delete_employee(self) -> None:
         self.commands.delete_employee()
 
     def _install_geometry_save_handler(self) -> None:
@@ -524,7 +512,11 @@ class GuiMaster(GuiMasterSettingsMixin):
         def _save_then_close() -> None:
             self._persist_geometry()
             if original:
-                original()
+                # tkinter's protocol getter returns the previous handler as a
+                # Tcl command NAME (a str), not a Python callable — invoking
+                # it as ``original()`` would raise TypeError. Call it through
+                # the Tcl interpreter instead.
+                self.root.tk.call(original)
             else:
                 self.root.destroy()
 
@@ -548,14 +540,6 @@ class GuiMaster(GuiMasterSettingsMixin):
             logging.debug("Geometry save failed: %s", e)
         finally:
             self._geometry_saved = True
-
-    def save_geometry_and_close(self) -> None:
-        """Persist the window geometry and then destroy the root."""
-        self._persist_geometry()
-        try:
-            self.root.destroy()
-        except tk.TclError:
-            pass
 
     def start_theme_polling(self) -> None:
         """Begin polling the OS theme every 5 s.

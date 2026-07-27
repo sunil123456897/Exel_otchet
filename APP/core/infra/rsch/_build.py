@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import openpyxl
 from openpyxl import Workbook
+from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Protection, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
@@ -155,25 +156,25 @@ def _ensure_header_style(ws: Worksheet, force_normalize: bool, is_table: bool = 
         cell.border = copy(_THIN_BORDER)
 
 
-def _ensure_comment_cell_style(cell) -> None:
+def _ensure_comment_cell_style(cell: Cell | MergedCell) -> None:
     cell.number_format = "General"
     cell.alignment = copy(_TEXT_ALIGNMENT)
     cell.border = copy(_THIN_BORDER)
 
 
-def _ensure_account_cell_style(cell) -> None:
+def _ensure_account_cell_style(cell: Cell | MergedCell) -> None:
     cell.number_format = "General"
     cell.alignment = copy(_ACCOUNT_ALIGNMENT)
     cell.border = copy(_THIN_BORDER)
 
 
-def _ensure_amount_cell_style(cell, number_format: str) -> None:
+def _ensure_amount_cell_style(cell: Cell | MergedCell, number_format: str) -> None:
     cell.number_format = number_format
     cell.alignment = copy(_AMOUNT_ALIGNMENT)
     cell.border = copy(_THIN_BORDER)
 
 
-def _ensure_date_cell_style(cell) -> None:
+def _ensure_date_cell_style(cell: Cell | MergedCell) -> None:
     cell.alignment = copy(_DATE_ALIGNMENT)
     cell.border = copy(_THIN_BORDER)
 
@@ -254,24 +255,6 @@ def _apply_column_widths(
         )
 
 
-def _autosize_all_columns(
-    ws_out: Worksheet, min_width: int = 10, max_width: int = 60
-) -> None:
-    for col_idx in range(1, ws_out.max_column + 1):
-        col_letter = get_column_letter(col_idx)
-        max_len = 0
-        for row_idx in range(1, ws_out.max_row + 1):
-            max_len = max(max_len, _display_len(ws_out.cell(row_idx, col_idx).value))
-
-        if col_idx in (5, 6):
-            max_len = max(max_len, 14)
-
-        ws_out.column_dimensions[col_letter].width = max(
-            min_width,
-            min(max_width, max_len + 2),
-        )
-
-
 def _apply_amount_highlighting(
     ws_out: Worksheet,
     row_idx: int,
@@ -310,6 +293,7 @@ def _write_rsch_sheet(
     is_table: bool = False,
 ) -> None:
     ws_out = wb_out.active if first_sheet else wb_out.create_sheet()
+    assert ws_out is not None  # active sheet exists / create_sheet returns one
     ws_out.title = sheet_name
 
     style_layout = _resolve_template_style_layout(template_ws, is_table)

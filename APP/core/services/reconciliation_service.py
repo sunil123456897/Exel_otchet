@@ -12,8 +12,10 @@ couples it to the consolidation core.
 import logging
 import threading
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
+from core.app.cancellation import cancel_message as _cancel_message
+from core.app.cancellation import is_cancelled as _is_cancelled
 from core.infra.reconciliation import build_combined_reconciliation_report
 
 
@@ -22,9 +24,9 @@ class ReconciliationService:
 
     def __init__(
         self,
-        start_thread_fn: Callable[[Callable], None],
+        start_thread_fn: Callable[[Callable[[], None]], None],
         get_drive_letters_fn: Callable[[], tuple[str, ...]],
-        alias_repo=None,
+        alias_repo: Optional[Any] = None,
     ) -> None:
         self._start_thread = start_thread_fn
         self._get_drive_letters = get_drive_letters_fn
@@ -35,7 +37,7 @@ class ReconciliationService:
         master_paths: Dict[str, Path],
         rsch_path: Path,
         output_path: Path,
-        selected_date,
+        selected_date: Any,
         on_complete: Callable[[bool, str, Optional[Path]], None],
         cancel_event: Optional[threading.Event] = None,
     ) -> None:
@@ -43,8 +45,6 @@ class ReconciliationService:
 
         def task() -> None:
             try:
-                from core.app_controller import _is_cancelled, _cancel_message
-
                 if _is_cancelled(cancel_event):
                     _cancel_message(on_complete, output_path)
                     return

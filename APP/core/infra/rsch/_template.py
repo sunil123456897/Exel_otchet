@@ -4,16 +4,14 @@ from __future__ import annotations
 import logging
 from copy import copy
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 
 from ._format import _normalize_text
-from ._collect import _copy_style
 
 logger = logging.getLogger(__name__)
 
@@ -103,38 +101,6 @@ def _find_total_row(template_ws: Worksheet) -> Optional[int]:
     return None
 
 
-def _prepare_output_sheet(
-    template_ws: Worksheet, sheet_name: str
-) -> tuple[Workbook, Worksheet, Dict[str, Any]]:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = sheet_name
-
-    style_layout = _resolve_template_style_layout(template_ws)
-
-    ws.append(RSCH_HEADERS)
-
-    for col_idx, _ in enumerate(RSCH_HEADERS, start=1):
-        header_source = template_ws.cell(1, style_layout["header_cols"][col_idx])
-        _copy_style(header_source, ws.cell(1, col_idx))
-        col = get_column_letter(col_idx)
-        source_col = get_column_letter(style_layout["width_cols"][col_idx])
-        src_dim = template_ws.column_dimensions.get(source_col)
-        if src_dim and src_dim.width:
-            ws.column_dimensions[col].width = src_dim.width
-
-    ws.freeze_panes = template_ws.freeze_panes
-    ws.sheet_view.zoomScale = template_ws.sheet_view.zoomScale
-    ws.sheet_view.showGridLines = template_ws.sheet_view.showGridLines
-    ws.sheet_format.defaultRowHeight = template_ws.sheet_format.defaultRowHeight
-    header_height = template_ws.row_dimensions[1].height
-    if header_height:
-        ws.row_dimensions[1].height = header_height
-
-    _ensure_header_style(ws, style_layout["legacy_template"])
-    return wb, ws, style_layout
-
-
 def _template_header_values(template_ws: Worksheet, max_scan: int) -> List[str]:
     return [
         _normalize_text(template_ws.cell(1, col_idx).value)
@@ -142,7 +108,9 @@ def _template_header_values(template_ws: Worksheet, max_scan: int) -> List[str]:
     ]
 
 
-def _first_matching_column(header_values: Sequence[str], predicate) -> Optional[int]:
+def _first_matching_column(
+    header_values: Sequence[str], predicate: Callable[[str], bool]
+) -> Optional[int]:
     for idx, value in enumerate(header_values, start=1):
         if predicate(value):
             return idx
@@ -318,6 +286,7 @@ def _resolve_amount_number_format(
 def _create_builtin_template_workbook() -> Workbook:
     wb = Workbook()
     ws = wb.active
+    assert ws is not None  # a fresh Workbook always has an active sheet
     ws.title = "РСЧ"
     ws.append(RSCH_HEADERS)
     ws.append(["", "", "", "", 0, 0, "", ""])

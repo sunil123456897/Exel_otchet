@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # Late imports to avoid hard PIL dependency at module import (tests that
 # only touch the token system shouldn't require Pillow).
@@ -51,7 +51,7 @@ class IconManager:
     # switch can re-render them with the new theme's coloured icon.
     # Each entry: (widget, name, set_via) where set_via is "image" or
     # "compound" — how to re-apply the image after a rebuild.
-    _registered: list = []
+    _registered: list[Any] = []
 
     @classmethod
     def bind_root(cls, root: tk.Tk) -> None:
@@ -64,7 +64,7 @@ class IconManager:
         cls._tk_root = root
 
     @classmethod
-    def register(cls, widget, name: str) -> None:
+    def register(cls, widget: Any, name: str) -> None:
         """Track a widget that displays icon ``name`` via ``image=``.
 
         On a theme switch, ``invalidate()`` re-fetches the themed icon and
@@ -125,7 +125,7 @@ class IconManager:
         cls._registered = live
 
     @classmethod
-    def get(cls, name: str):
+    def get(cls, name: str) -> Any:
         """Return a ``PhotoImage`` for ``name`` in the active theme.
 
         Returns ``None`` (not raises) if PIL is unavailable or the icon
@@ -140,7 +140,7 @@ class IconManager:
         return img
 
     @classmethod
-    def _load(cls, name: str):
+    def _load(cls, name: str) -> Any:
         path = _ICONS_DIR / cls._theme / f"{name}.png"
         if not path.exists():
             return None

@@ -19,7 +19,7 @@ class EmployeeStatus:
     path_text: str  # "file.xlsx" или "[3 файлов]"
     tag: str  # "ready", "missing", "partial"
 
-    def to_tuple(self) -> tuple:
+    def to_tuple(self) -> tuple[str, str, str, str]:
         return (self.name, self.status_text, self.path_text, self.tag)
 
 
@@ -50,9 +50,9 @@ class EmployeeListViewModel:
         self._status_filter: Optional[str] = None
         self._rename_detected: bool = False
         self._last_error: Optional[str] = None
-        self._on_update: Optional[Callable] = None
+        self._on_update: Optional[Callable[[], None]] = None
 
-    def set_update_callback(self, callback: Callable) -> None:
+    def set_update_callback(self, callback: Callable[[], None]) -> None:
         """Установить callback при обновлении данных."""
         self._on_update = callback
 
@@ -60,17 +60,19 @@ class EmployeeListViewModel:
 
     def refresh(
         self,
-        app_controller,
+        app_controller: Any,
         selected_date: datetime,
         on_progress: Callable[[float], None],
-        curator=None,
+        curator: Any = None,
         on_error: Optional[Callable[[str], None]] = None,
         on_complete: Optional[Callable[[], None]] = None,
     ) -> None:
         """Запустить обновление статуса сотрудников."""
 
         def on_complete_inner(
-            data: List[tuple], employees_map: Dict, rename_detected: bool
+            data: List[tuple[str, str, str, str]],
+            employees_map: Dict[str, List[Dict[str, Any]]],
+            rename_detected: bool,
         ) -> None:
             with self._lock:
                 self._all_employees = [
@@ -104,17 +106,17 @@ class EmployeeListViewModel:
             on_error=handle_error,
         )
 
-    def add_employee(self, config_controller, name: str) -> None:
+    def add_employee(self, config_controller: Any, name: str) -> None:
         """Добавить нового сотрудника."""
         config_controller.add_employee(name)
 
-    def delete_employee(self, config_controller, name: str) -> None:
+    def delete_employee(self, config_controller: Any, name: str) -> None:
         """Удалить сотрудника."""
         config_controller.delete_employee(name)
 
     def attach_files(
         self,
-        config_controller,
+        config_controller: Any,
         name: str,
         paths: List[str],
         append: bool = True,
@@ -122,9 +124,9 @@ class EmployeeListViewModel:
         """Прикрепить файлы к сотруднику."""
         config_controller.attach_files(name, paths, append=append)
 
-    def get_master_path(self, config_controller) -> Optional[Path]:
+    def get_master_path(self, config_controller: Any) -> Optional[Path]:
         """Получить путь к мастер-файлу."""
-        p = config_controller.resolve_path(
+        p: Optional[Path] = config_controller.resolve_path(
             config_controller.get_paths().get("master_file", "Master_Report.xlsx")
         )
         return p
@@ -227,8 +229,9 @@ class EmployeeListViewModel:
             metas = self._employees_map.get(selected_name, [])
         if not metas:
             return None
-        meta = metas[0]
-        return meta["path"] if isinstance(meta, dict) else meta
+        meta: Any = metas[0]
+        path: Optional[str] = meta["path"] if isinstance(meta, dict) else meta
+        return path
 
     def get_selected_employee_paths(self, selected_name: Optional[str]) -> List[str]:
         """Получить все пути выбранного сотрудника."""

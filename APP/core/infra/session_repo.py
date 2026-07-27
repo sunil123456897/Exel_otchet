@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import List, Dict, Any, Optional
+import sqlite3
+from typing import Any, Callable, Dict, List, Optional, cast
 from pathlib import Path
 from core.domain import IPersistence
 from core.infra.db_connection import SQLiteConnectionManager, DecimalEncoder
@@ -25,7 +26,9 @@ def _log_wal_size(db_path: Path, logger: logging.Logger) -> None:
             )
 
 
-class SessionRepository(IPersistence):
+# Note [misc ignore]: dual module identity (APP.core.* vs core.*) makes mypy
+# see the interface as Any; subclassing is correct at runtime.
+class SessionRepository(IPersistence):  # type: ignore[misc]
     def __init__(self, db_path: str, schema_path: str, config: Dict[str, Any]):
         self.connection_manager = SQLiteConnectionManager(Path(db_path), config)
         self.connection_manager.init_db(Path(schema_path))
@@ -41,14 +44,16 @@ class SessionRepository(IPersistence):
     def init_db(self) -> None:
         pass
 
-    def _get_connection(self):
-        return self.connection_manager.get_connection()
+    def _get_connection(self) -> sqlite3.Connection:
+        return cast(sqlite3.Connection, self.connection_manager.get_connection())
 
-    def _execute_with_retry(self, func, *args, **kwargs):
+    def _execute_with_retry(
+        self, func: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> Any:
         return self.connection_manager.execute_with_retry(func, *args, **kwargs)
 
     def save_session(self, session_id: str, metadata: Dict[str, Any]) -> None:
-        def _save():
+        def _save() -> None:
             conn = self._get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -69,7 +74,7 @@ class SessionRepository(IPersistence):
         self._execute_with_retry(_save)
 
     def save_template_error(self, session_id: str, error_info: Dict[str, Any]) -> None:
-        def _save():
+        def _save() -> None:
             conn = self._get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -106,7 +111,7 @@ class SessionRepository(IPersistence):
         if not errors:
             return
 
-        def _save():
+        def _save() -> None:
             conn = self._get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -194,7 +199,7 @@ class SessionRepository(IPersistence):
             ).fetchall()
             result = []
             for row in rows:
-                meta = {}
+                meta: dict[str, Any] = {}
                 try:
                     meta = json.loads(row["metadata"]) if row["metadata"] else {}
                 except (json.JSONDecodeError, TypeError):
@@ -214,7 +219,7 @@ class SessionRepository(IPersistence):
             conn.close()
 
     def update_session_status(self, session_id: str, status: str) -> None:
-        def _update():
+        def _update() -> None:
             conn = self._get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -234,7 +239,7 @@ class SessionRepository(IPersistence):
     def update_file_status(
         self, file_id: int, status: str, error_message: Optional[str] = None
     ) -> None:
-        def _update():
+        def _update() -> None:
             conn = self._get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -254,13 +259,17 @@ class SessionRepository(IPersistence):
     def save_file_metadata(
         self, session_id: str, files: List[Dict[str, Any]]
     ) -> List[int]:
-        return self.source_file_repo.save_file_metadata(session_id, files)
+        return cast(
+            List[int], self.source_file_repo.save_file_metadata(session_id, files)
+        )
 
     def save_staging_data(self, file_id: int, rows: List[Dict[str, Any]]) -> None:
         self.staging_repo.save_staging_data(file_id, rows)
 
     def get_consolidated_data(self, session_id: str) -> List[Dict[str, Any]]:
-        return self.staging_repo.get_consolidated_data(session_id)
+        return cast(
+            List[Dict[str, Any]], self.staging_repo.get_consolidated_data(session_id)
+        )
 
     def wait_for_writes(self) -> None:
         self.source_file_repo.wait_for_writes()
@@ -290,7 +299,9 @@ class SessionRepository(IPersistence):
             self.logger.warning("Failed to remove unclean shutdown flag: %s", e)
 
     def get_file_cache(self, file_path: str) -> Optional[Dict[str, Any]]:
-        return self.source_file_repo.get_file_cache(file_path)
+        return cast(
+            Optional[Dict[str, Any]], self.source_file_repo.get_file_cache(file_path)
+        )
 
     def save_file_cache(
         self,
@@ -307,7 +318,10 @@ class SessionRepository(IPersistence):
     def get_row_cache(
         self, file_path: str, mtime: float, size: int, date_key: str
     ) -> Optional[List[Dict[str, Any]]]:
-        return self.source_file_repo.get_row_cache(file_path, mtime, size, date_key)
+        return cast(
+            Optional[List[Dict[str, Any]]],
+            self.source_file_repo.get_row_cache(file_path, mtime, size, date_key),
+        )
 
     def save_row_cache(
         self,
@@ -320,7 +334,10 @@ class SessionRepository(IPersistence):
         self.source_file_repo.save_row_cache(file_path, mtime, size, date_key, rows)
 
     def get_discovery_cache(self, roots_key: str) -> Optional[List[Dict[str, Any]]]:
-        return self.source_file_repo.get_discovery_cache(roots_key)
+        return cast(
+            Optional[List[Dict[str, Any]]],
+            self.source_file_repo.get_discovery_cache(roots_key),
+        )
 
     def save_discovery_cache(self, roots_key: str, files: List[Dict[str, Any]]) -> None:
         self.source_file_repo.save_discovery_cache(roots_key, files)
@@ -347,7 +364,7 @@ class SessionRepository(IPersistence):
 
         cutoff = f"-{int(max_age_days)} days"
 
-        def _purge():
+        def _purge() -> int:
             conn = self._get_connection()
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -412,7 +429,7 @@ class SessionRepository(IPersistence):
             finally:
                 conn.close()
 
-        return self._execute_with_retry(_purge)
+        return cast(int, self._execute_with_retry(_purge))
 
 
 SQLiteManager = SessionRepository

@@ -1,4 +1,4 @@
-# Master-Report v5.5
+# Master-Report v5.6
 
 Windows-приложение для сборки финансовых Excel-отчетов сотрудников в итоговые файлы:
 
@@ -227,6 +227,49 @@ APP/core/shared/
 - `python -m compileall -q APP`: OK — весь код компилируется без синтаксических ошибок.
 
 Pre-commit хук запускается автоматически перед каждым коммитом и делает три проверки подряд: авто-фикс неиспользуемых импортов (ruff F401), полный ruff, и mypy baseline-diff с нормализацией номеров строк (чистый сдвиг строк от редактирования соседнего кода не считается новой ошибкой).
+
+## Hardening — Stage 0–9
+
+Отдельная серия работ по доведению до коммерческого качества «10/10 без
+защиты». Этапы 0–9 выполнены; полная документация каждого этапа — в
+`docs/stage_reports/<N>_report.md`. Сводка:
+
+- **Stage 0 (baseline + CI fix):** единый JSON-отчёт `baseline_report.json`;
+  CI mypy gate, читающий **stdout** (раньше был silent no-op); единый
+  источник версии (BAT читает `APP/__init__.py`).
+- **Stage 1 (golden regression):** PII-safe сравниватель xlsx
+  (`tools/compare_workbooks.py`); fingerprint контрольной даты
+  `18.05.2026` (446×11=4906 ячеек, 0 различий); 14 синтетических
+  golden-сценариев; 8 инвариантов LogicService.
+- **Stage 2 (config versioning):** Pydantic-схема с 4-way error
+  taxonomy (UNREACHABLE_PATH отделён от WRONG_TYPE); idempotent
+  migration runner; employees.yaml типизирован.
+- **Stage 3 (Excel reliability):** классификатор подозрительных дат
+  (ловит "2029 anomaly"); OperationResult enum; 8 corrupt-fixture
+  генераторов; **security fix** в data_loss_log (paths/amounts
+  скрабятся до JSON serialisation).
+- **Stage 4 (atomic updater):** `APP/core/infra/updater_model.py` —
+  полная Python-реализация (lock → staging → L0/L1 self-check →
+  atomic switch → startup-ok → auto rollback).
+- **Stage 5 (mypy + boundaries):** 47 архитектурных тестов (domain
+  purity, UI no-fin-math); mypy baseline 312→303; domain+services
+  полностью clean.
+- **Stage 6 (test coverage):** Hypothesis property-тесты (нашли edge
+  case с Decimal rounding modes); fault injection (SQLite, file
+  handles, cancel_event latency); 28 новых тестов.
+- **Stage 7 (Windows UI):** 16 UI acceptance тестов; **security fix**
+  в error_presenter (`type.__name__` вместо `repr(exc)`); формальный
+  Windows acceptance matrix (`docs/stage_reports/stage_7_acceptance_matrix.md`).
+- **Stage 8 (performance):** `tools/timing_report.py`; 8 SLA + leak
+  тестов; floor-оценки в 100-1000× ниже ТЗ-SLA → CPU не bottleneck.
+- **Stage 9 (backup + diagnostics):** `tools/diagnostic_package.py`
+  (обезличенный ZIP для поддержки); 10 backup-restore тестов; 17
+  privacy-тестов; `docs/support_runbook.md`.
+
+Полный список известных ограничений: [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md).
+Что изменилось по этапам: [`CHANGELOG.md`](CHANGELOG.md).
+
+Тестов в комплекте (Stage 0–9): **990 passed, 0 skipped** на Windows.
 
 ## История стабилизации
 

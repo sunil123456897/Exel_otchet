@@ -3,7 +3,7 @@ import logging
 import time
 import concurrent.futures
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Iterable, Optional
 
 from core.infra.config_controller import ConfigController
 from core.infra.ingestion_engine import IngestionEngine
@@ -32,11 +32,11 @@ class DiscoveryService:
         self.last_discovered_count = 0
 
     @staticmethod
-    def _copy_config_entry(entry):
+    def _copy_config_entry(entry: Any) -> Any:
         return dict(entry) if isinstance(entry, dict) else entry
 
     @staticmethod
-    def _append_unique(entries, entry, seen):
+    def _append_unique(entries: Any, entry: Any, seen: set[str]) -> None:
         path_value = entry["path"] if isinstance(entry, dict) else str(entry)
         if path_value not in seen:
             entries.append(entry)
@@ -135,7 +135,9 @@ class DiscoveryService:
         # Try SQLite cache first
         if self.persistence is not None:
             try:
-                cached = self.persistence.get_discovery_cache(roots_key)
+                cached: Optional[List[Dict[str, Any]]] = self.persistence.get_discovery_cache(
+                    roots_key
+                )
                 if cached is not None:
                     # TD-020: spot-check that a sample of cached files
                     # still exists on disk. If any are missing, the
@@ -158,6 +160,8 @@ class DiscoveryService:
             return None
 
         scanned_at = cache.get("scanned_at")
+        if scanned_at is None:
+            return None
         try:
             age = time.time() - float(scanned_at)
         except (TypeError, ValueError):
@@ -194,6 +198,7 @@ class DiscoveryService:
         if not cached_files:
             return False
         n = len(cached_files)
+        indices: Iterable[int]
         if n <= sample_size:
             indices = range(n)
         else:
@@ -354,7 +359,7 @@ class DiscoveryService:
         def scan_root(root: Path) -> List[Dict[str, Any]]:
             try:
                 logging.info("[NET] Сканирую сетевой путь: %s", scrub_path(str(root)))
-                files = self.ingestion.scan_directory(root)
+                files: List[Dict[str, Any]] = self.ingestion.scan_directory(root)
                 logging.info("[NET] Найдено файлов в %s: %s", root.name, len(files))
                 return files
             except Exception as e:
@@ -377,7 +382,7 @@ class DiscoveryService:
             return []
 
         paths_for_emp: List[Dict[str, Any]] = []
-        seen_result_paths = set()
+        seen_result_paths: set[str] = set()
 
         p_val = custom_paths[target_name]
         p_list = p_val if isinstance(p_val, list) else [p_val]
@@ -417,8 +422,8 @@ class DiscoveryService:
             if meta:
                 self._append_unique(paths_for_emp, meta, seen_result_paths)
 
-        deduped_paths = []
-        seen_config_paths = set()
+        deduped_paths: list[str] = []
+        seen_config_paths: set[str] = set()
         for meta in updated_paths:
             self._append_unique(deduped_paths, meta, seen_config_paths)
 
@@ -445,7 +450,7 @@ class DiscoveryService:
             allow_network_scan=allow_network_scan,
         )
         all_have_custom = not roots_requiring_scan
-        discovered_files = (
+        discovered_files: Optional[list[Any]] = (
             None
             if roots_requiring_scan
             else []

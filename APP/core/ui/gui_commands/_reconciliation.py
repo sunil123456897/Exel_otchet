@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from tkinter import filedialog
-from typing import Optional
+from typing import Any, Optional
 
 from core.ui.operation_state import OperationType
 from core.ui.gui_commands._base import CommandContext, finish
 from core.ui.gui_commands._rsch import RschCommandsMixin
 
 
-class ReconciliationCommandsMixin(RschCommandsMixin):
+class ReconciliationCommandsMixin(RschCommandsMixin):  # type: ignore[misc]  # dual APP./core. identity → base seen as Any
     """Mixin providing the two reconciliation entry points.
 
     Inherits the RSCH source-resolution helpers because the auto
@@ -31,13 +31,13 @@ class ReconciliationCommandsMixin(RschCommandsMixin):
             self.ctx.config_controller
         )
         filetypes = [("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")]
-        master_dialog_kwargs: dict = {"filetypes": filetypes}
+        master_dialog_kwargs: dict[str, Any] = {"filetypes": filetypes}
         if default_master_path:
             master_dialog_kwargs["initialdir"] = str(
                 Path(default_master_path).parent
             )
 
-        master_paths: dict = {}
+        master_paths: dict[str, Any] = {}
         for label, title in (
             ("Общий", "Выберите общий мастер-отчет"),
             ("Борис", "Выберите отчет Бориса"),

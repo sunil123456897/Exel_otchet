@@ -5,7 +5,7 @@ import importlib.util
 import re
 import sqlite3
 from pathlib import Path, PureWindowsPath
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Callable, Tuple, Optional, Dict, Any, List
 
 from pydantic import BaseModel
 
@@ -13,7 +13,7 @@ from core.infra import ConfigController, MasterWriter
 from core.infra.utils import path_exists_with_timeout
 from core.infra.ingestion_engine import IngestionEngine
 from core.infra.session_repo import SessionRepository as SQLiteManager
-from core.domain import LogicService, Validator
+from core.domain.logic_service import LogicService, Validator
 from core.app_controller import AppController
 
 
@@ -148,7 +148,7 @@ def _is_current_app_local_default_path(
         return Path(path_str).name.lower() == default_filename.lower()
 
 
-def _check_db_integrity_on_startup(persistence) -> None:
+def _check_db_integrity_on_startup(persistence: Any) -> None:
     """Run PRAGMA integrity_check and warn on corruption.
 
     Only called during GUI startup.  If the database file was left in an
@@ -270,7 +270,7 @@ class Bootstrap:
         return cfg, raw_cfg_dict
 
     @staticmethod
-    def _resolve_rel_factory(app_root: Path):
+    def _resolve_rel_factory(app_root: Path) -> Callable[..., str]:
         def resolve_rel(p: Optional[str], default_filename: Optional[str] = None) -> str:
             if not p:
                 if default_filename:
@@ -286,7 +286,7 @@ class Bootstrap:
 
     @staticmethod
     def _resolve_database_paths(
-        cfg: Dict[str, Any], app_root: Path, resolve_rel
+        cfg: Dict[str, Any], app_root: Path, resolve_rel: Callable[..., str]
     ) -> tuple[str, str, float, bool]:
         persist_recovered_paths = False
         db_cfg = cfg.setdefault("database", {})
@@ -379,7 +379,7 @@ class Bootstrap:
 
     @staticmethod
     def _resolve_path_config(
-        cfg: Dict[str, Any], raw_cfg: Dict[str, Any], app_root: Path, resolve_rel
+        cfg: Dict[str, Any], raw_cfg: Dict[str, Any], app_root: Path, resolve_rel: Callable[..., str]
     ) -> None:
         p_cfg = cfg.get("paths", {})
         raw_paths = raw_cfg.get("paths", {}) if isinstance(raw_cfg, dict) else {}
@@ -422,7 +422,7 @@ class Bootstrap:
         db_path: str,
         schema_path: str,
         config_path: str,
-    ):
+    ) -> Tuple[ConfigController, AppController, SQLiteManager]:
         drive_letters = tuple(cfg.get("network", {}).get("drive_letters", ["Q", "Z"]))
         ingestion = IngestionEngine(cfg.get("sh1", {}).get("markers", {}), drive_letters)
         ingestion.config = cfg

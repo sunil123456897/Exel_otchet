@@ -10,7 +10,10 @@ runs on the same Tk thread — no locking, no extra dependency.
 """
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
+
+if TYPE_CHECKING:
+    import tkinter as tk
 
 
 class Debouncer:
@@ -31,7 +34,7 @@ class Debouncer:
 
     def __init__(
         self,
-        widget,
+        widget: tk.Misc,
         fn: Callable[[], None],
         delay_ms: int = 300,
     ) -> None:

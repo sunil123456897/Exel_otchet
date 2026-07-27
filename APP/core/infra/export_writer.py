@@ -7,9 +7,15 @@ from pathlib import Path
 import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import PatternFill
+from openpyxl.utils.exceptions import InvalidFileException
+from openpyxl.workbook.workbook import Workbook
+from openpyxl.worksheet.worksheet import Worksheet
 from core.domain import IExporter
 from core.domain.utils_helpers import to_decimal
-from core.infra import is_file_writable
+# Import directly from utils to avoid the circular import through
+# core.infra.__init__ (which re-exports this symbol but is itself
+# mid-initialisation when export_writer is first loaded).
+from core.infra.utils import is_file_writable
 from core.infra.excel_backup import backup_existing_excel_output, resolve_excel_backup_keep
 from core.infra.export_formatting import ExcelStyles
 from core.infra.export_formatting import (
@@ -18,6 +24,7 @@ from core.infra.export_formatting import (
     build_total_row,
 )
 from core.infra.excel_hyperlinks import apply_cell_hyperlink
+from core.infra.excel_safety import excel_safe_text
 
 logger = logging.getLogger(__name__)
 
@@ -29,17 +36,14 @@ class ExportPreflightError(RuntimeError):
 def _safe_text(value: Any) -> Any:
     """Mitigate Excel formula injection (CWE-1236).
 
-    Prepends a single quote to any string that starts with ``=``, ``+``,
-    ``-`` or ``@`` so Excel treats it as text instead of evaluating it as
-    a formula. Non-string values (Decimal, int, float, None) pass through
-    unchanged. Mirrors the existing ``_excel_safe_text`` helpers in
-    ``reconciliation/_utils.py`` and ``rsch/_format.py``.
+    Delegates to the canonical :func:`core.infra.excel_safety.excel_safe_text`
+    — the single source of truth shared with the reconciliation and RSCH
+    writers — so this writer cannot silently drift (previously it was a
+    private copy that did NOT strip XML-illegal control chars, which could
+    raise ``IllegalCharacterError`` at ``ws.append``). Formula-injection
+    behaviour is unchanged; non-string values pass through.
     """
-    if isinstance(value, str):
-        stripped = value.lstrip()
-        if stripped and stripped[0] in ("=", "+", "-", "@"):
-            return "'" + value
-    return value
+    return excel_safe_text(value)
 
 
 def preflight_output_path(path: Path) -> None:
@@ -108,7 +112,9 @@ _CURATOR_HEADERS = {
 }
 
 
-class MasterWriter(IExporter):
+# Note [misc ignore]: dual module identity (APP.core.* vs core.*) makes mypy
+# see the interface as Any; subclassing is correct at runtime.
+class MasterWriter(IExporter):  # type: ignore[misc]
     def __init__(self, config: Dict[str, Any], config_path: str = ""):
         self.config = config
         self.config_dir = Path(config_path).parent if config_path else Path.cwd()
@@ -128,7 +134,7 @@ class MasterWriter(IExporter):
         self.master_path = str(master_path)
         self.st = ExcelStyles()
 
-    def _apply_header_style(self, ws, row_idx=1):
+    def _apply_header_style(self, ws: Worksheet, row_idx: int = 1) -> None:
         for cell in ws[row_idx]:
             cell.fill, cell.font, cell.alignment, cell.border = (
                 self.st.fill_header,
@@ -137,12 +143,13 @@ class MasterWriter(IExporter):
                 self.st.border_thin,
             )
 
-    def _get_workbook(self, path=None):
+    def _get_workbook(self, path: Optional[str] = None) -> Optional[Workbook]:
         path_abs = os.path.abspath(path or self.master_path)
         if os.path.exists(path_abs):
             try:
-                return openpyxl.load_workbook(path_abs)
-            except (OSError, openpyxl.utils.exceptions.InvalidFileException) as e:
+                loaded: Workbook = openpyxl.load_workbook(path_abs)
+                return loaded
+            except (OSError, InvalidFileException) as e:
                 logger.error("Failed to open workbook %s: %s", path_abs, e)
                 return None
         wb = openpyxl.Workbook()
@@ -150,7 +157,7 @@ class MasterWriter(IExporter):
             wb.remove(wb["Sheet"])
         return wb
 
-    def _save_workbook(self, wb, path=None) -> bool:
+    def _save_workbook(self, wb: Workbook, path: Optional[str] = None) -> bool:
         try:
             return self._save_workbook_inner(wb, path)
         finally:
@@ -159,10 +166,10 @@ class MasterWriter(IExporter):
             except Exception:
                 pass
 
-    def _save_workbook_inner(self, wb, path=None) -> bool:
+    def _save_workbook_inner(self, wb: Workbook, path: Optional[str] = None) -> bool:
         SPECIAL_ORDER = ["ВСЕ ОПЕРАЦИИ", "ДАШБОРД", "АНАЛИТИКА", "СВОД"]
 
-        def key(n):
+        def key(n: str) -> tuple[int, int, int, int]:
             if "." in n:
                 try:
                     p = n.split(".")
@@ -236,7 +243,7 @@ class MasterWriter(IExporter):
             # block unless the rename succeeded.
             return False
 
-    def _auto_adjust(self, ws):
+    def _auto_adjust(self, ws: Worksheet) -> None:
         numeric_keywords = [
             "приход",
             "расход",
@@ -275,7 +282,13 @@ class MasterWriter(IExporter):
                 )
                 ws.column_dimensions[let].width = min(max(max_len + 4, min_width), 60)
 
-    def _append_data_rows(self, ws, date, rows, curator=None):
+    def _append_data_rows(
+        self,
+        ws: Worksheet,
+        date: datetime,
+        rows: List[Dict[str, Any]],
+        curator: Optional[str] = None,
+    ) -> tuple[Dict[int, Dict[str, Any]], Dict[int, int]]:
         from collections import OrderedDict
 
         warning_rows = {}
@@ -301,7 +314,8 @@ class MasterWriter(IExporter):
             if isinstance(v, (int, float)):
                 return Decimal(str(v))
             try:
-                return to_decimal(v)
+                parsed: Decimal = to_decimal(v)
+                return parsed
             except Exception:
                 logger.warning(
                     "Could not convert %r to Decimal; defaulting to 0. Sheet=%s, row=%s",
@@ -311,12 +325,12 @@ class MasterWriter(IExporter):
                 )
                 return Decimal(default)
 
-        def _get_employee(r):
+        def _get_employee(r: Dict[str, Any]) -> str:
             if curator == "ivan":
                 return str(r.get("Сотрудник", r.get("Источник", ""))).strip()
             return str(r.get("Источник", "")).strip()
 
-        def _get_row_values(r):
+        def _get_row_values(r: Dict[str, Any]) -> List[Any]:
             if curator == "boris":
                 return [_safe_text(v) for v in [
                     r.get("Источник", ""),
@@ -366,7 +380,7 @@ class MasterWriter(IExporter):
                 ]]
 
         if curator in ("boris", "ivan"):
-            grouped = OrderedDict()
+            grouped: OrderedDict[Any, Any] = OrderedDict()
             for r in rows:
                 emp = _get_employee(r)
                 grouped.setdefault(emp, []).append(r)
@@ -485,7 +499,9 @@ class MasterWriter(IExporter):
             )
         return warning_rows, row_to_data_idx
 
-    def _write_template_errors_sheet(self, wb, template_errors: List[Dict[str, Any]]):
+    def _write_template_errors_sheet(
+        self, wb: Workbook, template_errors: List[Dict[str, Any]]
+    ) -> None:
         sheet_name = "ОШИБКИ ШАБЛОНА"
         if sheet_name in wb.sheetnames:
             del wb[sheet_name]
@@ -494,12 +510,21 @@ class MasterWriter(IExporter):
         return
 
     def write_daily_data(
-        self, date, rows, wb=None, sh_name_override=None, curator=None, headers=None
-    ):
+        self,
+        date: datetime,
+        rows: List[Dict[str, Any]],
+        wb: Optional[Workbook] = None,
+        sh_name_override: Optional[str] = None,
+        curator: Optional[str] = None,
+        headers: Optional[List[str]] = None,
+    ) -> None:
         should_save = False
         owns_wb = False
         if wb is None:
             wb = self._get_workbook()
+            # A freshly created/loaded workbook always exists here; narrow
+            # the Optional so the sheet-building code below type-checks.
+            assert wb is not None
             owns_wb = True
             should_save = True
 
@@ -557,11 +582,11 @@ class MasterWriter(IExporter):
     def write_empty_daily_report(
         self,
         path: Path,
-        date,
-        curator=None,
-        curator_config=None,
+        date: datetime,
+        curator: Optional[str] = None,
+        curator_config: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        headers = None
+        headers: Optional[List[str]] = None
         if curator_config and "headers" in curator_config:
             headers = curator_config["headers"]
         wb = self._get_workbook(path=str(path))
@@ -590,8 +615,8 @@ class MasterWriter(IExporter):
         data: List[Dict[str, Any]],
         path: Path,
         template_errors: Optional[List[Dict[str, Any]]] = None,
-        curator=None,
-        curator_config=None,
+        curator: Optional[str] = None,
+        curator_config: Optional[Dict[str, Any]] = None,
     ) -> bool:
         if not is_file_writable(str(path)):
             logger.error(
@@ -599,13 +624,13 @@ class MasterWriter(IExporter):
             )
             return False
 
-        headers = None
+        headers: Optional[List[str]] = None
         if curator_config and "headers" in curator_config:
             headers = curator_config["headers"]
 
         try:
             today = datetime.now().date()
-            dbd = {}
+            dbd: dict[str, Any] = {}
             for r in data:
                 if r is None:
                     logger.warning(

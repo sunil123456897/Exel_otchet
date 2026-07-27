@@ -6,6 +6,7 @@ import threading
 import argparse
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 app_root = Path(__file__).parent.absolute()
 if str(app_root) not in sys.path:
@@ -14,7 +15,7 @@ if str(app_root) not in sys.path:
 from core.bootstrap import Bootstrap  # noqa: E402
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Run headless consolidation.")
     parser.add_argument("--date", type=str, help="Date to consolidate (DD.MM.YYYY)")
     args = parser.parse_args()
@@ -28,7 +29,7 @@ def main():
     timeout = int(os.environ.get("HEADLESS_RUN_TIMEOUT", "600"))
     cancel_event = threading.Event()
 
-    def _signal_handler(signum, _frame):
+    def _signal_handler(signum: int, _frame: object) -> None:
         # SIGTERM/SIGINT: signal the worker to cancel at its next
         # checkpoint, then exit. The worker thread is daemon=True so it
         # will be reaped when the process dies, but setting the event
@@ -53,7 +54,7 @@ def main():
             sys.exit(1)
         done = threading.Event()
 
-        def on_comp(ok, msg, path):
+        def on_comp(ok: bool, msg: str, path: Optional[Path]) -> None:
             if ok:
                 logger.info(f"DONE: {msg}")
             else:

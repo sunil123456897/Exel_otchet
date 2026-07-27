@@ -2,11 +2,12 @@ import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def resolve_excel_backup_keep(value, default: int = 10) -> int:
+def resolve_excel_backup_keep(value: Any, default: int = 10) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError):

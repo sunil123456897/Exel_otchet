@@ -7,12 +7,12 @@ import sys
 import threading
 import zipfile
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, cast
 import xml.etree.ElementTree as ET
 from python_calamine import CalamineWorkbook
 
 from core.domain import IDataSource
-from core.infra.utils import get_local_copy
+from core.infra.utils import get_local_copy, path_exists_with_timeout
 from core.infra.ingestion_reader import CalamineReader, extract_date_from_sheet
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,24 @@ def _extract_dates_from_sheet_names(sheet_names: List[str]) -> List[str]:
             continue
         sheet_date = extract_date_from_sheet(sheet_name)
         if sheet_date:
+            # Surface suspicious dates (future or distant-past) via the
+            # data-loss log so the operator sees a trace. We do NOT drop
+            # the date — it may contain real data; the warning is for
+            # human review only.
+            try:
+                from core.domain.date_warnings import classify_sheet_date
+                from core.domain.data_loss_log import record_loss
+                warning = classify_sheet_date(sheet_date)
+                if warning.kind.value != "ok":
+                    record_loss(
+                        source=f"sheet:{sheet_name}",
+                        kind=f"suspicious_date_{warning.kind.value}",
+                        reason=warning.detail,
+                        sheet=sheet_name,
+                    )
+            except Exception:
+                # Never let the warning pipeline break ingestion.
+                pass
             dates.add(sheet_date)
     return sorted(dates)
 
@@ -64,8 +82,8 @@ def _try_get_xlsx_sheet_dates_from_metadata(target_path: str | Path) -> List[str
 def _run_calamine_worker(
     mode: str,
     target_path: str,
-    markers,
-    aliases,
+    markers: Dict[str, Any],
+    aliases: Dict[str, Any],
     strict_io: bool = False,
     target_date_str: str | None = None,
     start_date_str: str | None = None,
@@ -215,8 +233,8 @@ else:
             pass
         return {"ok": False, "error": str(exc)}
 
-    stdout = (proc.stdout or "").strip()
-    stderr = (proc.stderr or "").strip()
+    stdout = cast(str, proc.stdout or "").strip()
+    stderr = cast(str, proc.stderr or "").strip()
     if proc.returncode != 0:
         return {
             "ok": False,
@@ -224,7 +242,7 @@ else:
         }
 
     try:
-        payload = json.loads(stdout)
+        payload: Dict[str, Any] = json.loads(stdout)
     except json.JSONDecodeError:
         return {
             "ok": False,
@@ -250,13 +268,15 @@ def _should_isolate_calamine(file_path: Path | str) -> bool:
     return True
 
 
-class IngestionEngine(IDataSource):
+# Note [misc ignore]: dual module identity (APP.core.* vs core.*) makes mypy
+# see the interface as Any; subclassing is correct at runtime.
+class IngestionEngine(IDataSource):  # type: ignore[misc]
     def __init__(
-        self, config_markers: Dict[str, str], drive_letters: tuple = ("Q", "Z")
+        self, config_markers: Dict[str, str], drive_letters: tuple[str, ...] = ("Q", "Z")
     ):
         self.markers = config_markers
         self.drive_letters = tuple(d.upper() for d in drive_letters)
-        self.config = {}
+        self.config: dict[str, Any] = {}
         self.aliases = {
             "amount": ["сумма платежа", "бн рф руб", "бн", "приход", "расход"],
             "income": ["приход"],
@@ -344,8 +364,11 @@ class IngestionEngine(IDataSource):
         return sorted(list(dates))
 
     def scan_directory(self, root_path: Path) -> List[Dict[str, Any]]:
-        res = []
-        if not root_path.exists():
+        res: list[Any] = []
+        # path_exists_with_timeout (not bare .exists()): a mounted-but-dead
+        # network drive (Q:\...) can block .exists() for tens of seconds and
+        # freeze the calling thread/UI. The timeout variant returns quickly.
+        if not path_exists_with_timeout(root_path):
             logger.warning(f"[SCAN] Папка не найдена: {root_path}")
             return res
         logger.info(f"[SCAN] Сканирую папку: {root_path}...")
@@ -400,7 +423,7 @@ class IngestionEngine(IDataSource):
             if strict_io:
                 raise FileNotFoundError(f"Не найден файл отчета: {file_path}")
             return []
-        last_err = None
+        last_err: Exception | None = None
         for attempt in range(_FILE_READ_RETRIES):
             temp_file = None
             try:
@@ -427,7 +450,8 @@ class IngestionEngine(IDataSource):
                             )
                         if payload.get("stderr"):
                             logger.warning(payload["stderr"])
-                        return payload.get("result", [])
+                        worker_rows: List[Dict[str, Any]] = payload.get("result", [])
+                        return worker_rows
                     finally:
                         if temp_file is not None:
                             try:
@@ -435,14 +459,18 @@ class IngestionEngine(IDataSource):
                             except OSError:
                                 pass
                 if target_date_str or (start_date_str and end_date_str):
-                    return self.reader.read(
+                    scoped_rows: List[Dict[str, Any]] = self.reader.read(
                         file_path,
                         strict_io=strict_io,
                         target_date_str=target_date_str,
                         start_date_str=start_date_str,
                         end_date_str=end_date_str,
                     )
-                return self.reader.read(file_path, strict_io=strict_io)
+                    return scoped_rows
+                direct_rows: List[Dict[str, Any]] = self.reader.read(
+                    file_path, strict_io=strict_io
+                )
+                return direct_rows
             except (OSError, IOError, PermissionError) as e:
                 last_err = e
                 logger.warning(

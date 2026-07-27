@@ -5,12 +5,12 @@ import decimal
 import datetime
 import logging
 import threading
-from typing import Dict, Any
+from typing import Callable, Dict, Any
 from pathlib import Path
 
 
 class DecimalEncoder(json.JSONEncoder):
-    def default(self, obj):
+    def default(self, obj: Any) -> Any:
         if isinstance(obj, decimal.Decimal):
             return str(obj)
         if hasattr(obj, "isoformat"):
@@ -137,6 +137,17 @@ class SQLiteConnectionManager:
             try:
                 with open(schema_path, "r", encoding="utf-8") as f:
                     conn.executescript(f.read())
+            except sqlite3.DatabaseError as e:
+                # A corrupt cache.db must surface as a friendly dialog via the
+                # bootstrap RuntimeError -> messagebox path in main.py, not a
+                # silent exit (under pythonw there is no console to show why
+                # the app "just didn't start"). Re-raise as RuntimeError.
+                raise RuntimeError(
+                    "База данных cache.db повреждена и не открывается. "
+                    "Запустите ДИАГНОСТИКА.bat для восстановления либо удалите "
+                    "cache.db рядом с программой — он будет создан заново "
+                    "(пересоберётся кеш, рабочие данные не хранятся в нем)."
+                ) from e
             finally:
                 conn.close()
         self._run_migrations()
@@ -259,7 +270,7 @@ class SQLiteConnectionManager:
                 statements.append(stmt + ";")
         return statements
 
-    def execute_with_retry(self, func, *args, **kwargs):
+    def execute_with_retry(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Execute a function with exponential backoff on transient SQLite errors."""
         last_err = None
         attempt_count = max(1, int(self.retry_count))

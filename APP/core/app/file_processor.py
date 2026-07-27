@@ -136,7 +136,7 @@ def _resolve_row_date_for_filters(
     return min(non_future), None
 
 
-def check_master_lock(config_controller) -> bool:
+def check_master_lock(config_controller: Any) -> bool:
     fallback = Path(config_controller.config_path).parent / "Master_Report.xlsx"
     paths_cfg = config_controller.config.setdefault("paths", {})
     master_cfg = paths_cfg.get("master_file")
@@ -166,19 +166,20 @@ def check_master_lock(config_controller) -> bool:
             )
         except OSError:
             return False
-    return is_file_writable(str(master_path))
+    writable: bool = is_file_writable(str(master_path))
+    return writable
 
 
 def process_file_task(
-    persistence,
-    ingestion,
-    validator,
-    emp_name,
-    meta,
-    session_id,
-    target_date_str,
-    start_date_str=None,
-    end_date_str=None,
+    persistence: Any,
+    ingestion: Any,
+    validator: Any,
+    emp_name: str,
+    meta: Any,
+    session_id: Any,
+    target_date_str: Optional[str],
+    start_date_str: Optional[str] = None,
+    end_date_str: Optional[str] = None,
     processed_file_ids: Optional[List[int]] = None,
     processed_file_ids_lock: Optional[Any] = None,
     cancel_event: Optional[threading.Event] = None,
@@ -331,15 +332,15 @@ def process_file_task(
 
 
 def run_engine(
-    persistence,
-    ingestion,
-    validator,
-    employees_map,
-    session_id,
-    target_date_str,
-    on_progress,
-    start_date_str=None,
-    end_date_str=None,
+    persistence: Any,
+    ingestion: Any,
+    validator: Any,
+    employees_map: Any,
+    session_id: Any,
+    target_date_str: Optional[str],
+    on_progress: Callable[[float], None],
+    start_date_str: Optional[str] = None,
+    end_date_str: Optional[str] = None,
     on_file_error: Optional[Callable[[List[Dict[str, str]]], None]] = None,
     cancel_event: Optional[threading.Event] = None,
     on_current_file: Optional[Callable[[str, int, int], None]] = None,
@@ -352,7 +353,7 @@ def run_engine(
     total_rows_processed = 0
     file_errors: List[Dict[str, str]] = []
 
-    processed_file_ids = []
+    processed_file_ids: List[int] = []
     processed_file_ids_lock = threading.Lock()
 
     # Compute current date once before spawning threads so that all
@@ -435,8 +436,9 @@ def run_engine(
     return True
 
 
-def get_master_path(config_controller) -> Path:
+def get_master_path(config_controller: Any) -> Path:
     master_str = config_controller.config.get("paths", {}).get(
         "master_file", "Master_Report.xlsx"
     )
-    return config_controller.resolve_path(master_str)
+    resolved: Path = config_controller.resolve_path(master_str)
+    return resolved

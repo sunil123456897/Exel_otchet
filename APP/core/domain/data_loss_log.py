@@ -75,7 +75,7 @@ def record_loss(
     row_index: int | None = None,
     sheet: str | None = None,
     field: str | None = None,
-    original_value=None,
+    original_value: object = None,
 ) -> None:
     """Append a structured data-loss event to logs/data_loss.log.
 
@@ -88,24 +88,40 @@ def record_loss(
         field: field/key being dropped, if known.
         original_value: the value that was lost (will be coerced to str).
     """
+    # Apply PII scrubbing to each string field BEFORE serialisation. This is
+    # critical: scrub_path's regexes are written for raw Windows paths with
+    # single backslashes. If we waited until after json.dumps (which escapes
+    # backslashes by doubling them), the regexes would silently fail to
+    # match and usernames / SMB server names would leak into the log.
+    def _safe_str(v: object) -> str:
+        try:
+            return str(v)
+        except Exception:
+            return f"<unserialisable:{type(v).__name__}>"
+
+    def _scrub_str(v: str) -> str:
+        v = scrub_path(v)
+        return _AMOUNT_RE.sub("[AMOUNT]", v)
+
     payload = {
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds") + "Z",
-        "source": source,
+        "source": _scrub_str(_safe_str(source)) if source is not None else None,
         "kind": kind,
-        "reason": reason,
+        # reason is free-form operator text — it can carry a copy-pasted
+        # amount or path, so scrub it the same way as source/value.
+        "reason": _scrub_str(_safe_str(reason)) if reason is not None else None,
         "row": row_index,
         "sheet": sheet,
         "field": field,
-        "value": str(original_value) if original_value is not None else None,
+        "value": _scrub_str(_safe_str(original_value)) if original_value is not None else None,
     }
     try:
         line = json.dumps(payload, ensure_ascii=False)
     except (TypeError, ValueError):
         line = json.dumps({k: str(v) for k, v in payload.items()}, ensure_ascii=False)
-    # Defense-in-depth: redact Windows user paths / UNC shares and obvious
-    # monetary amounts before the line hits disk. Does NOT change the JSON
-    # structure or the kind/reason fields — only PII-bearing substrings.
-    line = _AMOUNT_RE.sub("[AMOUNT]", scrub_path(line))
+    # Defense-in-depth: a final sweep in case a future field accidentally
+    # carries a path or amount we missed above. Belt-and-braces.
+    line = scrub_path(line)
     log = _get_logger()
     with _LOCK:
         log.info(line)

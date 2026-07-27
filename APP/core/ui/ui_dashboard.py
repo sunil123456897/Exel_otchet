@@ -4,7 +4,7 @@ import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar, cast
 
 from core.infra import open_path
 from core.ui.dashboard_state import (
@@ -19,22 +19,15 @@ from core.ui.dashboard_state import (
     save_runtime_results,
     status_text,
 )
-from core.ui.theme import ThemeManager
+from core.ui.theme import ThemeManager, color as _c, status_tint
 
 _T = TypeVar("_T")
 
 
-def _c(key, fallback=None):
-    """Safe theme-color lookup with optional fallback.
-
-    Canonical token keys (success, danger, warning, text_muted, …) are
-    always present in both palettes, so no fallback is needed for them.
-    """
-    return ThemeManager.COLORS.get(key, fallback)
-
-
 class DashboardTabs:
-    def __init__(self, notebook: ttk.Notebook, controller, config_controller) -> None:
+    def __init__(
+        self, notebook: ttk.Notebook, controller: Any, config_controller: Any
+    ) -> None:
         self.notebook = notebook
         self.controller = controller
         self.config_controller = config_controller
@@ -64,7 +57,7 @@ class DashboardTabs:
         notebook.add(self.diagnostics_tab, text="Диагностика")
         notebook.add(self.logs_tab, text="Логи")
         notebook.add(self.aliases_tab, text="🔗 Алиасы сверки")
-        notebook.select(self.employees_tab)
+        notebook.select(self.employees_tab)  # type: ignore[no-untyped-call]
 
         self._setup_home()
         self._setup_reports()
@@ -423,12 +416,12 @@ class DashboardTabs:
         self.reports_tree.insert("", tk.END, values=("проверка...", "", "", "", ""))
         self.state_label.config(text="проверка...")
 
-        def work():
+        def work() -> Any:
             reports = collect_report_paths(self.config_controller, self.app_root)
             diagnostics = run_light_diagnostics(self.config_controller, self.app_root)
             return reports, diagnostics
 
-        def done(payload):
+        def done(payload: Any) -> None:
             if payload is None:
                 self._refresh_logs()
                 return
@@ -439,7 +432,7 @@ class DashboardTabs:
 
         self._run_in_background(work, done)
 
-    def _render_reports(self, reports) -> None:
+    def _render_reports(self, reports: Any) -> None:
         for item in self.reports_tree.get_children():
             self.reports_tree.delete(item)
         for item in reports:
@@ -456,7 +449,7 @@ class DashboardTabs:
                 ),
             )
 
-    def _render_home(self, diagnostics, reports) -> None:
+    def _render_home(self, diagnostics: Any, reports: Any) -> None:
         errors = sum(1 for item in diagnostics if item.status == "error")
         warnings = sum(1 for item in diagnostics if item.status == "warning")
         existing_reports = sum(1 for item in reports if item.exists)
@@ -509,22 +502,13 @@ class DashboardTabs:
         foreground so "✅ успех"/"❌ ошибка" reads as a label, with a
         faint row-wash tint derived from the semantic palette.
         """
-        from core.ui.theme import ThemeManager, _lerp_hex
-
         bold = ThemeManager.FONTS["body_bold"]
 
-        def _tint(sem_key: str) -> str:
-            try:
-                return _lerp_hex(ThemeManager.COLORS["bg_sidebar"],
-                                 ThemeManager.COLORS[sem_key], 0.08)
-            except KeyError:
-                return ThemeManager.COLORS["bg_sidebar"]
-
         self.results_tree.tag_configure(
-            "success", foreground=_c("success"), background=_tint("success"), font=bold
+            "success", foreground=_c("success"), background=status_tint("success"), font=bold
         )
         self.results_tree.tag_configure(
-            "error", foreground=_c("danger"), background=_tint("danger"), font=bold
+            "error", foreground=_c("danger"), background=status_tint("danger"), font=bold
         )
 
     def refresh_theme(self) -> None:
@@ -601,7 +585,9 @@ class DashboardTabs:
 
             def safe_done() -> None:
                 try:
-                    on_done(result)
+                    # work() may fail → result is None; on_done handles the
+                    # falsy payload. cast keeps the _T contract for mypy.
+                    on_done(cast(Any, result))
                 except tk.TclError:
                     pass
 
@@ -671,9 +657,10 @@ class DashboardTabs:
         self._show_missing(f"Путь не найден: {label}")
 
     def _recent_log_errors(self) -> list[str]:
-        return read_recent_log_errors(
+        errors: list[str] = read_recent_log_errors(
             [self.repo_root / "startup_log.txt", self.repo_root / "gui_error_log.txt"]
         )
+        return errors
 
     def _open_path(self, path: Path | None) -> None:
         safe_open_existing_path(path, open_path, self._show_missing)
