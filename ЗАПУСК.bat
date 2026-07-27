@@ -9,10 +9,38 @@ set "PIP_NO_INPUT=1"
 set "ARG1=%~1"
 set "ARG2=%~2"
 
-title Master Report Launcher v5.5
+:: Determine APPDIR: prefer versioned layout (versions/<semver>/APP/)
+:: selected by current.json — that's the directory the atomic updater
+:: (ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat → tools/run_updater.py) writes to. Fall
+:: back to the classic %~dp0APP location if no versioned install exists
+:: (pre-Stage-4 layout, or first run before any update).
+::
+:: We avoid nested for/if blocks (cmd's delayed-expansion makes them
+:: fragile) and instead call out to PowerShell to read current.json
+:: and echo back either the versioned APP path or empty. PowerShell
+:: is always available on Windows 10/11.
+set "INSTALL_ROOT=%~dp0"
+set "APPDIR=%INSTALL_ROOT%APP"
+set "CURRENT_JSON=%INSTALL_ROOT%current.json"
+if exist "%CURRENT_JSON%" goto :resolve_appdir
+goto :appdir_resolved
 
-set "APPDIR=%~dp0APP"
+:resolve_appdir
+for /f "delims=" %%V in ('powershell -NoProfile -Command "if (Test-Path '%CURRENT_JSON%') { $j = Get-Content -LiteralPath '%CURRENT_JSON%' -Raw -Encoding UTF8 | ConvertFrom-Json; if ($j.version) { $cand = '%INSTALL_ROOT%versions\' + $j.version + '\APP'; if (Test-Path (Join-Path $cand 'main.py')) { $cand } } }" 2^>nul') do set "APPDIR=%%V"
+:appdir_resolved
 set "MAINFILE=%APPDIR%\main.py"
+
+:: Single source of truth for the version is APP/__init__.py and
+:: APP/core/__init__.py. The launcher used to extract the literal at
+:: boot via findstr/powershell, but CMD's quoting rules around repo
+:: paths with spaces ("Dlia Dashi\...") made every variant fragile.
+:: We now defer version display to the GUI itself (which reads it via
+:: `from APP import __version__`); the launcher just shows a generic
+:: title. The version-source tests in tests/test_single_version_source.py
+:: enforce that APP/__init__.py is the only Python-side source of truth.
+set "APP_VERSION=see GUI"
+
+title Master Report Launcher
 set "LOGFILE=%~dp0startup_log.txt"
 set "GUIERRLOG=%~dp0gui_error_log.txt"
 set "TARGET_PY=3.12"
@@ -33,12 +61,12 @@ break > "%LOGFILE%"
 break > "%GUIERRLOG%"
 
 call :log "========================================================"
-call :log "MASTER REPORT CONSOLIDATOR v5.5"
+call :log "MASTER REPORT CONSOLIDATOR (version in GUI title)"
 call :log "========================================================"
 call :log "Start time: %date% %time%"
 
 echo ========================================================
-echo MASTER REPORT CONSOLIDATOR v5.5
+echo MASTER REPORT CONSOLIDATOR
 echo ========================================================
 echo.
 echo Checking environment...
@@ -61,10 +89,35 @@ goto python_ok
 
 :python_not_found
 call :log "Python not found. Install it from python.org"
-set "FAIL_MESSAGE=Python not found. Please install Python 3.10 or newer and make sure it is in PATH."
+set "FAIL_MESSAGE=Python not found. Please install Python 3.12 or newer and make sure it is in PATH."
+goto fail
+
+:python_too_old
+set "PYVER=unknown"
+for /f "delims=" %%V in ('"%PYTHON_CMD%" -c "import sys; print(sys.version.split()[0])" 2^>nul') do set "PYVER=%%V"
+call :log "Python too old: %PYVER%"
+set "FAIL_MESSAGE=Python %PYVER% is too old. Install Python 3.12 or newer from python.org and tick 'Add Python to PATH'."
+goto fail
+
+:tkinter_missing
+call :log "tkinter is missing from this Python"
+set "FAIL_MESSAGE=tkinter (the GUI toolkit) is missing from this Python. Reinstall Python from python.org with 'tcl/tk and IDLE' enabled, then re-run."
 goto fail
 
 :python_ok
+
+:: Verify the interpreter is new enough. README/pyproject require Python 3.12+
+:: (py312 target; some runtime helpers use 3.12 APIs with graceful
+:: degradation). On a clean PC with an old Python, failing here with a clear
+:: message is far better than a cryptic TypeError at the GUI preflight step.
+"%PYTHON_CMD%" -c "import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)" >nul 2>&1
+if errorlevel 1 goto python_too_old
+
+:: tkinter ships WITH Python (it is not pip-installable). If it is missing the
+:: interpreter was installed without tcl/tk — say so explicitly instead of
+:: letting pip "succeed" and then failing cryptically at the GUI preflight.
+"%PYTHON_CMD%" -c "import tkinter" >nul 2>&1
+if errorlevel 1 goto tkinter_missing
 
 call :step "Step 2/5. Checking pip"
 "%PYTHON_CMD%" -m pip --version >> "%LOGFILE%" 2>&1
@@ -165,7 +218,7 @@ goto fail
 
 :requirements_install_failed
 if exist "%LOGFILE%" type "%LOGFILE%"
-set "FAIL_MESSAGE=Could not install dependencies from requirements.txt."
+set "FAIL_MESSAGE=Could not install dependencies from requirements.txt. Check your internet connection (or proxy settings), then re-run ЗАПУСК.bat."
 goto fail
 
 :gui_preflight_failed
@@ -259,4 +312,10 @@ for %%I in ("%VENV_DIR%\Scripts\python.exe") do (
     if %%~zI LSS 10000 exit /b 1
 )
 "%VENV_DIR%\Scripts\python.exe" --version >nul 2>&1
+if errorlevel 1 exit /b 1
+:: Reject a venv built by an older Python (e.g. created before 3.12 was
+:: installed, or copied from another PC) so it gets RE-CREATED with the
+:: right interpreter — otherwise the stale venv keeps failing the version
+:: gate even after the user installs Python 3.12.
+"%VENV_DIR%\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)" >nul 2>&1
 exit /b %errorlevel%

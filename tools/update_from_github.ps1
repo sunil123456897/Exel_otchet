@@ -39,10 +39,21 @@ $LocalData = @(
 )
 $ProtectedUpdatePaths = $LocalSettings + $LocalData + @(
     "APP\output",
+    "APP\logs",
+    "APP\first_run.json",
+    "APP\startup_log.txt",
+    "APP\gui_error_log.txt",
     "REPORTS",
     "РСЧ",
     "рсч всех",
-    "Master_Report.xlsx"
+    "Ване",
+    "Старое",
+    "backups",
+    "logs",
+    "Master_Report.xlsx",
+    "ДИАГ_РСЧ_период.xlsx",
+    "diagnostic_package.zip",
+    "baseline_report.json"
 )
 $UpdateItems = @(
     "APP\core",
@@ -54,9 +65,22 @@ $UpdateItems = @(
     "requirements.txt",
     "ЗАПУСК.bat",
     "ОБНОВИТЬ_И_ЗАПУСТИТЬ.bat",
+    "ОБНОВИТЬ_ИЗ_ФАЙЛА.bat",
     "tools\update_from_github.ps1",
+    "tools\run_updater.py",
+    "tools\qa_baseline.py",
+    "tools\qa_mypy_baseline.py",
+    "tools\ci_mypy_check.py",
+    "tools\compare_workbooks.py",
+    "tools\control_date_fingerprint.py",
+    "tools\timing_report.py",
+    "tools\diagnostic_package.py",
+    "tools\release_rehearsal.py",
     "Диагностика.py",
-    "ДИАГНОСТИКА.bat"
+    "ДИАГНОСТИКА.bat",
+    ".gitignore",
+    ".mypy_baseline.txt",
+    "pyproject.toml"
 )
 
 function Get-GitHubToken {

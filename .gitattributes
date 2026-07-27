@@ -1,0 +1,7 @@
+# Windows script files MUST keep CRLF line endings. cmd.exe mis-parses an
+# LF-only .bat — especially combined with `chcp 65001` and non-ASCII (Cyrillic)
+# text — which silently breaks the launchers (ЗАПУСК.bat etc.). Forcing CRLF
+# on checkout prevents that class of failure regardless of core.autocrlf.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf

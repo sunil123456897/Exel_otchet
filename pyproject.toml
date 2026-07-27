@@ -24,4 +24,7 @@ ignore = ["E402", "E501", "E701"]
 [tool.pytest.ini_options]
 addopts = "-p no:cacheprovider"
 testpaths = ["tests"]
-pythonpath = ["APP"]
+# APP — runtime package path; tools — repo-level QA scripts used by tests
+# (compare_workbooks.py, qa_baseline.py, ci_mypy_check.py);
+# tests/golden — synthetic fixture builders shared across golden tests.
+pythonpath = ["APP", "tools", "tests/golden"]

@@ -29,59 +29,45 @@ jobs:
       - name: Install dependencies
         run: |
           .venv\Scripts\pip install -r requirements.txt
-          .venv\Scripts\pip install ruff mypy pytest
+          .venv\Scripts\pip install -r requirements-dev.txt
 
       # ── ruff (check only) ──────────────────────────────────────
       - name: ruff — lint check
         run: .venv\Scripts\python -m ruff check APP tests
 
       # ── mypy (baseline mode: block only NEW errors) ────────────
-      - name: mypy — strict baseline check
-        run: |
-          python -c "
-          import subprocess, sys
+      # NOTE: mypy writes its findings to **stdout**, with stderr reserved for
+      # tool crashes. The previous inline check read only stderr and was a
+      # silent no-op. We now use tools/ci_mypy_check.py, which reads stdout,
+      # normalizes path/line numbers so row shifts are not mistaken for new
+      # findings, and compares against .mypy_baseline.txt.
+      - name: mypy — strict baseline check (block new errors only)
+        run: >
+          .venv\Scripts\python tools\ci_mypy_check.py
+          --repo-root .
+          --python .venv\Scripts\python.exe
+          --baseline .mypy_baseline.txt
 
-          result = subprocess.run(
-              ['.venv\\Scripts\\python', '-m', 'mypy', 'APP',
-               '--ignore-missing-imports', '--strict', '--no-error-summary'],
-              capture_output=True, text=True, cwd='${{ github.workspace }}'
-          )
-          err_lines = sorted(result.stderr.splitlines())
-
-          baseline_path = '.mypy_baseline.txt'
-          new_errors = []
-          try:
-              with open(baseline_path) as f:
-                  baseline = set(line.strip() for line in f if line.strip())
-          except FileNotFoundError:
-              print(f'::warning::No baseline file — treating all {len(err_lines)} errors as pre-existing')
-              with open(baseline_path, 'w') as f:
-                  f.write(result.stderr)
-              sys.exit(0)
-
-          for line in err_lines:
-              if line.strip() and line.strip() not in baseline:
-                  new_errors.append(line)
-
-          if new_errors:
-              print(f'::error::{len(new_errors)} NEW mypy errors detected!')
-              for e in new_errors[:20]:
-                  print(f'  {e}')
-              sys.exit(1)
-          else:
-              print(f'mypy OK: {len(err_lines)} total, 0 new (baseline: {len(baseline)})')
-          "
-
-      # ── pytest (skipped on runtime-only branches without tests/) ─
+      # ── pytest ─────────────────────────────────────────────────
+      # MR-0005: tests/ MUST be present in any branch that ships runtime code.
+      # A green build that skipped pytest because tests/ was missing would let
+      # unverified runtime code reach production. We fail the job instead of
+      # silently skipping. The only legitimate reason to ship without tests/
+      # is a dedicated distribution branch, which sets RUNTIME_ONLY_DIST=1.
       - name: pytest
         shell: pwsh
         env:
           PYTHONPATH: ${{ github.workspace }}\APP
         run: |
-          if (Test-Path tests) {
-            .venv\Scripts\python -m pytest tests/ -q --tb=short -p no:cacheprovider
+          if (-not (Test-Path tests)) {
+            if ($env:RUNTIME_ONLY_DIST -eq '1') {
+              Write-Host "::notice::tests/ absent and RUNTIME_ONLY_DIST=1 — pytest intentionally skipped on distribution branch."
+            } else {
+              Write-Host "::error::tests/ not present in this branch. Ship-ready code MUST be exercised by the test suite. If this is a dedicated distribution branch, set RUNTIME_ONLY_DIST=1."
+              exit 1
+            }
           } else {
-            Write-Host "tests/ not present in this branch — skipping pytest"
+            .venv\Scripts\python -m pytest tests/ -q --tb=short -p no:cacheprovider
           }
 
       - name: Upload test artifacts on failure

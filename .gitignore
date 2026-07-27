@@ -7,6 +7,32 @@ Master-Report_*_TechnicalDoc.docx
 PROMPT_AI_SVERKA.md
 ИТОГИ_СЕССИИ_*.txt
 
+# Real firm workbooks — NEVER commit. These contain financial data.
+# The control-date golden test (tests/golden/test_control_date.py) enforces this.
+Master_Report.xlsx
+ДИАГ_РСЧ_*.xlsx
+РСЧ/
+рсч всех/
+Ване/
+REPORTS/
+backups/
+APP/cache.db
+APP/cache.db.*
+APP/config.yaml
+APP/employees.yaml
+APP/output/
+APP/logs/
+APP/runtime_state.json
+APP/first_run.json
+APP/startup_log.txt
+baseline_report.json
+startup_log.txt
+gui_error_log.txt
+update_log.txt
+logs/
+.update_backups/
+.update_state/
+
 # Debug / temp scripts (explicit files only)
 # tools/*.py  — no blanket ignore, bat files and tools are project files
 
@@ -55,3 +81,13 @@ oracle.py
 rlm_eval*.py
 rlm_report/
 ideal_debug_prompt_v2.0.md
+
+# mypy / analysis scratch output (regenerable, never commit)
+mypy_*.txt
+mypy_*.log
+.mypy_*.txt
+nul
+
+# Rehearsal / old-archive artifacts
+.rehearsal_diag.zip
+Старое/
