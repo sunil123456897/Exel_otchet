@@ -91,3 +91,10 @@ nul
 # Rehearsal / old-archive artifacts
 .rehearsal_diag.zip
 Старое/
+
+# Packaging / build output (Nuitka, PyInstaller) — regenerable, large, never commit
+build_exe/
+build/
+dist/
+*.spec
+build_exe_*.log
