@@ -192,6 +192,14 @@ def main() -> int:
           f"({sum(1 for _ in dist.rglob('*') if _.is_file())} files)")
     print("=" * 60)
 
+    # Drop the friendly launcher into the dist so the portable folder has a
+    # familiar double-click entry (ЗАПУСК.bat) that also surfaces
+    # startup_log.txt if the app crashes on startup.
+    launcher_src = _ROOT / "tools" / "exe_launcher.bat"
+    if launcher_src.exists():
+        shutil.copyfile(launcher_src, dist / "ЗАПУСК.bat")
+        print(f"[build_exe] launcher copied -> {dist / 'ЗАПУСК.bat'}")
+
     if args.zip:
         archive = _make_zip(output_dir, version)
         print(f"[build_exe] zip: {archive} "

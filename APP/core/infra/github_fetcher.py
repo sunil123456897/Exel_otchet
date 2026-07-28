@@ -38,7 +38,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from core.infra.updater_model import VersionManifest
 
@@ -330,3 +330,106 @@ def manifest_from_local_zip(zip_path: Path) -> VersionManifest:
         asset=zip_path.name,
         channel="offline",
     )
+
+
+# ── release-asset fetch (exe distribution) ────────────────────────────
+
+
+def _parse_sha256sums(sums_path: Path, filename: str) -> str:
+    """Extract the sha256 for *filename* from a ``<sha>  <name>`` SUMS file.
+
+    Handles both ``<sha>  <name>`` and ``<sha> *<name>`` (binary marker)
+    lines, as produced by ``sha256sum`` and our own publisher.
+    """
+    try:
+        for line in sums_path.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[-1].lstrip("*") == filename:
+                return parts[0].strip().lower()
+    except OSError:
+        pass
+    return ""
+
+
+def fetch_release_asset(
+    repo_root: Path,
+    *,
+    owner: str = DEFAULT_OWNER,
+    repo: str = DEFAULT_REPO,
+    tag: str | None = None,
+    asset_pattern: str = "Master-Report_*_win64.zip",
+    dest_dir: Path,
+) -> tuple[Path, "VersionManifest"]:
+    """Download a GitHub **release asset** (the exe distribution zip).
+
+    Used by the exe updater (``tools/update_exe.py``). Unlike a branch
+    zipball, a release ships an independent ``SHA256SUMS`` asset, so the
+    returned manifest's SHA-256 is a REAL integrity check rather than the
+    self-referential digest of the bytes just downloaded — together with the
+    release-tag pin this is the defence against a compromised repo/account.
+
+    ``tag=None`` resolves the latest release; otherwise the given tag is
+    fetched. Returns ``(archive_path, manifest)`` with
+    ``manifest.version`` = the release tag.
+    """
+    import fnmatch
+    import hashlib
+    import json as _json
+
+    token = _read_token(repo_root)
+    headers = _auth_headers(token)
+    if tag:
+        url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+    else:
+        url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+    body = _urlopen_with_retry(url, headers, timeout=CONNECT_TIMEOUT_SEC)
+    try:
+        release = _json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as e:
+        raise RuntimeError(f"could not parse release response: {e}") from e
+
+    rel_tag = str(release.get("tag_name", "") or tag or "")
+    asset_list: list[dict[str, Any]] = release.get("assets") or []
+
+    def _find(pattern: str) -> dict[str, Any] | None:
+        for a in asset_list:
+            if fnmatch.fnmatch(str(a.get("name", "")), pattern):
+                return a
+        return None
+
+    asset = _find(asset_pattern)
+    if asset is None:
+        raise RuntimeError(
+            f"release {rel_tag!r} has no asset matching {asset_pattern!r}"
+        )
+    sums_asset = _find("SHA256SUMS*") or _find("*.sha256")
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = dest_dir / str(asset.get("name", "release.zip"))
+    _download_file(
+        str(asset["browser_download_url"]), archive_path, headers,
+        timeout=DOWNLOAD_TIMEOUT_SEC,
+    )
+
+    # Independent integrity: prefer the published SHA256SUMS over our own
+    # digest. If the release has no SUMS we fall back to the local digest
+    # (the caller still runs testzip() CRC upstream).
+    published_sha = ""
+    if sums_asset is not None:
+        sums_path = dest_dir / "SHA256SUMS"
+        _download_file(
+            str(sums_asset["browser_download_url"]), sums_path, headers,
+            timeout=CONNECT_TIMEOUT_SEC,
+        )
+        published_sha = _parse_sha256sums(sums_path, archive_path.name)
+    if not published_sha:
+        published_sha = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+
+    manifest = VersionManifest(
+        version=rel_tag,
+        sha256=published_sha,
+        size=archive_path.stat().st_size,
+        asset=str(asset.get("name", "")),
+        channel="release",
+    )
+    return archive_path, manifest
