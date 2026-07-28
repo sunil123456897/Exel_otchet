@@ -630,6 +630,15 @@ class SettingsDialog(tk.Toplevel):
             ThemeManager.set_theme(effective)
         except Exception:
             pass
+        # Mirror the full widget refresh the sidebar picker does, so the
+        # live preview recolours the table/dashboard/sidebar too — not
+        # just the globally-registered widgets. No toast during preview.
+        refresh = getattr(self._gui, "_refresh_theme_on_widgets", None)
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception:
+                pass
 
     def _set_scale_preset(self, value: float) -> None:
         """Set the scale spinbox to a preset value and trigger preview."""

@@ -228,9 +228,10 @@ class GuiMaster(GuiMasterSettingsMixin):  # type: ignore[misc]
         ``iconphoto`` is the cross-platform fallback. Both are guarded so a
         missing icon or a platform TclError never breaks startup.
         """
-        icons_dir = Path(__file__).resolve().parents[2] / "assets" / "icons"
-        ico_path = icons_dir / "app.ico"
-        png_path = icons_dir / "app.png"
+        from core.ui.icons import icons_dir  # frozen-aware (exe + source)
+        base = icons_dir()
+        ico_path = base / "app.ico"
+        png_path = base / "app.png"
         try:
             if ico_path.exists():
                 # wm_iconbitmap is left unannotated in typeshed.
@@ -585,18 +586,31 @@ class GuiMaster(GuiMasterSettingsMixin):  # type: ignore[misc]
         if resolved not in ("light", "dark"):
             resolved = "light"
         ThemeManager.set_theme(resolved)
-        self.root.configure(bg=ThemeManager.COLORS["bg_main"])
-        if hasattr(self, "employee_table"):
-            self.employee_table.refresh_theme()
-        if hasattr(self, "dashboard_tabs"):
-            self.dashboard_tabs.refresh_theme()
-        # Sidebar hosts tkcalendar.DateEntry widgets whose accent
-        # colours are frozen at creation; refresh_theme re-applies them
-        # so the calendar follows a light↔dark switch.
-        if hasattr(self, "sidebar"):
-            self.sidebar.refresh_theme()
+        self._refresh_theme_on_widgets()
         self.toasts.info(
             "Тема",
             f"Применена тема: {resolved}",
             duration_ms=2000,
         )
+
+    def _refresh_theme_on_widgets(self) -> None:
+        """Re-apply the active palette to the top-level widget tree.
+
+        ``ThemeManager.set_theme`` recolours what it knows about —
+        registered widgets/menus, ttk styles and icons — but the main
+        window background and the composite panels (employee table,
+        dashboard tabs, and the sidebar with its tkcalendar DateEntry
+        accents, which freeze their colours at creation) only rebuild
+        through their own ``refresh_theme`` hooks. Every theme switch —
+        from the sidebar picker OR the Settings dialog — must run this
+        full pass, otherwise the palette half-applies (the bug where
+        Settings changed the global colours but left the table/sidebar
+        in the old theme).
+        """
+        self.root.configure(bg=ThemeManager.COLORS["bg_main"])
+        if hasattr(self, "employee_table"):
+            self.employee_table.refresh_theme()
+        if hasattr(self, "dashboard_tabs"):
+            self.dashboard_tabs.refresh_theme()
+        if hasattr(self, "sidebar"):
+            self.sidebar.refresh_theme()

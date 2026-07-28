@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import sys
 import time
 import decimal
 import datetime
@@ -7,6 +8,24 @@ import logging
 import threading
 from typing import Callable, Dict, Any
 from pathlib import Path
+
+
+def _app_base() -> Path:
+    """Directory that holds app-level data files (``migrations/``, etc.).
+
+    * Source checkout: ``APP/`` — two levels up from this file
+      (``core/infra/db_connection.py`` → ``APP``).
+    * Frozen build (Nuitka ``--standalone``): the ``migrations/`` folder is
+      shipped next to the executable (see ``tools/build_exe.py``), so resolve
+      from ``sys.executable`` — ``__file__`` no longer points at a real
+      on-disk source tree there. Mirrors ``core/ui/icons.py:_assets_base``.
+      Without this, a frozen build could not apply incremental migrations to
+      an existing ``cache.db`` carried forward from an older version.
+    """
+    frozen = bool(getattr(sys, "frozen", False)) or "__compiled__" in globals()
+    if frozen:
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
 
 
 class DecimalEncoder(json.JSONEncoder):
@@ -186,9 +205,7 @@ class SQLiteConnectionManager:
             self.logger.warning("Could not create database backup: %s", e)
 
     def _run_migrations(self) -> None:
-        migrations_dir = Path(__file__).resolve().parents[
-            2
-        ] / "migrations"
+        migrations_dir = _app_base() / "migrations"
         if not migrations_dir.is_dir():
             return
         pending = sorted(

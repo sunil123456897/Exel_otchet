@@ -25,6 +25,7 @@ Integration points:
 """
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 from pathlib import Path
 from typing import Any, Optional
@@ -32,7 +33,31 @@ from typing import Any, Optional
 # Late imports to avoid hard PIL dependency at module import (tests that
 # only touch the token system shouldn't require Pillow).
 
-_ICONS_DIR = Path(__file__).resolve().parents[2] / "assets" / "icons"
+
+def _assets_base() -> Path:
+    """Directory that contains the ``assets/`` folder.
+
+    * Source checkout: ``APP/`` — two levels up from this file
+      (``core/ui/icons.py`` → ``APP``).
+    * Frozen build (Nuitka ``--standalone`` / PyInstaller): ``assets/`` is
+      shipped next to the executable, so resolve from ``sys.executable``.
+      ``__file__`` no longer points at a real on-disk source tree there,
+      which is why the icon-only toolbar buttons (e.g. the sidebar
+      "refresh" button, ``text=""``) rendered invisible in the exe — the
+      icons silently failed to load.
+    """
+    frozen = bool(getattr(sys, "frozen", False)) or "__compiled__" in globals()
+    if frozen:
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+_ICONS_DIR = _assets_base() / "assets" / "icons"
+
+
+def icons_dir() -> Path:
+    """Absolute, frozen-aware path to ``assets/icons``."""
+    return _ICONS_DIR
 
 
 class IconManager:

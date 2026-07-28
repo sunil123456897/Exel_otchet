@@ -127,12 +127,22 @@ class GuiMasterSettingsMixin:
 
     def apply_ui_preferences(self, prefs: UIPreferences) -> None:
         """Apply UI prefs to the running GUI (called by dialog on Apply/OK)."""
-        # Theme switching
+        # Theme switching — run the SAME full pass the sidebar picker
+        # uses (root bg + table/dashboard/sidebar refresh_theme). Calling
+        # only ThemeManager.set_theme here was the bug that made a theme
+        # chosen in Settings half-apply: global styles changed, but the
+        # employee table / dashboard / sidebar kept the old colours.
         effective = ThemeManager.resolve_effective(prefs.theme)
         try:
             ThemeManager.set_theme(effective)
         except Exception:
             _log.exception("Failed to apply theme %s", prefs.theme)
+        refresh = getattr(self, "_refresh_theme_on_widgets", None)
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception:
+                _log.exception("Failed to refresh themed widgets")
 
         # Scale / density
         ThemeManager.apply_preferences(
@@ -159,10 +169,13 @@ class GuiMasterSettingsMixin:
                     self.employee_table.reflow_columns()
             except Exception:
                 _log.exception("Failed to reflow employee-table columns")
-        # Re-dashboard theme if the dashboard window is open.
-        if hasattr(self, "dashboard") and self.dashboard is not None:
+        # Re-theme the dashboard tabs on scale change. The attribute is
+        # ``dashboard_tabs`` (see _refresh_theme_on_widgets); the old
+        # ``dashboard`` name never existed, so this refresh silently
+        # never ran — one of the "small" settings glitches.
+        if hasattr(self, "dashboard_tabs") and self.dashboard_tabs is not None:
             try:
-                if hasattr(self.dashboard, "refresh_theme"):
-                    self.dashboard.refresh_theme()
+                if hasattr(self.dashboard_tabs, "refresh_theme"):
+                    self.dashboard_tabs.refresh_theme()
             except Exception:
                 pass
