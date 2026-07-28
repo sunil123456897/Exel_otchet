@@ -144,6 +144,54 @@ def _make_zip(output_dir: Path, version: str) -> Path:
     return archive
 
 
+def _compile_updater(output_dir: Path) -> Path:
+    """Compile ``tools/update_exe.py`` -> ``updater.exe`` (Nuitka standalone).
+
+    Target PCs have no Python, so the updater must ship as its own exe. It
+    only imports the pure-stdlib ``core.shared.updater_model`` /
+    ``github_fetcher`` (both in ``core.shared``), so the result is small.
+    cwd=APP so ``core`` resolves.
+    Returns the ``update_exe.dist`` directory holding ``updater.exe``.
+    """
+    argv = [
+        sys.executable, "-m", "nuitka",
+        "--standalone",
+        f"--output-dir={output_dir}",
+        "--output-filename=updater.exe",
+        # update_exe.py imports these lazily for the GitHub channel; include
+        # them explicitly so the frozen updater has the release-fetch code.
+        "--include-module=core.shared.updater_model",
+        "--include-module=core.shared.github_fetcher",
+        "--windows-console-mode=force",  # console tool: shows progress
+        "--assume-yes-for-downloads",
+        "--remove-output",
+        str(_ROOT / "tools" / "update_exe.py"),
+    ]
+    result = subprocess.run(argv, cwd=str(_APP_DIR))
+    if result.returncode != 0:
+        raise RuntimeError(f"Nuitka (updater) failed: exit {result.returncode}")
+    updater_dist = output_dir / "update_exe.dist"
+    if not (updater_dist / "updater.exe").exists():
+        raise RuntimeError(f"updater.exe missing from {updater_dist}")
+    return updater_dist
+
+
+def _merge_updater(updater_dist: Path, dist: Path) -> list[str]:
+    """Copy ``updater.exe`` (plus any runtime DLLs the app dist lacks) into
+    the main dist so the updater runs in-place with no Python.
+
+    Both exes are the same Python, so they share ``python3xx.dll`` / VC
+    runtime / libssl already in the app dist; we still copy any DLL the
+    updater needs that the app dist does not have."""
+    shutil.copy2(updater_dist / "updater.exe", dist / "updater.exe")
+    added: list[str] = []
+    for dep in updater_dist.iterdir():
+        if dep.suffix.lower() in (".dll", ".pyd") and not (dist / dep.name).exists():
+            shutil.copy2(dep, dist / dep.name)
+            added.append(dep.name)
+    return added
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--console", action="store_true",
@@ -199,6 +247,23 @@ def main() -> int:
     if launcher_src.exists():
         shutil.copyfile(launcher_src, dist / "ЗАПУСК.bat")
         print(f"[build_exe] launcher copied -> {dist / 'ЗАПУСК.bat'}")
+
+    # Compile + merge the standalone updater (target PCs have no Python) and
+    # drop the update bat. A failure here must not sink the whole build —
+    # main.exe stays usable and a local-zip update remains possible.
+    try:
+        print("[build_exe] compiling updater.exe ...")
+        updater_dist = _compile_updater(output_dir)
+        added = _merge_updater(updater_dist, dist)
+        extra = f" (+ {', '.join(added)})" if added else ""
+        print(f"[build_exe] updater merged -> {dist / 'updater.exe'}{extra}")
+        shutil.rmtree(updater_dist, ignore_errors=True)
+        updater_bat = _ROOT / "tools" / "exe_updater.bat"
+        if updater_bat.exists():
+            shutil.copyfile(updater_bat, dist / "ОБНОВИТЬ_EXE.bat")
+            print(f"[build_exe] update bat copied -> {dist / 'ОБНОВИТЬ_EXE.bat'}")
+    except RuntimeError as e:
+        print(f"[build_exe] WARNING: updater build failed: {e}")
 
     if args.zip:
         archive = _make_zip(output_dir, version)

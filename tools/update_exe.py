@@ -20,10 +20,10 @@ This script is compiled to ``updater.exe`` by ``tools/build_exe.py`` so it runs
 on PCs that have no Python installed. It reuses the proven pieces of the
 source-layout updater rather than reimplementing them:
 
-    core.infra.updater_model   UpdateLock, UpdateResult, VersionManifest,
+    core.shared.updater_model   UpdateLock, UpdateResult, VersionManifest,
                                Updater.sha256_of / check_archive_path_safety /
                                _free_space_mb, the preserved-data set
-    core.infra.github_fetcher  download / auth / retry + release-asset fetch
+    core.shared.github_fetcher  download / auth / retry + release-asset fetch
 
 Exit codes mirror ``tools/run_updater.py``:
     0 success · 2 network/not-found · 3 auth · 4 check failed (L0/L1/pin)
@@ -51,7 +51,7 @@ if not _FROZEN:
     if str(_APP_DIR) not in sys.path:
         sys.path.insert(0, str(_APP_DIR))
 
-from core.infra.updater_model import (  # noqa: E402
+from core.shared.updater_model import (  # noqa: E402
     UpdateLock,
     UpdateResult,
     Updater,
@@ -385,7 +385,7 @@ def run_update(
 
 
 def _local_channel(from_file: Path, result: UpdateResult) -> tuple[Path, VersionManifest]:
-    from core.infra.github_fetcher import manifest_from_local_zip
+    from core.shared.github_fetcher import manifest_from_local_zip
     if not from_file.is_file():
         raise RuntimeError(f"local archive not found: {from_file}")
     manifest = manifest_from_local_zip(from_file)
@@ -396,7 +396,7 @@ def _local_channel(from_file: Path, result: UpdateResult) -> tuple[Path, Version
 def _github_channel(
     install: Path, *, tag: Optional[str], pin_tag: Optional[str], result: UpdateResult,
 ) -> tuple[Path, VersionManifest]:
-    from core.infra.github_fetcher import fetch_release_asset
+    from core.shared.github_fetcher import fetch_release_asset
     archive, manifest = fetch_release_asset(
         install, tag=tag, dest_dir=install / ".update_state",
     )

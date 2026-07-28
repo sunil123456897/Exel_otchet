@@ -165,8 +165,15 @@ def runtime(dist: Path, r: Report) -> None:
     r.check(db_ok, "database connected")
 
     emp = [ln for ln in lines if "employees" in ln and "Refresh status" in ln]
-    r.check(len(emp) > 0, "employee list refreshed",
-            emp[-1].split(" - ")[-1] if emp else "no refresh line")
+    if emp:
+        r.check(True, "employee list refreshed", emp[-1].split(" - ")[-1])
+    elif not (dist / "employees.yaml").exists():
+        # Fresh install has no employees yet, so there is nothing to refresh —
+        # a missing refresh line is expected, not a failure.
+        r.check(True, "employee list refreshed",
+                "skipped — no employees.yaml (fresh install)")
+    else:
+        r.check(False, "employee list refreshed", "no refresh line")
 
     # Icon / image load failures surface as TclError around image=... ; a
     # healthy build has none during startup.

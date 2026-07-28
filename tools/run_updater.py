@@ -138,7 +138,7 @@ def main() -> int:
     # Build the fetcher + manifest.
     try:
         if args.zip:
-            from core.infra.github_fetcher import (
+            from core.shared.github_fetcher import (
                 make_local_fetcher,
             )
             zip_path = Path(args.zip).resolve()
@@ -148,7 +148,7 @@ def main() -> int:
             fetch_fn = make_local_fetcher(zip_path)
             # Manifest is derived from the actual ZIP bytes; we'll let
             # Updater.update recompute it on L0 to avoid path-leak.
-            from core.infra.updater_model import VersionManifest
+            from core.shared.updater_model import VersionManifest
             import hashlib
             raw = zip_path.read_bytes()
             import re
@@ -162,7 +162,7 @@ def main() -> int:
                 channel="offline",
             )
         else:
-            from core.infra.github_fetcher import make_branch_fetcher
+            from core.shared.github_fetcher import make_branch_fetcher
             fetch_fn = make_branch_fetcher(
                 REPO_ROOT, owner=args.owner, repo=args.repo,
                 branch=args.branch,
@@ -175,7 +175,7 @@ def main() -> int:
             # pass the local-fetcher closure + real manifest.
             log(f"  contacting GitHub: {args.owner}/{args.repo}@{args.branch}")
             try:
-                from core.infra.github_fetcher import fetch_branch_zipball
+                from core.shared.github_fetcher import fetch_branch_zipball
                 tmp_dir = REPO_ROOT / ".update_state"
                 archive_path, manifest = fetch_branch_zipball(
                     REPO_ROOT, owner=args.owner, repo=args.repo,
@@ -189,7 +189,7 @@ def main() -> int:
                 # or executed (Updater's L2 smoke runs code from the archive).
                 pin = resolve_pin(args.pin_sha)
                 if pin:
-                    from core.infra.github_fetcher import resolve_branch_commit_sha
+                    from core.shared.github_fetcher import resolve_branch_commit_sha
                     try:
                         commit_sha = resolve_branch_commit_sha(
                             REPO_ROOT, owner=args.owner, repo=args.repo,
@@ -227,7 +227,7 @@ def main() -> int:
 
     # Build the Updater.
     try:
-        from core.infra.updater_model import Updater
+        from core.shared.updater_model import Updater
     except Exception as e:
         log(f"ERROR: updater module failed to import: {e}")
         return 6

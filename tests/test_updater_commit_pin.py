@@ -14,7 +14,7 @@ import json
 import pytest
 
 import run_updater
-from core.infra import github_fetcher
+from core.shared import github_fetcher
 
 
 # ── resolve_branch_commit_sha ──────────────────────────────────────────

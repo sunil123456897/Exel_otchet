@@ -21,7 +21,7 @@ for _p in (_REPO_ROOT / "tools", _REPO_ROOT / "APP"):
         sys.path.insert(0, str(_p))
 
 import update_exe  # noqa: E402
-from core.infra.github_fetcher import manifest_from_local_zip  # noqa: E402
+from core.shared.github_fetcher import manifest_from_local_zip  # noqa: E402
 
 
 # ── helpers ───────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ def test_verify_archive_rejects_sha_mismatch(tmp_path):
     archive = _make_update_zip(tmp_path / "u.zip")
     manifest = manifest_from_local_zip(archive)
     manifest.sha256 = "0" * 64  # wrong on purpose
-    from core.infra.updater_model import UpdateResult
+    from core.shared.updater_model import UpdateResult
     with pytest.raises(RuntimeError, match="sha256 mismatch"):
         update_exe.verify_archive(archive, manifest, UpdateResult())
 
@@ -170,7 +170,7 @@ def test_verify_archive_rejects_sha_mismatch(tmp_path):
 def test_verify_archive_rejects_corrupt_zip(tmp_path):
     archive = tmp_path / "corrupt.zip"
     archive.write_bytes(b"this is not a zip at all")
-    from core.infra.updater_model import UpdateResult, VersionManifest
+    from core.shared.updater_model import UpdateResult, VersionManifest
     manifest = VersionManifest(version="x", sha256="", size=archive.stat().st_size)
     with pytest.raises(RuntimeError):
         update_exe.verify_archive(archive, manifest, UpdateResult())
@@ -180,7 +180,7 @@ def test_verify_archive_rejects_corrupt_zip(tmp_path):
 
 
 def test_version_json_roundtrip(tmp_path):
-    from core.infra.updater_model import VersionManifest
+    from core.shared.updater_model import VersionManifest
     install = tmp_path / "i"
     install.mkdir()
     manifest = VersionManifest(version="v9.9", sha256="", size=1, asset="a.zip")

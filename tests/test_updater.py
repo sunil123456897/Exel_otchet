@@ -31,7 +31,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from core.infra.updater_model import (
+from core.shared.updater_model import (
     CurrentVersion,
     UpdateLock,
     Updater,

@@ -67,8 +67,8 @@ def _build_fake_release(
 
 def test_local_fetcher_copies_zip(tmp_path: Path) -> None:
     """``make_local_fetcher`` returns a fetch_fn that copies the ZIP."""
-    from core.infra.github_fetcher import make_local_fetcher
-    from core.infra.updater_model import VersionManifest
+    from core.shared.github_fetcher import make_local_fetcher
+    from core.shared.updater_model import VersionManifest
 
     src = _build_fake_release(tmp_path / "src")
     dest = tmp_path / "dest"
@@ -83,7 +83,7 @@ def test_manifest_from_local_zip_has_correct_sha_and_size(
     tmp_path: Path,
 ) -> None:
     """The manifest must match the actual ZIP bytes."""
-    from core.infra.github_fetcher import manifest_from_local_zip
+    from core.shared.github_fetcher import manifest_from_local_zip
 
     src = _build_fake_release(tmp_path / "src", version="5.8.0")
     manifest = manifest_from_local_zip(src)
@@ -98,7 +98,7 @@ def test_manifest_from_local_zip_extracts_version_from_filename(
     tmp_path: Path,
 ) -> None:
     """``MasterReport-5.9.1.zip`` → version ``5.9.1``."""
-    from core.infra.github_fetcher import manifest_from_local_zip
+    from core.shared.github_fetcher import manifest_from_local_zip
     src = _build_fake_release(tmp_path, version="5.9.1")
     manifest = manifest_from_local_zip(src)
     assert manifest.version == "5.9.1"
@@ -108,7 +108,7 @@ def test_manifest_from_local_zip_falls_back_when_no_version_in_name(
     tmp_path: Path,
 ) -> None:
     """A ZIP without a version in its name gets a SHA-derived version."""
-    from core.infra.github_fetcher import manifest_from_local_zip
+    from core.shared.github_fetcher import manifest_from_local_zip
     src = tmp_path / "random-archive.zip"
     with zipfile.ZipFile(src, "w") as zf:
         zf.writestr("APP/main.py", "x")
@@ -121,7 +121,7 @@ def test_manifest_from_local_zip_falls_back_when_no_version_in_name(
 
 def test_read_token_prefers_env(monkeypatch, tmp_path: Path) -> None:
     """``$GITHUB_TOKEN`` overrides ``.github_token``."""
-    from core.infra import github_fetcher
+    from core.shared import github_fetcher
     token_file = tmp_path / ".github_token"
     token_file.write_text("from_file", encoding="utf-8")
     monkeypatch.setattr(github_fetcher, "DEFAULT_OWNER", "x")
@@ -132,7 +132,7 @@ def test_read_token_prefers_env(monkeypatch, tmp_path: Path) -> None:
 
 def test_read_token_falls_back_to_file(monkeypatch, tmp_path: Path) -> None:
     """Without ``$GITHUB_TOKEN``, the file is used."""
-    from core.infra import github_fetcher
+    from core.shared import github_fetcher
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     token_file = tmp_path / ".github_token"
     token_file.write_text("from_file\n", encoding="utf-8")
@@ -144,7 +144,7 @@ def test_read_token_returns_none_if_no_source(
     monkeypatch, tmp_path: Path,
 ) -> None:
     """No token, no file → None (public repo mode)."""
-    from core.infra import github_fetcher
+    from core.shared import github_fetcher
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     assert github_fetcher._read_token(tmp_path) is None
 
@@ -152,7 +152,7 @@ def test_read_token_returns_none_if_no_source(
 def test_auth_headers_never_log_token() -> None:
     """The auth headers contain the token but the function has no side
     effects that would leak it."""
-    from core.infra.github_fetcher import _auth_headers
+    from core.shared.github_fetcher import _auth_headers
     h = _auth_headers("secret-token-12345")
     assert h["Authorization"] == "token secret-token-12345"
     # The headers dict is the only output; no log/print.

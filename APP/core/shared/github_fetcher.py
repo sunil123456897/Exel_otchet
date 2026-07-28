@@ -40,7 +40,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-from core.infra.updater_model import VersionManifest
+from core.shared.updater_model import VersionManifest
 
 
 # ── config ─────────────────────────────────────────────────────────────

@@ -127,9 +127,9 @@ _ALLOWLIST: dict[str, str] = {
     # The line number shifts when the module header changes; allowlist
     # covers the whole docstring block — update the line numbers if the
     # header grows.
-    "APP/core/infra/updater_model.py:66": "docstring example of manifest version field",
-    "APP/core/infra/updater_model.py:67": "docstring example of manifest JSON",
-    "APP/core/infra/updater_model.py:68": "docstring example of manifest asset filename",
+    "APP/core/shared/updater_model.py:66": "docstring example of manifest version field",
+    "APP/core/shared/updater_model.py:67": "docstring example of manifest JSON",
+    "APP/core/shared/updater_model.py:68": "docstring example of manifest asset filename",
     # Example inside a docstring describing what data_loss_log redacts.
     "APP/core/domain/data_loss_log.py:26": "comment example of redacted token",
 }
