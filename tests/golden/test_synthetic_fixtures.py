@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import re
 import zipfile
 from io import BytesIO
 
@@ -49,8 +50,25 @@ def test_scenario_is_deterministic(scenario_id: str) -> None:
     — which made this determinism test flap under load. Pinning the docProps
     and re-packing the zip with fixed entry dates makes the hash reflect
     content only, which is the property golden tests actually rely on.
+
+    Note: assigning ``wb.properties.modified = fixed`` is NOT enough — on
+    ``save()`` openpyxl re-stamps ``dcterms:modified`` with the current time
+    regardless (``created`` is honoured, ``modified`` is clobbered), so the
+    test still flapped under load when the two saves straddled a clock tick.
+    We therefore normalise the W3CDTF timestamps *inside* the serialised
+    ``docProps/core.xml`` member as well, so the hash is stable no matter
+    where openpyxl hides a clock.
     """
     fixed = datetime.datetime(2020, 1, 1)
+    # Rewrites <dcterms:created>/<dcterms:modified> values to a constant.
+    _ts_norm = re.compile(
+        rb"(<dcterms:(?:created|modified)\b[^>]*>)[^<]*(</dcterms:)"
+    )
+
+    def _normalised_member(name: str, data: bytes) -> bytes:
+        if name == "docProps/core.xml":
+            return _ts_norm.sub(rb"\g<1>2020-01-01T00:00:00Z\g<2>", data)
+        return data
 
     def _content_bytes(wb: openpyxl.Workbook) -> bytes:
         wb.properties.created = fixed
@@ -64,7 +82,7 @@ def test_scenario_is_deterministic(scenario_id: str) -> None:
         ) as dst:
             for item in src.infolist():
                 item.date_time = (2020, 1, 1, 0, 0, 0)
-                dst.writestr(item, src.read(item.filename))
+                dst.writestr(item, _normalised_member(item.filename, src.read(item.filename)))
         return out.getvalue()
 
     wb1 = SCENARIOS[scenario_id]()
