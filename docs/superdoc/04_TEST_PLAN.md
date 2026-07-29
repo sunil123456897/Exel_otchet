@@ -11,7 +11,7 @@
 > [`05_TRACEABILITY.md`](./05_TRACEABILITY.md),
 > [`docs/specs/user-stories.md`](../specs/user-stories.md),
 > [`docs/specs/edge-cases.md`](../specs/edge-cases.md),
-> [`features.json`](../../features.json).
+> [`features.json`](../features/features.json).
 
 ---
 
@@ -763,7 +763,7 @@ snapshot**. Tkinter-приложения не имеют готового ком
   параллелизм, данные, безопасность, граничные значения.
 - **[`docs/specs/user-stories.md`](../specs/user-stories.md)** — 252 сценария,
   каждый фича имеет 6 сценариев, включая негативные.
-- **[`features.json`](../../features.json)** — детальные TC по каждой фиче.
+- **[`features.json`](../features/features.json)** — детальные TC по каждой фиче.
 
 Эти источники **остаются каноном**. Данный раздел добавляет только
 **UI-специфичные edge-cases**, не покрытые автотестами.

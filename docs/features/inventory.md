@@ -3,7 +3,7 @@
 ## Метаданные
 - Дата: 2026-06-26
 - Проект: Master-Report v5.5
-- Источник: docs/map/structure.md + docs/map/architecture.md + features.json + анализ кода
+- Источник: docs/map/structure.md + docs/map/architecture.md + features.json (в этом же каталоге) + анализ кода
 
 ## Сводка
 - Всего фич: 42
