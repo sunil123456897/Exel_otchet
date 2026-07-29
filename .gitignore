@@ -98,6 +98,8 @@ build/
 dist/
 *.spec
 build_exe_*.log
+# Inno Setup installer output (Master-Report_<ver>_Setup.exe) — regenerable
+installer_output/
 
 # Agent workspaces that live under docs/ — session state / execution plans,
 # not product documentation. Kept out of the live docs tree.
