@@ -98,6 +98,47 @@ def is_file_writable(path: str) -> bool:
         return False
 
 
+def atomic_save_yaml(
+    path: str | Path, data: Any, yaml_dumper: Any, *, encoding: str = "utf-8"
+) -> None:
+    """Write YAML data to ``path`` atomically (temp + ``os.replace``).
+
+    ``save_config`` / ``_save_employees`` previously did ``open("w")`` directly
+    on the live file, which truncates *before* the new content is written. A
+    crash, power loss, or disk-full between truncate and the completed
+    ``yaml.dump`` left ``config.yaml`` / ``employees.yaml`` empty or
+    half-written — destroying the operator's employee→file mapping and forcing
+    a manual re-map of every network Excel file. ``os.replace`` is atomic on
+    Windows (same volume), so the target file is only ever the old version or
+    the complete new version, never an intermediate state.
+
+    Mirrors ``atomic_save_workbook`` / the ``current.json`` writer in
+    ``updater_model``. ``yaml_dumper`` is a ``ruamel.yaml.YAML`` instance;
+    ``utils`` stays free of a hard ruamel import.
+    """
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = str(output_path) + ".tmp"
+    if os.name == "nt" and len(tmp) > 250:
+        tmp = "\\\\?\\" + tmp
+        target = "\\\\?\\" + str(output_path)
+    else:
+        target = str(output_path)
+    try:
+        with open(tmp, "w", encoding=encoding) as f:
+            yaml_dumper.dump(data, f)
+        os.replace(tmp, target)
+    except Exception:
+        # Remove the partial temp so a retry does not collide; the previous
+        # good file is left untouched because we never touched it.
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
 _CACHE_DIR = Path(tempfile.gettempdir()) / "master_report_cache"
 _CACHE_CLEANUP_LOCK = threading.Lock()
 _CACHE_CLEANUP_DONE = False

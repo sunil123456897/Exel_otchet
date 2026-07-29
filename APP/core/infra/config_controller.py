@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, cast
 from ruamel.yaml import YAML
 
+from core.infra.utils import atomic_save_yaml
 from core.infra.utils_logging import scrub_path
 
 
@@ -33,8 +34,7 @@ class ConfigController:
 
     def _save_employees(self) -> None:
         try:
-            with open(self.employees_path, "w", encoding="utf-8") as f:
-                self.yaml.dump(self.employees, f)
+            atomic_save_yaml(self.employees_path, self.employees, self.yaml)
             # Restrict to owner-only read/write — employees.yaml contains
             # network paths and file fingerprints that shouldn't be
             # world-readable on shared machines.
@@ -95,8 +95,7 @@ class ConfigController:
     def save_config(self) -> None:
         """Saves the current configuration to the YAML file."""
         try:
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                self.yaml.dump(self.config, f)
+            atomic_save_yaml(self.config_path, self.config, self.yaml)
             # Restrict to owner-only read/write — see load_config.
             try:
                 os.chmod(self.config_path, 0o600)
