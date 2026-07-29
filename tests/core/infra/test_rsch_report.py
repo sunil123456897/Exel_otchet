@@ -194,3 +194,76 @@ def test_one_bad_amount_cell_does_not_kill_whole_sheet():
     # along with the whole sheet.
     assert len(rows) == 3
 
+
+def test_build_rsch_report_filters_to_target_date_only(tmp_path):
+    """target_date must include ONLY rows for that date.
+
+    The smoke test only asserts written > 0 — a regression that ignored the
+    date filter (returning every row) would pass it. This pins that
+    target_date=10.06.2026 with source rows on 01.06 / 10.06 / 15.06 yields
+    exactly one written row, for 10.06. Each row carries its own explicit
+    Дата because the reader's date is "sticky" (inherited downward when a row
+    has no date cell) — a blank date would silently inherit the wrong value.
+    """
+    from core.infra.rsch import build_rsch_report
+
+    source_path = tmp_path / "source.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "рсч Иванов"
+    ws.append(["Дата", "ИСПОЛНИТЕЛЬ", "ЗАКАЗЧИК", "Контрагент",
+               "Комментарий", "Приход РСЧ", "Расход РСЧ", "р/с", "Источник",
+               "Проект левый", "Проект правый", "account"])
+    # Three rows, each with its OWN explicit date and a nonzero amount.
+    ws.append(["01.06.2026", "exec1", "cust1", "contr1", "", 111.00, 0.00,
+               "acc1", "src1", "", "", ""])
+    ws.append(["10.06.2026", "exec2", "cust2", "contr2", "", 222.00, 0.00,
+               "acc2", "src2", "", "", ""])
+    ws.append(["15.06.2026", "exec3", "cust3", "contr3", "", 333.00, 0.00,
+               "acc3", "src3", "", "", ""])
+    wb.save(source_path)
+    wb.close()
+
+    template_path = tmp_path / "template.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Дата", "ИСПОЛНИТЕЛЬ", "ЗАКАЗЧИК", "Контрагент",
+               "Комментарий", "Приход РСЧ", "Расход РСЧ", "р/с", "Источник"])
+    wb.save(template_path)
+    wb.close()
+
+    output_path = tmp_path / "output.xlsx"
+    written = build_rsch_report(
+        source_path=[source_path],
+        output_path=output_path,
+        target_date=date(2026, 6, 10),
+        template_path=template_path,
+        drive_letters=(),
+    )
+
+    # Exactly one row (the 10.06 one) survived the date filter.
+    assert written == 1, (
+        f"target_date=10.06.2026 must keep exactly 1 row, got {written} — "
+        "date filter regressed (returning out-of-scope rows)"
+    )
+
+    # And the surviving row is genuinely the 10.06 row (income 222), not a
+    # different row that happened to slip through.
+    result_wb = load_workbook(output_path)
+    ws = result_wb.active
+    header = [c.value for c in ws[1]]
+    income_col = header.index("Приход") + 1
+    # Skip the trailing ИТОГО: row (it holds a SUM formula, not a data value).
+    data_incomes = []
+    for r in range(2, ws.max_row + 1):
+        executor = ws.cell(r, 1).value
+        if executor and str(executor).strip().upper().startswith("ИТОГО"):
+            continue
+        v = ws.cell(r, income_col).value
+        if v is not None:
+            data_incomes.append(v)
+    assert 222 in data_incomes, "the 10.06 row (income 222) must be present"
+    assert 111 not in data_incomes, "01.06 row must be filtered out"
+    assert 333 not in data_incomes, "15.06 row must be filtered out"
+    result_wb.close()
+

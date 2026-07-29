@@ -286,3 +286,97 @@ def test_no_formula_warning_when_all_text_rows_have_amounts(caplog):
     wb.close()
 
     assert not any("Excel" in rec.message for rec in caplog.records)
+
+
+# ── match VERDICTS: assert matched vs unmatched, not just row_count ──
+#
+# The smoke tests above only assert row_count > 0. A regression that matched
+# every row to nothing (or every row to everything) would pass them. This
+# pins the actual verdicts: an exact match → СВЕРЕНО, a fuzzy executor-alias
+# match → matched, and a deliberately unmatched master row → ОШИБКА / "Нет в
+# РСЧ". This is the highest-financial-stakes output of the app.
+
+
+def test_reconciliation_verdicts_exact_alias_and_unmatched(tmp_path):
+    """Three master rows: one exact match, one executor-alias match, one
+    unmatched. The report must distinguish them by Статус/Причина, not just
+    produce a non-empty sheet."""
+    from core.infra.reconciliation import build_reconciliation_report
+    from openpyxl import load_workbook
+
+    master_path = tmp_path / "master.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "10.06.2026"
+    ws.append(["Источник", "ЗАКАЗЧИК", "ИСПОЛНИТЕЛЬ", "Приход", "Расход"])
+    # exact match: exec1 / cust1 / 100 also in rsch
+    ws.append(["m1", "cust1", "exec1", 100, 0])
+    # fuzzy executor-alias match: "УК Альянс" canonicalizes to "ука", same as
+    # the rsch executor "УКА_Альфа" — so this row still finds a pair.
+    ws.append(["m2", "cust2", "УК Альянс", 200, 0])
+    # unmatched: amount 9999 appears in no rsch row → no candidate
+    ws.append(["m3", "cust3", "exec3", 9999, 0])
+    wb.save(master_path)
+    wb.close()
+
+    rsch_path = tmp_path / "rsch.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "10.06.2026"
+    ws.append(["Источник", "ИСПОЛНИТЕЛЬ", "ЗАКАЗЧИК", "Контрагент",
+               "Комментарий", "Приход", "Расход"])
+    ws.append(["r1", "exec1", "cust1", "contr1", "", 100, 0])  # pairs with m1
+    ws.append(["r2", "УКА_Альфа", "cust2", "contr2", "", 200, 0])  # pairs with m2
+    wb.save(rsch_path)
+    wb.close()
+
+    output_path = tmp_path / "recon.xlsx"
+    row_count = build_reconciliation_report(
+        master_path, rsch_path, output_path,
+        target_date=date(2026, 6, 10), drive_letters=(),
+    )
+    assert row_count > 0
+
+    # Layout: [*5 master cols, "Статус"(col 6), *6 rsch cols(7-12), "Причина"(13)]
+    result_wb = load_workbook(output_path)
+    ws = result_wb["10.06.2026"]
+    header = [c.value for c in ws[1]]
+    status_col = header.index("Статус") + 1
+    reason_col = header.index("Причина") + 1
+    executor_col = header.index("ИСПОЛНИТЕЛЬ") + 1  # master executor col
+
+    # Collect (executor, status, reason) per data row.
+    rows_by_exec = {}
+    for r in range(2, ws.max_row + 1):
+        exec_val = ws.cell(r, executor_col).value
+        status = ws.cell(r, status_col).value
+        reason = ws.cell(r, reason_col).value
+        if exec_val:
+            rows_by_exec[exec_val] = (status, reason)
+
+    # The exact-match row (exec1) is verified — not flagged as a discrepancy.
+    assert "exec1" in rows_by_exec, "exact-match master row disappeared from report"
+    s1, _ = rows_by_exec["exec1"]
+    assert s1 in ("СВЕРЕНО", "ПРОВЕРИТЬ"), (
+        f"exact match should be matched, got status={s1!r}"
+    )
+
+    # The alias-match row (УК Альянс ↔ УКА_Альфа) is also matched.
+    assert "УК Альянс" in rows_by_exec, "alias master row disappeared"
+    s2, _ = rows_by_exec["УК Альянс"]
+    assert s2 in ("СВЕРЕНО", "ПРОВЕРИТЬ"), (
+        f"executor-alias match (УК Альянс↔УКА_Альфа) should be matched, "
+        f"got status={s2!r} — canonicalization regression"
+    )
+
+    # The unmatched row (exec3) must be flagged as an error with reason
+    # "Нет в РСЧ" — a regression that silently matches it would be a silent
+    # financial discrepancy.
+    assert "exec3" in rows_by_exec, "unmatched master row disappeared"
+    s3, reason3 = rows_by_exec["exec3"]
+    assert s3 == "ОШИБКА", (
+        f"unmatched row should be ОШИБКА, got status={s3!r}"
+    )
+    assert reason3 is not None and "РСЧ" in str(reason3), (
+        f"unmatched row reason should mention РСЧ, got {reason3!r}"
+    )

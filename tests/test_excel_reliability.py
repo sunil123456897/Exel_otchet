@@ -187,3 +187,48 @@ def test_huge_used_range_does_not_allocate_million_rows(tmp_path: Path) -> None:
     # to catch.
     result = eng.read_file(path, strict_io=False)
     assert isinstance(result, list)
+
+
+# ── dedicated behaviour for fixtures only covered by the generic loop ──
+#
+# build_missing_xml / build_many_empty_formatted_rows / build_hidden_sheet /
+# build_formula_without_cache / build_protected_workbook are exercised by the
+# parametrized "does not crash" test above, but with only the weak
+# `isinstance(result, list)` assertion. The real contract for a malformed
+# workbook is stronger: it must NOT return fabricated financial rows (an empty
+# list is correct; non-empty data on a structurally broken file would mean
+# the reader is hallucinating). These pin that stronger invariant per fixture.
+
+
+@pytest.mark.parametrize(
+    "builder_name",
+    [
+        "missing_xml",
+        "many_empty_formatted_rows",
+        "hidden_sheet",
+        "formula_without_cache",
+        "protected_workbook",
+    ],
+)
+def test_malformed_fixture_yields_no_fabricated_rows(
+    builder_name: str, tmp_path: Path,
+) -> None:
+    """A structurally broken workbook must never produce fake financial rows.
+
+    ``build_formula_without_cache`` mirrors a real operator pain point: a
+    source saved without cached formula values (data_only reads cells as
+    None). None of these fixtures carry genuine payment data, so any non-empty
+    result would be a hallucination — a silent correctness bug worse than a
+    crash.
+    """
+    builder = CORRUPT_FIXTURE_BUILDERS[builder_name]
+    path = builder(tmp_path)
+    eng = _engine()
+    result = eng.read_file(path, strict_io=False)
+    assert isinstance(result, list), (
+        f"{builder_name}: returned {type(result).__name__}, expected list"
+    )
+    assert result == [], (
+        f"{builder_name}: a structurally broken workbook returned {len(result)} "
+        "rows — the reader is fabricating data from a corrupt input"
+    )
