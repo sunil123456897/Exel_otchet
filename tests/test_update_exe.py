@@ -187,3 +187,86 @@ def test_version_json_roundtrip(tmp_path):
     update_exe.write_version_json(install, manifest, "local")
     assert update_exe.read_installed_version(install) == "v9.9"
     assert update_exe.read_installed_version(tmp_path / "nope") is None
+
+
+# ── hard-kill recovery: a swap interrupted by power loss / force-kill ─
+
+
+def test_recover_if_interrupted_restores_after_mid_swap_kill(tmp_path):
+    """A power loss / BSOD / force-kill during apply_program leaves the install
+    with a mix of old and new program files. The pending-swap marker survives
+    (it is only cleared in apply_program's finally on completion), so the next
+    run detects it and restores the pre-swap backup to a known-good state."""
+    install = _make_install(tmp_path / "install", main_bytes=b"OLD-EXE")
+    archive = _make_update_zip(tmp_path / "update.zip", main_bytes=b"NEW-EXE")
+    manifest = manifest_from_local_zip(archive)
+
+    # Run a complete successful update first so a real backup exists and the
+    # install reflects the NEW program. This is the state *before* a second
+    # update gets killed.
+    first = update_exe.run_update(
+        install, manifest, archive, channel="local",
+        startup_ok_fn=_ok_startup, launch_after=True,
+    )
+    assert first.ok
+    assert (install / "main.exe").read_bytes() == b"NEW-EXE"
+
+    # Simulate a hard kill DURING a subsequent swap: write the marker pointing
+    # at a backup, then leave main.exe partially overwritten. No exception is
+    # raised (a hard kill raises nothing), so the normal rollback path would
+    # NEVER trigger — only _recover_if_interrupted can save the install.
+    (install / "main.exe").write_bytes(b"HALF-WRITTEN-CORRUPT")
+
+    # Find the backup the (interrupted) second update would have made.
+    backups_root = install / ".update_backups"
+    assert backups_root.is_dir()
+    latest_backup = sorted(backups_root.iterdir(), key=lambda p: p.name)[-1]
+    # Make that backup contain the known-good NEW program (simulate backup_state
+    # having run before the swap).
+    (latest_backup / "program").mkdir(parents=True, exist_ok=True)
+    (latest_backup / "program" / "main.exe").write_bytes(b"NEW-EXE")
+
+    update_exe._pending_marker_path(install).parent.mkdir(parents=True, exist_ok=True)
+    update_exe._pending_marker_path(install).write_text(
+        str(latest_backup), encoding="utf-8"
+    )
+    assert (install / "main.exe").read_bytes() == b"HALF-WRITTEN-CORRUPT"
+
+    # Now a new update runs. Its first action must detect the marker and restore.
+    res = update_exe.run_update(
+        install, manifest, archive, channel="local",
+        startup_ok_fn=_ok_startup, launch_after=True,
+    )
+
+    # Recovery happened and the corrupt half-write was replaced by the backup.
+    assert any("recovery" in line for line in res.log_lines), res.log_lines
+    assert (install / "main.exe").read_bytes() != b"HALF-WRITTEN-CORRUPT"
+    # The update then proceeds normally and completes.
+    assert res.ok
+    # marker cleared after recovery + successful swap
+    assert not update_exe._pending_marker_path(install).exists()
+
+
+def test_recover_if_interrupted_noop_without_marker(tmp_path):
+    """No marker → no recovery, normal update proceeds. Guards the guard."""
+    from core.shared.updater_model import UpdateResult
+
+    install = _make_install(tmp_path / "install")
+    result = UpdateResult()
+    assert update_exe._recover_if_interrupted(install, result) is False
+    assert all("recovery" not in line for line in result.log_lines)
+
+
+def test_pending_marker_cleared_on_successful_swap(tmp_path):
+    """A completed swap must not leave a pending marker — otherwise the next
+    update would wrongly think the install is stranded."""
+    install = _make_install(tmp_path / "install", main_bytes=b"OLD-EXE")
+    archive = _make_update_zip(tmp_path / "update.zip", main_bytes=b"NEW-EXE")
+    manifest = manifest_from_local_zip(archive)
+
+    res = update_exe.run_update(
+        install, manifest, archive, channel="local",
+        startup_ok_fn=_ok_startup, launch_after=True,
+    )
+    assert res.ok
+    assert not update_exe._pending_marker_path(install).exists()

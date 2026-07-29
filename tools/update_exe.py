@@ -216,23 +216,108 @@ def restore_state(install: Path, bk: Path, result: UpdateResult) -> None:
     _log(result, "rollback", f"restored program+data from {bk.name}")
 
 
+# ── hard-kill recovery ────────────────────────────────────────────────
+
+
+def _pending_marker_path(install: Path) -> Path:
+    return install / ".update_state" / "pending_swap"
+
+
+def write_pending_marker(install: Path) -> None:
+    """Record that an in-place swap is about to start.
+
+    Writes the path of the pre-swap backup directory (created by
+    ``backup_state``) into ``.update_state/pending_swap``. The marker is
+    cleared by ``apply_program``'s ``finally`` when the swap completes. If the
+    process is hard-killed mid-copy, the marker survives and the next update
+    run recovers from it (see ``_recover_if_interrupted``).
+    """
+    marker = _pending_marker_path(install)
+    backups_root = install / ".update_backups"
+    latest_backup: Optional[Path] = None
+    if backups_root.is_dir():
+        # The most recent backup is the one just created for this update.
+        existing = sorted(
+            (p for p in backups_root.iterdir() if p.is_dir()),
+            key=lambda p: p.name,
+            reverse=True,
+        )
+        if existing:
+            latest_backup = existing[0]
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    payload = str(latest_backup) if latest_backup else ""
+    marker.write_text(payload, encoding="utf-8")
+
+
+def clear_pending_marker(install: Path) -> None:
+    marker = _pending_marker_path(install)
+    try:
+        marker.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _recover_if_interrupted(install: Path, result: UpdateResult) -> bool:
+    """Detect & repair an install stranded by a hard-killed swap.
+
+    Called at the top of every update, before acquiring the lock. If a
+    ``pending_swap`` marker survives, the previous swap was interrupted by a
+    process kill (the marker is only cleared in ``apply_program``'s ``finally``
+    on successful completion). Restore the pre-swap backup so the install is in
+    a known-good state before proceeding. Returns True if recovery happened.
+    """
+    marker = _pending_marker_path(install)
+    if not marker.exists():
+        return False
+    bk_str = ""
+    try:
+        bk_str = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    _log(result, "recovery", f"interrupted swap detected (backup={bk_str or 'none'})")
+    if bk_str:
+        bk = Path(bk_str)
+        if bk.is_dir():
+            restore_state(install, bk, result)
+        else:
+            _log(result, "recovery",
+                 f"backup dir not found ({bk_str}); cannot auto-restore")
+    else:
+        # No backup recorded — nothing to restore to. Clear the marker so the
+        # update can proceed; the install is in whatever partial state the
+        # interrupted swap left it.
+        _log(result, "recovery", "no backup recorded; clearing stale marker")
+    clear_pending_marker(install)
+    return True
+
+
 def apply_program(install: Path, dist_root: Path, result: UpdateResult) -> None:
     """Copy the staged program files over the install dir, in place.
 
     Data files are NEVER in the release archive (program-only build), so they
     are left untouched; we additionally skip anything that matches the data
-    set defensively. Update-machinery dirs are skipped too."""
-    for entry in dist_root.iterdir():
-        name = entry.name
-        if name in _UPDATE_DIRS:
-            continue
-        if _is_data_file(name):
-            continue  # never overwrite user data from an archive
-        dest = install / name
-        if entry.is_dir():
-            shutil.copytree(entry, dest, dirs_exist_ok=True)
-        else:
-            shutil.copy2(entry, dest)
+    set defensively. Update-machinery dirs are skipped too.
+
+    Guarded by a pending-swap marker: ``_recover_if_interrupted`` (run at the
+    start of every update) detects a marker left from a swap that a hard kill
+    interrupted and restores the pre-swap backup, so a power loss / BSOD /
+    force-kill mid-copy cannot strand the install with a mix of old and new
+    program files."""
+    write_pending_marker(install)
+    try:
+        for entry in dist_root.iterdir():
+            name = entry.name
+            if name in _UPDATE_DIRS:
+                continue
+            if _is_data_file(name):
+                continue  # never overwrite user data from an archive
+            dest = install / name
+            if entry.is_dir():
+                shutil.copytree(entry, dest, dirs_exist_ok=True)
+            else:
+                shutil.copy2(entry, dest)
+    finally:
+        clear_pending_marker(install)
     _log(result, "swap", "program files replaced in place (data preserved)")
 
 
@@ -321,6 +406,13 @@ def run_update(
 ) -> UpdateResult:
     """Full in-place update with backup + rollback. Never raises."""
     result = UpdateResult(version=manifest.version)
+    # First thing: if a previous update run was hard-killed mid-swap (power
+    # loss / BSOD / force-kill), a pending_swap marker survives and the install
+    # is stranded with a mix of old and new program files. Restore the
+    # pre-swap backup before doing anything else so we never build on a broken
+    # install. (The normal rollback path only fires on a Python exception; a
+    # hard kill raises nothing, so it needs this explicit recovery step.)
+    _recover_if_interrupted(install, result)
     lock = UpdateLock(install)
     if not lock.acquire():
         result.stage = "lock"
