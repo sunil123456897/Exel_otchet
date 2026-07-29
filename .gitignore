@@ -98,3 +98,13 @@ build/
 dist/
 *.spec
 build_exe_*.log
+
+# Agent workspaces that live under docs/ — session state / execution plans,
+# not product documentation. Kept out of the live docs tree.
+docs/maestro/
+docs/superpowers/
+
+# QA simulation output — regenerable artifacts produced by
+# tests/simulation_runner.py / simulation_runner_real.py (--out ...), not specs.
+docs/qa/simulation_results.json
+docs/qa/simulation_real_results.json
