@@ -28,3 +28,9 @@ testpaths = ["tests"]
 # (compare_workbooks.py, qa_baseline.py, ci_mypy_check.py);
 # tests/golden — synthetic fixture builders shared across golden tests.
 pythonpath = ["APP", "tools", "tests/golden"]
+# e2e: end-to-end scenarios that require the operator's real data files
+# (рсч всех/, REPORTS/Отчет кураторов N/). Skipped automatically when those
+# dirs are absent (CI, clean checkout). Run explicitly: pytest --run-e2e.
+markers = [
+    "e2e: end-to-end on real customer data; skipped unless data present / --run-e2e",
+]
