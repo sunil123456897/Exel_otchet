@@ -239,6 +239,12 @@ rsch:
 
 ### mypy baseline — строгая типизация без страха
 
+**Текущий статус:** `mypy APP --strict --ignore-missing-imports` проходит
+**полностью чисто — 0 ошибок в 93 файлах**. Файл `.mypy_baseline.txt` пуст
+(исторически baseline-подход зафиксировал растущий список предупреждений; к
+настоящему моменту он сведён к нулю). Baseline-механизм остаётся как
+страховка: если новая правка внесёт mypy-ошибку, pre-commit и CI её поймают.
+
 Проект использует **baseline-подход** к `mypy --strict`:
 
 1. Файл `.mypy_baseline.txt` содержит все **существующие** предупреждения mypy
@@ -335,7 +341,9 @@ Pre-commit хук запускается автоматически перед �
 Полный список известных ограничений: [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md).
 Что изменилось по этапам: [`CHANGELOG.md`](CHANGELOG.md).
 
-Тестов в комплекте (Stage 0–9): **990 passed, 0 skipped** на Windows.
+Тестов в комплекте (Stage 0–9 + hardening-цикл): **~1280 passed** на Windows
+(1278 passed + 4 skipped: 3 платформенных UI-screenshot + 1 opt-in e2e).
+Актуальное число — см. вывод `pytest tests/`.
 
 ## История стабилизации
 
