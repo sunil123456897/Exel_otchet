@@ -39,6 +39,7 @@ First run downloads the MinGW64 gcc Nuitka needs (~150 MB, cached in
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import re
 import shutil
 import subprocess
@@ -264,6 +265,30 @@ def main() -> int:
             print(f"[build_exe] update bat copied -> {dist / 'ОБНОВИТЬ_EXE.bat'}")
     except RuntimeError as e:
         print(f"[build_exe] WARNING: updater build failed: {e}")
+
+    # Provision a 30-day trial license into the dist. CRITICAL: without this a
+    # freshly-built exe has no ``.license`` file, and since the native build
+    # ships no ``.py`` source, ``is_development_mode()`` is False → production
+    # mode → ``check_license()`` treats a missing license as EXPIRED and the
+    # app starts in view-only mode (action buttons disabled). That would make
+    # a new install a regression, not an update. write_license() writes to
+    # ``Path(__file__).parents[1]`` which, for the frozen exe, resolves next
+    # to main.exe — exactly where check_license() looks.
+    try:
+        from core.license import write_license
+
+        expiry = _dt.datetime.now() + _dt.timedelta(days=30)
+        # write_license() targets the *source* APP/.license; copy it into dist
+        # next to main.exe (the path the frozen exe resolves).
+        license_src = _APP_DIR / ".license"
+        write_license(expiry)
+        shutil.copyfile(license_src, dist / ".license")
+        license_src.unlink(missing_ok=True)  # don't leave it in the source tree
+        print(f"[build_exe] trial license written -> {dist / '.license'} "
+              f"(expires {expiry:%Y-%m-%d})")
+    except Exception as e:
+        print(f"[build_exe] WARNING: could not write trial license: {e}")
+        print("            The exe will start in VIEW-ONLY mode without a .license!")
 
     if args.zip:
         archive = _make_zip(output_dir, version)
