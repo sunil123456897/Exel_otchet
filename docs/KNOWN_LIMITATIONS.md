@@ -26,7 +26,7 @@
 - **Причина:** DPI rendering, Excel version compatibility, real network
   drive latency — всё это требует человеческого восприятия или реальной
   среды.
-- **Mitigation:** `docs/stage_reports/stage_7_acceptance_matrix.md`.
+- **Mitigation:** `docs/archive/stage_reports/stage_7_acceptance_matrix.md`.
 - **Stage 7 R-7.1.**
 
 ### A3. Pilot не проведён

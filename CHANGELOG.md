@@ -128,7 +128,7 @@
 - `tests/test_ui_acceptance.py` — 16 тестов: first-run flag
   robustness, error presenter invariants (no str(exc) leak, no
   raise when both toast+messagebox fail).
-- `docs/stage_reports/stage_7_acceptance_matrix.md` — формальный
+- `docs/archive/stage_reports/stage_7_acceptance_matrix.md` — формальный
   ручной приёмочный чек-лист на 8 секций (~50 пунктов): DPI, Excel
   versions, network drives, error presentation, first-run, data
   integrity, update & rollback.

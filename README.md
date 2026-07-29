@@ -304,7 +304,7 @@ Pre-commit хук запускается автоматически перед �
 
 Отдельная серия работ по доведению до коммерческого качества «10/10 без
 защиты». Этапы 0–9 выполнены; полная документация каждого этапа — в
-`docs/stage_reports/<N>_report.md`. Сводка:
+`docs/archive/stage_reports/<N>_report.md`. Сводка:
 
 - **Stage 0 (baseline + CI fix):** единый JSON-отчёт `baseline_report.json`;
   CI mypy gate, читающий **stdout** (раньше был silent no-op); единый
@@ -331,7 +331,7 @@ Pre-commit хук запускается автоматически перед �
   handles, cancel_event latency); 28 новых тестов.
 - **Stage 7 (Windows UI):** 16 UI acceptance тестов; **security fix**
   в error_presenter (`type.__name__` вместо `repr(exc)`); формальный
-  Windows acceptance matrix (`docs/stage_reports/stage_7_acceptance_matrix.md`).
+  Windows acceptance matrix (`docs/archive/stage_reports/stage_7_acceptance_matrix.md`).
 - **Stage 8 (performance):** `tools/timing_report.py`; 8 SLA + leak
   тестов; floor-оценки в 100-1000× ниже ТЗ-SLA → CPU не bottleneck.
 - **Stage 9 (backup + diagnostics):** `tools/diagnostic_package.py`

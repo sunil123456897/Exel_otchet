@@ -75,10 +75,10 @@ baseline-отчёте:
 **Уже зафиксировано в ТЗ (раздел 4):**
 
 ```text
-docs/stage_reports/<этап>_report.md
+docs/archive/stage_reports/<этап>_report.md
 ```
 
-Пример: `docs/stage_reports/stage_0_report.md`.
+Пример: `docs/archive/stage_reports/stage_0_report.md`.
 
 **Вопрос владельцу:** устроит ли такой путь, или prefers другое
 расположение (например, `docs/qa/` или корень `docs/`)?

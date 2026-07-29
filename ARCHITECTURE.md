@@ -225,4 +225,4 @@ Ingestion/Persistence/Logic/Writer) сохранилась. Работы Stage 0
 - `tools/diagnostic_package.py` — post-process scrubbing всех строк
   manifest (tokens + firm-names).
 
-Подробности каждого этапа: `docs/stage_reports/<N>_report.md`.
+Подробности каждого этапа: `docs/archive/stage_reports/<N>_report.md`.

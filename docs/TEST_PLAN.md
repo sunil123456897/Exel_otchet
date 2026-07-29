@@ -57,7 +57,7 @@ Before any release tag:
       with a documented reason.
 - [ ] `python tools/timing_report.py --runs 5` produces medians within
       20% of `tests/golden/timing_baseline.json`.
-- [ ] Stage 7 acceptance matrix (`docs/stage_reports/stage_7_acceptance_matrix.md`)
+- [ ] Stage 7 acceptance matrix (`docs/archive/stage_reports/stage_7_acceptance_matrix.md`)
       is filled, every row is PASS or has an accepted known-limitation.
 - [ ] `python tools/diagnostic_package.py --scan` reports "privacy OK".
 - [ ] Control-date fingerprint (`tests/golden/control_date.json`)
