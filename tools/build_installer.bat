@@ -25,9 +25,12 @@ if not exist "build_exe\main.dist\main.exe" (
 )
 
 :: Locate the Inno Setup 6 compiler (ISCC.exe).
+:: winget installs Inno Setup into the user profile (%LOCALAPPDATA%\Programs)
+:: by default, so check there too, not just the system Program Files.
 set "ISCC="
 if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if exist "C:\Program Files\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Files\Inno Setup 6\ISCC.exe"
+if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
 if not defined ISCC (
     where iscc >nul 2>&1
     if not errorlevel 1 set "ISCC=iscc"

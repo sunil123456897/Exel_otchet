@@ -49,9 +49,11 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 [Files]
 ; The whole program tree. User DATA is excluded so an upgrade never clobbers
 ; an existing install's settings/cache (a fresh build's main.dist has none of
-; these anyway — they are created at first run).
+; these anyway — they are created at first run or copied in by the operator).
+; NOTE: .license is NOT excluded — it ships in the build (build_exe.py writes
+; a 30-day trial) so a fresh install starts in working mode, NOT view-only.
 Source: "{#SourceRoot}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; \
-  Excludes: "config.yaml,employees.yaml,cache.db,cache.db-*,runtime_state.json,first_run.json,.license,.last_run,startup_log.txt,gui_error_log.txt,version.json,updater_exe_pin.txt,.update_*,logs,output,*.pyc"
+  Excludes: "config.yaml,employees.yaml,cache.db,cache.db-*,runtime_state.json,first_run.json,.last_run,startup_log.txt,gui_error_log.txt,version.json,updater_exe_pin.txt,.update_*,logs,output,*.pyc"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\main.exe"; WorkingDir: "{app}"
