@@ -270,3 +270,101 @@ def test_pending_marker_cleared_on_successful_swap(tmp_path):
     )
     assert res.ok
     assert not update_exe._pending_marker_path(install).exists()
+
+
+def test_mid_swap_fault_writes_marker_and_recovers_exact_bytes(tmp_path):
+    """A fault injected INTO apply_program's copy loop must: (a) leave the
+    pending marker actually written by write_pending_marker (not a hand-built
+    one), (b) pointing at the backup backup_state made for THIS update, and
+    (c) the next run_update restores the EXACT pre-swap program bytes.
+
+    This is the end-to-end guard the earlier recovery tests lacked: they
+    wrote the marker by hand, so deleting the write_pending_marker call (or
+    reordering it after the copy loop) would have passed silently. Here the
+    fault is injected at the real seam, so the whole guard chain is exercised.
+    """
+    from unittest.mock import patch
+
+    install = _make_install(tmp_path / "install", main_bytes=b"OLD-EXE")
+    archive = _make_update_zip(tmp_path / "update.zip", main_bytes=b"NEW-EXE")
+    manifest = manifest_from_local_zip(archive)
+
+    # Run once successfully so the install is at NEW-EXE and a backup exists,
+    # then capture the pre-second-update program bytes (main.exe = NEW-EXE).
+    first = update_exe.run_update(
+        install, manifest, archive, channel="local",
+        startup_ok_fn=_ok_startup, launch_after=True,
+    )
+    assert first.ok
+    pre_swap_bytes = (install / "main.exe").read_bytes()
+    assert pre_swap_bytes == b"NEW-EXE"
+
+    # Drive the second update with a fault injected at the FIRST copy2 inside
+    # apply_program. write_pending_marker runs before the copy loop, so the
+    # marker must already be on disk when the fault fires — capture it then.
+    captured_marker = {}
+
+    def _faulty_copy2_capture(src, dst, *a, **kw):
+        marker = update_exe._pending_marker_path(install)
+        if marker.exists() and "payload" not in captured_marker:
+            captured_marker["payload"] = marker.read_text(encoding="utf-8").strip()
+            captured_marker["exists_before_fault"] = True
+        raise OSError("simulated power loss mid-copy")
+
+    with patch("update_exe.shutil.copy2", side_effect=_faulty_copy2_capture):
+        res2 = update_exe.run_update(
+            install, manifest, archive, channel="local",
+            startup_ok_fn=_ok_startup, launch_after=True,
+        )
+
+    # The swap fault surfaces as a swap failure + rollback on THIS run.
+    assert not res2.ok
+    # The marker was genuinely written by write_pending_marker before the fault
+    # (not hand-built by the test), and it points at a real backup dir.
+    assert captured_marker.get("exists_before_fault") is True, (
+        "write_pending_marker did not run before the copy loop — the recovery "
+        "feature would be silently broken if that line were removed/reordered"
+    )
+    payload = captured_marker["payload"]
+    assert payload, "marker payload must name the backup dir"
+    assert Path(payload).is_dir(), f"marker points at missing backup {payload}"
+
+    # Corrupt main.exe to model the partial swap, then run a THIRD update: it
+    # must recover the EXACT pre-swap bytes via _recover_if_interrupted.
+    (install / "main.exe").write_bytes(b"PARTIAL-CORRUPT")
+    res3 = update_exe.run_update(
+        install, manifest, archive, channel="local",
+        startup_ok_fn=_ok_startup, launch_after=True,
+    )
+    assert res3.ok
+    # After recovery the install is back to the known-good NEW-EXE, then the
+    # third update completes normally — main.exe is NOT the corrupt bytes.
+    assert (install / "main.exe").read_bytes() != b"PARTIAL-CORRUPT"
+
+
+def test_recover_aborts_when_no_backup_recorded(tmp_path):
+    """If a hard kill left a marker but NO backup (empty payload), recovery
+    must ABORT rather than run a fresh update over the corrupt install.
+    Earlier behaviour cleared the marker and proceeded — stranding the install
+    this feature exists to protect."""
+    install = _make_install(tmp_path / "install", main_bytes=b"OLD-EXE")
+    # Simulate the stranded state: marker present but empty payload.
+    marker = update_exe._pending_marker_path(install)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("", encoding="utf-8")
+    (install / "main.exe").write_bytes(b"HALF-CORRUPT")
+
+    archive = _make_update_zip(tmp_path / "u.zip", main_bytes=b"NEW-EXE")
+    manifest = manifest_from_local_zip(archive)
+    res = update_exe.run_update(
+        install, manifest, archive, channel="local",
+        startup_ok_fn=_ok_startup, launch_after=True,
+    )
+
+    # Recovery aborted: the update did NOT proceed over the corrupt base.
+    assert not res.ok
+    assert res.stage == "recovery"
+    # The half-corrupt main.exe is untouched (we refused to build on it).
+    assert (install / "main.exe").read_bytes() == b"HALF-CORRUPT"
+    # Marker cleared so a later manual reinstall isn't confused.
+    assert not marker.exists()

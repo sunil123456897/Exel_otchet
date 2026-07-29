@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import os
 import sys
 import time
 import decimal
@@ -120,6 +121,20 @@ class SQLiteConnectionManager:
             # genuinely removes the bytes from the file (defense-in-depth
             # for PII retention; no business-logic change).
             conn.execute("PRAGMA secure_delete = ON;")
+            # Restrict the cache DB to owner-only on first creation. cache.db
+            # holds staging_data / consolidated_results / customer_aliases —
+            # the highest-value PII in the app — and must not be world-readable
+            # on shared operator machines. (config.yaml / employees.yaml get
+            # the same 0o600 in config_controller.) best-effort: a read-only
+            # install or an unsupported FS logs and continues rather than
+            # aborting startup over a hardening that may be impossible there.
+            try:
+                os.chmod(self.db_path, 0o600)
+            except OSError as chmod_err:
+                self.logger.warning(
+                    "Could not restrict %s permissions: %s",
+                    self.db_path, chmod_err,
+                )
             return conn
         except sqlite3.Error:
             conn.close()

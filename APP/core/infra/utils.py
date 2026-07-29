@@ -22,6 +22,11 @@ from typing import Any, Callable
 NETWORK_STAT_TIMEOUT_SECONDS = 3.0
 NETWORK_COPY_TIMEOUT_SECONDS = 30.0
 
+# Per-process counter + lock for unique atomic-save temp names (anti-TOCTOU:
+# two concurrent saves of the same target must not share a .tmp name).
+_TEMP_LOCK = threading.Lock()
+_TEMP_COUNTER = 0
+
 
 def _run_io_with_timeout(fn: Callable[..., Any], *args: Any, timeout: float) -> Any:
     """Run a blocking I/O callable with a wall-clock timeout.
@@ -54,6 +59,30 @@ def open_path(path: str) -> None:
         subprocess.run(["xdg-open", path], check=False)
 
 
+def _unique_temp_path(output_path: Path) -> tuple[str, str]:
+    """Build a sibling temp path unique per process+thread for *output_path*.
+
+    Returns ``(tmp, target)`` with the Windows ``\\\\?\\`` long-path prefix
+    applied when the resolved path exceeds 250 chars. The temp name embeds
+    pid + thread id + a per-process counter so two concurrent atomic saves of
+    the SAME target (e.g. a background discovery autosave racing a manual
+    config edit) cannot collide on a shared ``.tmp`` name and tear each
+    other's write — the TOCTOU that a fixed ``path + ".tmp"`` introduced.
+    """
+    global _TEMP_COUNTER
+    with _TEMP_LOCK:
+        _TEMP_COUNTER += 1
+        seq = _TEMP_COUNTER
+    suffix = f".{os.getpid()}.{threading.get_ident()}.{seq}.tmp"
+    tmp = str(output_path) + suffix
+    if os.name == "nt" and len(tmp) > 250:
+        tmp = "\\\\?\\" + tmp
+        target = "\\\\?\\" + str(output_path)
+    else:
+        target = str(output_path)
+    return tmp, target
+
+
 def atomic_save_workbook(wb: Any, output_path: Path) -> None:
     """Save an openpyxl workbook to output_path atomically.
 
@@ -66,13 +95,7 @@ def atomic_save_workbook(wb: Any, output_path: Path) -> None:
     a free function so rsch/ and reconciliation/ can share one implementation.
     """
     output_path = Path(output_path)
-    tmp = str(output_path) + ".tmp"
-    # Long Windows paths need the \\?\ prefix.
-    if os.name == "nt" and len(tmp) > 250:
-        tmp = "\\\\?\\" + tmp
-        target = "\\\\?\\" + str(output_path)
-    else:
-        target = str(output_path)
+    tmp, target = _unique_temp_path(output_path)
     try:
         wb.save(tmp)
         os.replace(tmp, target)
@@ -118,12 +141,7 @@ def atomic_save_yaml(
     """
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = str(output_path) + ".tmp"
-    if os.name == "nt" and len(tmp) > 250:
-        tmp = "\\\\?\\" + tmp
-        target = "\\\\?\\" + str(output_path)
-    else:
-        target = str(output_path)
+    tmp, target = _unique_temp_path(output_path)
     try:
         with open(tmp, "w", encoding=encoding) as f:
             yaml_dumper.dump(data, f)

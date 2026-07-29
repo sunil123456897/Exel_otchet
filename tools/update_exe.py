@@ -275,19 +275,43 @@ def _recover_if_interrupted(install: Path, result: UpdateResult) -> bool:
     except OSError:
         pass
     _log(result, "recovery", f"interrupted swap detected (backup={bk_str or 'none'})")
+    restored = False
     if bk_str:
         bk = Path(bk_str)
         if bk.is_dir():
             restore_state(install, bk, result)
+            restored = True
         else:
             _log(result, "recovery",
                  f"backup dir not found ({bk_str}); cannot auto-restore")
     else:
-        # No backup recorded — nothing to restore to. Clear the marker so the
-        # update can proceed; the install is in whatever partial state the
-        # interrupted swap left it.
-        _log(result, "recovery", "no backup recorded; clearing stale marker")
+        # No backup was recorded before the kill. We CANNOT safely proceed:
+        # the install is in the half-swapped corrupt state the feature exists
+        # to prevent, and running a fresh update on top of it would build new
+        # program files over a broken base. Abort so the operator sees a clear
+        # failure (not a silently-broken install) and can reinstall from a
+        # known-good release. (Earlier behaviour cleared the marker and
+        # proceeded — that stranded the very install this guards.)
+        _log(result, "recovery", "no backup recorded; aborting — manual reinstall needed")
+        clear_pending_marker(install)
+        result.ok = False
+        result.stage = "recovery"
+        result.message = (
+            "interrupted update left the install in an unknown state and no "
+            "pre-swap backup was found; reinstall from a known-good release "
+            "(zip or installer) to recover. User data is preserved."
+        )
+        return True
     clear_pending_marker(install)
+    if not restored:
+        # Backup recorded but not restorable (missing dir): same danger as the
+        # empty-payload path — refuse to build on a corrupt base.
+        result.ok = False
+        result.stage = "recovery"
+        result.message = (
+            f"interrupted update's backup ({bk_str}) is missing; reinstall "
+            "from a known-good release to recover. User data is preserved."
+        )
     return True
 
 
@@ -413,6 +437,10 @@ def run_update(
     # install. (The normal rollback path only fires on a Python exception; a
     # hard kill raises nothing, so it needs this explicit recovery step.)
     _recover_if_interrupted(install, result)
+    if result.stage == "recovery" and not result.ok:
+        # Recovery could not restore a known-good state (no/missing backup).
+        # Abort instead of building new program files over a corrupt base.
+        return result
     lock = UpdateLock(install)
     if not lock.acquire():
         result.stage = "lock"
