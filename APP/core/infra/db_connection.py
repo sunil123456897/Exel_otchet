@@ -140,15 +140,22 @@ class SQLiteConnectionManager:
             return (True, None)
 
         self.logger.warning("Unclean shutdown detected. Running PRAGMA quick_check...")
-        conn = self.get_connection()
+        # ``conn`` must be bound before the ``try`` so the ``finally`` cannot
+        # raise ``UnboundLocalError`` — this method is reached only after an
+        # unclean shutdown, when ``get_connection()`` itself may fail (locked
+        # or corrupt DB). Masking the real error with a cleanup crash would
+        # surface an unhelpful traceback at startup.
+        conn = None
         try:
+            conn = self.get_connection()
             row = conn.execute("PRAGMA quick_check").fetchone()
             msg = row[0] if row else "unknown"
             return (msg == "ok", None if msg == "ok" else msg)
         except Exception as exc:
             return (False, str(exc))
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
 
     def init_db(self, schema_path: Path) -> None:
         if schema_path.exists():

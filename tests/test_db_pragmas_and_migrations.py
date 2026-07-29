@@ -191,6 +191,40 @@ def test_migration_applies_missing_files(tmp_path):
         mig_file.unlink(missing_ok=True)
 
 
+def test_check_integrity_handles_connection_failure(tmp_path, monkeypatch):
+    """check_integrity must not crash with UnboundLocalError when the DB
+    connection itself fails.
+
+    This path is reached only after an unclean shutdown, when ``get_connection``
+    may legitimately raise (corrupt/locked DB — exactly what the integrity
+    check is meant to diagnose). A prior version assigned ``conn`` before the
+    ``try`` and called ``conn.close()`` in ``finally`` unconditionally, which
+    raised ``UnboundLocalError`` and masked the real failure at startup.
+    """
+    from core.infra.db_connection import SQLiteConnectionManager
+
+    db_path = tmp_path / "cache.db"
+    mgr = SQLiteConnectionManager(db_path, {})
+    # Create the .unclean flag so check_integrity proceeds past its fast-path
+    # skip (otherwise it returns (True, None) without touching get_connection).
+    db_path.with_name(db_path.name + ".unclean").write_text("unclean", encoding="utf-8")
+
+    # Force get_connection to fail — the realistic scenario this method exists
+    # to handle.
+    import sqlite3
+
+    def _boom(self):
+        raise sqlite3.DatabaseError("simulated corrupt DB")
+
+    monkeypatch.setattr(SQLiteConnectionManager, "get_connection", _boom)
+
+    ok, msg = mgr.check_integrity()
+    # Must report failure with the real error string — NOT raise
+    # UnboundLocalError (which would present as an opaque traceback at startup).
+    assert ok is False
+    assert "simulated corrupt DB" in (msg or "")
+
+
 def test_migration_skips_already_applied(tmp_path):
     """Already-applied migrations must not be re-executed."""
     from core.infra.db_connection import SQLiteConnectionManager
