@@ -5,6 +5,7 @@ operators can spot patterns (broken template, wrong column name, network glitch)
 """
 import json
 import logging
+import logging.handlers
 import os
 import re
 import threading
@@ -48,7 +49,14 @@ def _get_logger() -> logging.Logger:
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / "data_loss.log"
-        fh = logging.FileHandler(log_path, encoding="utf-8")
+        # Rotating handler keeps the audit log bounded on long-lived
+        # installs (3.9 MB observed without any rotation).
+        fh = logging.handlers.RotatingFileHandler(
+            log_path,
+            maxBytes=5 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+        )
         fh.setFormatter(
             logging.Formatter("%(asctime)s %(message)s", "%Y-%m-%dT%H:%M:%S")
         )

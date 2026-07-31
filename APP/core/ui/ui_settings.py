@@ -527,11 +527,6 @@ class SettingsDialog(tk.Toplevel):
             side=tk.LEFT, padx=(4, 0)
         )
 
-        row = ttk.Frame(tab)
-        row.pack(fill=tk.X, pady=4)
-        self._db_wal_var = tk.BooleanVar(value=db.get("use_wal", True))
-        ttk.Checkbutton(row, text="Использовать WAL", variable=self._db_wal_var).pack(side=tk.LEFT)
-
     def _build_backup_tab(self, notebook: ttk.Notebook) -> None:
         tab = ttk.Frame(notebook)
         notebook.add(tab, text="💾 Бэкапы")
@@ -732,8 +727,6 @@ class SettingsDialog(tk.Toplevel):
             db["path"] = self._db_path_var.get()
         if hasattr(self, "_db_timeout_var"):
             db["timeout"] = float(self._db_timeout_var.get())
-        if hasattr(self, "_db_wal_var"):
-            db["use_wal"] = bool(self._db_wal_var.get())
 
         # Backup
         if hasattr(self, "_backup_keep_var"):

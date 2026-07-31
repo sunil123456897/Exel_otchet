@@ -7,8 +7,6 @@ database:
   schema_path: db_schema.sql
   timeout: 30.0
   allow_local_fallback: false
-  isolation_level: EXCLUSIVE
-  use_wal: true
 
 locking:
   retry_count: 5

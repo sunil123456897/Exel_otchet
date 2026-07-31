@@ -82,8 +82,10 @@ class DatabaseSection(BaseModel):
     schema_path: str = "db_schema.sql"
     timeout: float = 30.0
     allow_local_fallback: bool = False
-    isolation_level: str = "EXCLUSIVE"
-    use_wal: bool = True
+    # NOTE: `use_wal` / `isolation_level` used to live here but were never
+    # read by db_connection.py (WAL + EXCLUSIVE are hardcoded). Removed from
+    # the schema so the UI stops offering a dead switch; legacy configs that
+    # still carry the keys survive via extra="allow".
 
 
 class LockingSection(BaseModel):

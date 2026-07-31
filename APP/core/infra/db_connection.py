@@ -112,6 +112,9 @@ class SQLiteConnectionManager:
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("PRAGMA synchronous = NORMAL;")
+            # WAL is the project default and intentionally NOT configurable:
+            # the old config.database.use_wal/isolation_level switches were
+            # never read here and have been removed from the schema.
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("PRAGMA temp_store = MEMORY;")
             conn.execute("PRAGMA cache_size = -64000;")
