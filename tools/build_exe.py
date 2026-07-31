@@ -51,6 +51,14 @@ _ROOT = Path(__file__).resolve().parents[1]
 _APP_DIR = _ROOT / "APP"
 _VERSION_FILE = _APP_DIR / "__init__.py"
 
+# tools/ runs from the repo root where APP/ is NOT on sys.path — without this,
+# `from core.license import write_license` fails with "No module named 'core'"
+# and the freshly built exe ships WITHOUT a .license → view-only mode.
+# Insert here (module level) so every code path in this script can import core
+# regardless of how it was launched (bat wrapper, CI, direct python call).
+if str(_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_APP_DIR))
+
 # Packages present in the dev venv that must NOT be bundled: either unused
 # at runtime (0 imports in APP/) or pure development tooling.
 _EXCLUDES = (
