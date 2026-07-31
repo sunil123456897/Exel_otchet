@@ -1,27 +1,34 @@
 import concurrent.futures
 import logging
-import os
 import threading
 import uuid
-from datetime import datetime
 from collections.abc import Sequence
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable, cast
 
-from core.infra import DiscoveryService, is_file_writable
+from core.infra import DiscoveryService
 from core.shared.path_scrub import scrub_path
 from core.app.file_processor import (
     check_master_lock,
     run_engine,
-    date_matches_target,
 )
 from core.app.performance import resolve_max_workers
+from core.app.curator_paths import (
+    build_drive_letters_fn,
+    filter_employees_for_curator,
+    get_curator_config,
+    get_enabled_curator_employee_keys,
+    get_network_drive_letters,
+    is_report_writable,
+    resolve_report_path,
+)
+from core.app.refresh_status import run_refresh_status as run_employee_status_refresh
 from core.app.message_formatting import (
-    build_empty_data_message as build_controller_empty_data_message,
+    build_empty_data_message,
     build_issue_preview,
-    build_success_message as build_controller_success_message,
-    format_file_error_note as format_controller_file_error_note,
-    normalize_consolidation_dates as normalize_controller_consolidation_dates,
+    build_success_message,
+    format_file_error_note,
+    normalize_consolidation_dates,
 )
 from core.infra.reconciliation import build_combined_reconciliation_report
 from core.infra.rsch import build_rsch_report
@@ -83,11 +90,11 @@ class AppController:
         self._active_threads: List[threading.Thread] = []
         self._rsch = RschService(
             start_thread_fn=self._start_thread,
-            get_drive_letters_fn=self._get_network_drive_letters,
+            get_drive_letters_fn=build_drive_letters_fn(self.config_controller),
         )
         self._reconciliation = ReconciliationService(
             start_thread_fn=self._start_thread,
-            get_drive_letters_fn=self._get_network_drive_letters,
+            get_drive_letters_fn=build_drive_letters_fn(self.config_controller),
             alias_repo=self.alias_repo,
         )
 
@@ -118,111 +125,6 @@ class AppController:
             self.discovery.get_employees_map(allow_network_scan=allow_network_scan),
         )
 
-    def _resolve_master_path(self) -> Path:
-        """Resolve the output master report path."""
-        fallback = Path(self.config_controller.config_path).parent / "Master_Report.xlsx"
-        paths_cfg = self.config_controller.config.setdefault("paths", {})
-        master_cfg = paths_cfg.get("master_file")
-        if master_cfg:
-            master_path = self.config_controller.resolve_path(str(master_cfg))
-        else:
-            master_path = fallback
-            paths_cfg["master_file"] = str(fallback)
-            save_config = getattr(self.config_controller, "save_config", None)
-            if callable(save_config):
-                save_config()
-        try:
-            master_path.parent.mkdir(parents=True, exist_ok=True)
-            return cast(Path, master_path)
-        except OSError as e:
-            logging.warning(
-                "Master path unavailable (%s). Using fallback: %s",
-                e,
-                scrub_path(str(fallback)),
-            )
-            if Path(paths_cfg.get("master_file", "")) != fallback:
-                paths_cfg["master_file"] = str(fallback)
-                save_config = getattr(self.config_controller, "save_config", None)
-                if callable(save_config):
-                    save_config()
-            return fallback
-
-    def _get_curator_config(self, curator: Optional[str]) -> Optional[Dict[str, Any]]:
-        if not curator:
-            return None
-        curators = self.config_controller.config.get("curators", {})
-        if not isinstance(curators, dict):
-            return None
-        cfg = curators.get(curator)
-        if not isinstance(cfg, dict) or not cfg.get("enabled", True):
-            return None
-        return cfg
-
-    def _resolve_report_path(self, curator_config: Optional[Dict[str, Any]]) -> Path:
-        if curator_config and curator_config.get("output_path"):
-            return cast(
-                Path,
-                self.config_controller.resolve_path(str(curator_config["output_path"])),
-            )
-        return self._resolve_master_path()
-
-    def _is_report_writable(self, curator_config: Optional[Dict[str, Any]]) -> bool:
-        if not curator_config:
-            return cast(bool, check_master_lock(self.config_controller))
-        path = self._resolve_report_path(curator_config)
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            return False
-        return cast(bool, is_file_writable(str(path)))
-
-    def _get_enabled_curator_employee_keys(self) -> set[str]:
-        curators = self.config_controller.config.get("curators", {})
-        if not isinstance(curators, dict):
-            return set()
-
-        keys = set()
-        for cfg in curators.values():
-            if not isinstance(cfg, dict) or not cfg.get("enabled", True):
-                continue
-            key = str(cfg.get("employees_key") or "").strip().lower()
-            if key:
-                keys.add(key)
-        return keys
-
-    @staticmethod
-    def _employee_name_matches_any_key(name: str, keys: set[str]) -> bool:
-        lowered_name = str(name).lower()
-        return any(key in lowered_name for key in keys)
-
-    @staticmethod
-    def _filter_employees_for_curator(
-        employees_map: Dict[str, List[Dict[str, Any]]],
-        curator_config: Optional[Dict[str, Any]],
-        general_excluded_keys: Optional[set[str]] = None,
-    ) -> Dict[str, List[Dict[str, Any]]]:
-        if not curator_config:
-            excluded_keys = general_excluded_keys or set()
-            if not excluded_keys:
-                return employees_map
-            return {
-                name: metas
-                for name, metas in employees_map.items()
-                if not AppController._employee_name_matches_any_key(name, excluded_keys)
-            }
-
-        key = str(curator_config.get("employees_key") or "").strip().lower()
-        if not key:
-            return employees_map
-
-        included_keys = {key}
-
-        return {
-            name: metas
-            for name, metas in employees_map.items()
-            if AppController._employee_name_matches_any_key(name, included_keys)
-        }
-
     def _start_thread(self, target: Callable[..., Any]) -> None:
         """Start a task thread and track it for graceful shutdown."""
         t = threading.Thread(target=target, daemon=True)
@@ -230,191 +132,6 @@ class AppController:
             self._active_threads = [th for th in self._active_threads if th.is_alive()]
             self._active_threads.append(t)
         t.start()
-
-    @staticmethod
-    def _normalize_selected_datetime(selected_date: Any) -> datetime:
-        if isinstance(selected_date, datetime):
-            return selected_date
-        return datetime.combine(selected_date, datetime.min.time())
-
-    def _get_network_drive_letters(self) -> tuple[str, ...]:
-        cfg = getattr(self.config_controller, "config", {}) or {}
-        network_cfg = cfg.get("network") if isinstance(cfg, dict) else {}
-        raw_letters = (
-            network_cfg.get("drive_letters", ("Q", "Z"))
-            if isinstance(network_cfg, dict)
-            else ("Q", "Z")
-        )
-        if isinstance(raw_letters, str):
-            raw_letters = [raw_letters]
-        letters = tuple(str(letter).strip() for letter in raw_letters if str(letter).strip())
-        return letters or ("Q", "Z")
-
-    @staticmethod
-    def _has_target_date(
-        available_dates: List[Any], target_date_obj: datetime, today: datetime
-    ) -> bool:
-        if target_date_obj.date() > today.date():
-            return False
-        for available_date in available_dates or []:
-            if date_matches_target(available_date, target_date_obj):
-                return True
-        return False
-
-    def _check_employee_refresh_status(
-        self,
-        name: str,
-        employees_map: Dict[str, List[Dict[str, Any]]],
-        target_date_obj: datetime,
-        today: datetime,
-    ) -> tuple[str, str, str, str]:
-        metas = employees_map.get(name, [])
-        paths = [m["path"] if isinstance(m, dict) else m for m in metas]
-        paths = [p for p in paths if os.path.exists(p)]
-
-        if not paths:
-            return (name, "🔴 НЕТ ФАЙЛА", "---", "missing")
-
-        path_str = (
-            os.path.basename(paths[0]) if len(paths) == 1 else f"[{len(paths)} файлов]"
-        )
-        status, tag = "🟠 НЕТ ДАТЫ", "partial"
-
-        try:
-            forced_refresh_tokens = set()
-            for p in paths:
-                p_path = Path(p)
-                stat = os.stat(p_path)
-                stat_mtime = stat.st_mtime
-                stat_size = stat.st_size
-                cache = self.persistence.get_file_cache(str(p_path))
-
-                cache_hit = (
-                    cache
-                    and cache["mtime"] == stat_mtime
-                    and cache["size"] == stat_size
-                )
-
-                if cache_hit:
-                    available = cache.get("dates", [])
-                    if self._has_target_date(available, target_date_obj, today):
-                        status, tag = "🟢 ГОТОВО", "ready"
-                        break
-
-                    force_token = (
-                        str(p_path),
-                        target_date_obj.strftime("%d.%m.%Y"),
-                        stat_mtime,
-                        stat_size,
-                    )
-                    if force_token not in forced_refresh_tokens:
-                        forced_refresh_tokens.add(force_token)
-                        available = self.ingestion.get_available_dates(
-                            p_path,
-                            remote_mtime=stat_mtime,
-                            remote_size=stat_size,
-                            strict_io=True,
-                        )
-                        self.persistence.save_file_cache(
-                            str(p_path),
-                            stat_mtime,
-                            stat_size,
-                            available,
-                        )
-                else:
-                    available = self.ingestion.get_available_dates(
-                        p_path,
-                        remote_mtime=stat_mtime,
-                        remote_size=stat_size,
-                        strict_io=True,
-                    )
-                    self.persistence.save_file_cache(
-                        str(p_path),
-                        stat_mtime,
-                        stat_size,
-                        available,
-                    )
-
-                if self._has_target_date(available, target_date_obj, today):
-                    status, tag = "🟢 ГОТОВО", "ready"
-                    break
-        except Exception as e:
-            logging.exception("Error %s: %s", name, e)
-            status, tag = "[ERR] ОШИБКА", "missing"
-
-        return (name, status, path_str, tag)
-
-    def _run_refresh_status(
-        self,
-        selected_date: Any,
-        on_progress: Callable[[float], None],
-        on_complete: Callable[[List[tuple[Any, ...]], Dict[str, Any], bool], None],
-        on_error: Optional[Callable[[str], None]] = None,
-    ) -> None:
-        try:
-            import time as _time
-            _t0 = _time.monotonic()
-            logging.info("[NET] Загружаю статусы файлов...")
-            employees_map = self._get_employees_map(allow_network_scan=False)
-            unique_names = sorted(employees_map.keys())
-            if not unique_names:
-                on_complete([], {}, False)
-                return
-
-            target_date_obj = self._normalize_selected_datetime(selected_date)
-            today = datetime.now()
-            total_count = len(unique_names)
-            local_data: List[tuple[Any, ...]] = []
-
-            executor = self._executor
-            futures = {
-                executor.submit(
-                    self._check_employee_refresh_status,
-                    name,
-                    employees_map,
-                    target_date_obj,
-                    today,
-                ): name
-                for name in unique_names
-            }
-            try:
-                for i, future in enumerate(
-                    concurrent.futures.as_completed(futures, timeout=30)
-                ):
-                    local_data.append(future.result())
-                    on_progress(((i + 1) / total_count) * 100)
-            except concurrent.futures.TimeoutError:
-                # A single hung stat lookup (network drive stall, etc.)
-                # used to block the whole refresh indefinitely because
-                # as_completed had no per-future deadline. Cancel the
-                # stragglers, surface which employees we skipped, and
-                # keep going with whatever we collected so the user
-                # sees a partial result instead of a frozen UI.
-                timed_out = [n for fut, n in futures.items() if not fut.done()]
-                logging.warning(
-                    "[NET] Refresh status timed out after 30s; "
-                    "%d/%d employees not finished: %s",
-                    len(timed_out),
-                    total_count,
-                    ", ".join(timed_out[:10])
-                    + ("..." if len(timed_out) > 10 else ""),
-                )
-                for fut in futures:
-                    if not fut.done():
-                        fut.cancel()
-                on_progress((len(local_data) / total_count) * 100)
-
-            local_data.sort(key=lambda x: x[0])
-            with self._lock:
-                self._cached_employees = employees_map
-            _elapsed = _time.monotonic() - _t0
-            logging.info(f"[PERF] Refresh status: {_elapsed:.1f}s for {total_count} employees")
-            on_complete(local_data, employees_map, self.rename_detected)
-        except Exception as e:
-            logging.exception("Refresh error: %s", e)
-            on_complete([], {}, False)
-            if callable(on_error):
-                on_error(f"Ошибка обновления статусов: {e}")
 
     @staticmethod
     def _build_session_meta(
@@ -430,6 +147,10 @@ class AppController:
             meta["start_date"] = start_date_str
             meta["end_date"] = end_date_str
         return meta
+
+    def _cache_employees_map(self, employees_map: Dict[str, List[Dict[str, Any]]]) -> None:
+        with self._lock:
+            self._cached_employees = employees_map
 
     def _resolve_employees_for_run(self, use_fresh_employees: bool) -> Dict[str, List[Dict[str, Any]]]:
         if use_fresh_employees:
@@ -452,29 +173,6 @@ class AppController:
                 self._cached_employees = employees_map
         return employees_map
 
-    @staticmethod
-    def _format_file_error_note(file_errors: List[Dict[str, str]]) -> Optional[str]:
-        return cast(Optional[str], format_controller_file_error_note(file_errors))
-
-    @staticmethod
-    def _build_empty_data_message(
-        target_date_str: Optional[str],
-        start_date_str: Optional[str],
-        end_date_str: Optional[str],
-        range_note: Optional[str],
-        file_error_note: Optional[str],
-    ) -> str:
-        return cast(
-            str,
-            build_controller_empty_data_message(
-                target_date_str,
-                start_date_str,
-                end_date_str,
-                range_note,
-                file_error_note,
-            ),
-        )
-
     def _build_no_files_message(self) -> str:
         raw_count = getattr(self.discovery, "last_discovered_count", 0)
         discovered_count = raw_count if isinstance(raw_count, int) else 0
@@ -484,40 +182,6 @@ class AppController:
                 "Проверьте employees.yaml или привязки файлов."
             )
         return "Нет файлов"
-
-    @staticmethod
-    def _build_success_message(
-        session_type: str,
-        start_date_str: Optional[str],
-        end_date_str: Optional[str],
-        range_note: Optional[str],
-        file_error_note: Optional[str],
-    ) -> str:
-        return cast(
-            str,
-            build_controller_success_message(
-                session_type,
-                start_date_str,
-                end_date_str,
-                range_note,
-                file_error_note,
-            ),
-        )
-
-    @staticmethod
-    def _normalize_consolidation_dates(
-        target_date_str: Optional[str],
-        start_date_str: Optional[str],
-        end_date_str: Optional[str],
-    ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
-        return cast(
-            tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]],
-            normalize_controller_consolidation_dates(
-                target_date_str,
-                start_date_str,
-                end_date_str,
-            ),
-        )
 
     def _execute_consolidation(
         self,
@@ -541,9 +205,9 @@ class AppController:
             return cancel_event is not None and cancel_event.is_set()
 
         try:
-            curator_config = self._get_curator_config(curator)
+            curator_config = get_curator_config(self.config_controller.config, curator)
             effective_target_date, effective_start_date, effective_end_date, date_error, range_note = (
-                self._normalize_consolidation_dates(
+                normalize_consolidation_dates(
                     target_date_str,
                     start_date_str,
                     end_date_str,
@@ -564,10 +228,10 @@ class AppController:
             self.persistence.save_session(session_id, meta)
 
             employees_map = self._resolve_employees_for_run(use_fresh_employees)
-            employees_map = self._filter_employees_for_curator(
+            employees_map = filter_employees_for_curator(
                 employees_map,
                 curator_config,
-                self._get_enabled_curator_employee_keys(),
+                get_enabled_curator_employee_keys(self.config_controller.config),
             )
             if not employees_map:
                 self.persistence.update_session_status(session_id, "failed")
@@ -621,7 +285,7 @@ class AppController:
                 _cancel_message(on_complete)
                 return
             errors = self.persistence.get_template_errors(session_id)
-            file_error_note = self._format_file_error_note(file_errors)
+            file_error_note = format_file_error_note(file_errors)
 
             if not consolidated_data:
                 self.persistence.update_session_status(session_id, "failed")
@@ -629,7 +293,7 @@ class AppController:
                     on_failure_code("empty_data")
                 on_complete(
                     False,
-                    self._build_empty_data_message(
+                    build_empty_data_message(
                         effective_target_date,
                         effective_start_date,
                         effective_end_date,
@@ -640,7 +304,7 @@ class AppController:
                 )
                 return
 
-            master_path = self._resolve_report_path(curator_config)
+            master_path = resolve_report_path(self.config_controller, curator_config)
             write_kwargs: Dict[str, Any] = {}
             if errors:
                 write_kwargs["template_errors"] = errors
@@ -677,7 +341,7 @@ class AppController:
 
             on_complete(
                 True,
-                self._build_success_message(
+                build_success_message(
                     session_type,
                     effective_start_date,
                     effective_end_date,
@@ -711,10 +375,18 @@ class AppController:
             return
 
         def task() -> None:
-            self._run_refresh_status(
-                selected_date,
-                on_progress,
-                on_complete,
+            run_employee_status_refresh(
+                persistence=self.persistence,
+                ingestion=self.ingestion,
+                executor=self._executor,
+                employees_map_provider=lambda: self._get_employees_map(
+                    allow_network_scan=False
+                ),
+                rename_detected=lambda: self.rename_detected,
+                on_employees_loaded=self._cache_employees_map,
+                selected_date=selected_date,
+                on_progress=on_progress,
+                on_complete=on_complete,
                 on_error=on_error,
             )
 
@@ -750,8 +422,8 @@ class AppController:
             cancel_event: optional threading.Event; if set, the task stops
                 at the next checkpoint and reports cancelled to the caller.
         """
-        curator_config = self._get_curator_config(curator)
-        if not self._is_report_writable(curator_config):
+        curator_config = get_curator_config(self.config_controller.config, curator)
+        if not is_report_writable(self.config_controller, curator_config):
             on_complete(
                 False, "Файл отчёта занят в Excel! Закройте его и повторите.", None
             )
@@ -843,8 +515,8 @@ class AppController:
         session_type: str,
         curator: Optional[str],
     ) -> Path:
-        curator_config = self._get_curator_config(curator)
-        if not self._is_report_writable(curator_config):
+        curator_config = get_curator_config(self.config_controller.config, curator)
+        if not is_report_writable(self.config_controller, curator_config):
             label = curator or "общий"
             raise RuntimeError(f"Файл отчета {label} занят в Excel! Закройте его и повторите.")
 
@@ -881,13 +553,13 @@ class AppController:
         return Path(path)
 
     def _write_empty_auto_reconciliation_report(self, curator: str, target_date: Any) -> Path:
-        curator_config = self._get_curator_config(curator)
+        curator_config = get_curator_config(self.config_controller.config, curator)
         if not curator_config:
             raise RuntimeError(f"Не настроен отчет куратора {curator}")
-        if not self._is_report_writable(curator_config):
+        if not is_report_writable(self.config_controller, curator_config):
             raise RuntimeError(f"Файл отчета {curator} занят в Excel! Закройте его и повторите.")
 
-        output_path = self._resolve_report_path(curator_config)
+        output_path = cast(Path, resolve_report_path(self.config_controller, curator_config))
         write_empty_report = getattr(self.writer, "write_empty_daily_report", None)
         if not callable(write_empty_report):
             raise RuntimeError("Экспортер не поддерживает пустой отчет для автосверки")
@@ -983,7 +655,7 @@ class AppController:
                     rsch_output,
                     target_date=target_date,
                     issues_sink=issues,
-                    drive_letters=self._get_network_drive_letters(),
+                    drive_letters=get_network_drive_letters(self.config_controller.config),
                 )
                 if rsch_rows == 0:
                     on_complete(
@@ -1003,7 +675,7 @@ class AppController:
                         rsch_output,
                         output_path_resolved,
                         target_date=target_date,
-                        drive_letters=self._get_network_drive_letters(),
+                        drive_letters=get_network_drive_letters(self.config_controller.config),
                         alias_repo=self.alias_repo,
                     )
                 except ValueError as e:
