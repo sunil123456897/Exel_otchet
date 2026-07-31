@@ -110,3 +110,9 @@ docs/superpowers/
 # tests/simulation_runner.py / simulation_runner_real.py (--out ...), not specs.
 docs/qa/simulation_results.json
 docs/qa/simulation_real_results.json
+
+# Local dev-only test suite and dev dependencies.
+# GitHub (main-runtime) is intentionally runtime-only — the app updates from
+# GitHub Releases; tests live only in the developer's working copy.
+tests/
+requirements-dev.txt
