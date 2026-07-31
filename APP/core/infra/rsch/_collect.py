@@ -11,7 +11,8 @@ from typing import Any, Callable, Dict, List, Optional
 import openpyxl
 from python_calamine import CalamineWorkbook
 
-from core.domain.utils_helpers import normalize_text, to_decimal_soft
+from core.domain.amount_soft import to_decimal_soft
+from core.domain.utils_helpers import normalize_text
 from core.infra.utils import get_local_copy
 
 from ._format import (

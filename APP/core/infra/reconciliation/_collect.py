@@ -3,7 +3,7 @@ import logging
 from decimal import Decimal
 from typing import Any, Optional
 from openpyxl.worksheet.worksheet import Worksheet
-from core.domain.utils_helpers import to_decimal_soft
+from core.domain.amount_soft import to_decimal_soft
 from core.infra.excel_hyperlinks import (
     extract_hyperlink_formula_parts,
     sanitize_external_hyperlink,

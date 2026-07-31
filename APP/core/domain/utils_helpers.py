@@ -2,8 +2,6 @@ import re
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any
 
-from core.domain.data_loss_log import record_loss
-
 
 class NumericParsingError(ValueError):
     """Raised when numeric string cannot be parsed and isn't a known zero pattern."""
@@ -118,35 +116,3 @@ def to_decimal_lenient(
         return Decimal(text)
     except (InvalidOperation, ValueError):
         raise ValueError(f"{error_label}: {value}") from None
-
-
-def to_decimal_soft(
-    value: Any,
-    *,
-    error_label: str,
-    source: str,
-    kind: str,
-    reason: str,
-    sheet: str | None = None,
-    row_index: int | None = None,
-    field: str | None = None,
-) -> Decimal:
-    """Fail-soft amount parsing with a ``data_loss.log`` audit trail.
-
-    Calls :func:`to_decimal_lenient`; on an unparseable cell it records the
-    loss (same JSON shape as the RSCh/reconciliation collectors) and returns
-    ``Decimal("0")`` so one dirty amount never aborts a whole sheet.
-    """
-    try:
-        return to_decimal_lenient(value, error_label=error_label)
-    except (ValueError, ArithmeticError):
-        record_loss(
-            source=source,
-            kind=kind,
-            reason=reason,
-            row_index=row_index,
-            sheet=sheet,
-            field=field,
-            original_value=value,
-        )
-        return Decimal("0")
