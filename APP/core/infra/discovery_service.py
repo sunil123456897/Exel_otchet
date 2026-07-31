@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Iterable, Optional
 from core.infra.config_controller import ConfigController
 from core.infra.ingestion_engine import IngestionEngine
 from core.infra.path_resolver import resolve_employee_path
-from core.infra.utils_logging import scrub_path
+from core.shared.path_scrub import scrub_path
 from core.infra.utils import path_exists_with_timeout
 
 

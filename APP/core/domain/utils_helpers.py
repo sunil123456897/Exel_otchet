@@ -1,6 +1,8 @@
 import re
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any
+
+from core.domain.data_loss_log import record_loss
 
 
 class NumericParsingError(ValueError):
@@ -86,3 +88,65 @@ def normalize_text(value: Any) -> str:
     if value is None:
         return ""
     return " ".join(str(value).replace("\xa0", " ").lower().split())
+
+
+def to_decimal_lenient(
+    value: Any, *, error_label: str = "Некорректное числовое значение"
+) -> Decimal:
+    """Lenient amount parser shared by the RSCh and reconciliation pipelines.
+
+    Unlike :func:`to_decimal` (strict, quantized, accounting-aware), this
+    parser is designed for raw Excel cells that may be booleans, pre-formatted
+    strings or empty: it never quantizes, preserves the exact Decimal, treats
+    ``bool``/``Decimal``/``int``/``float`` directly, strips spaces and NBSP,
+    maps ``,`` to ``.``, and converts empty or ``=``-prefixed cells to zero.
+    Raises ``ValueError`` (with *error_label*) only for genuinely unparseable
+    values so callers can decide how to fail.
+    """
+    if value is None or value == "":
+        return Decimal("0")
+    if isinstance(value, bool):
+        return Decimal("1") if value else Decimal("0")
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, (int, float)):
+        return Decimal(str(value))
+    text = str(value).strip().replace(" ", "").replace("\xa0", "").replace(",", ".")
+    if not text or text.startswith("="):
+        return Decimal("0")
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError):
+        raise ValueError(f"{error_label}: {value}") from None
+
+
+def to_decimal_soft(
+    value: Any,
+    *,
+    error_label: str,
+    source: str,
+    kind: str,
+    reason: str,
+    sheet: str | None = None,
+    row_index: int | None = None,
+    field: str | None = None,
+) -> Decimal:
+    """Fail-soft amount parsing with a ``data_loss.log`` audit trail.
+
+    Calls :func:`to_decimal_lenient`; on an unparseable cell it records the
+    loss (same JSON shape as the RSCh/reconciliation collectors) and returns
+    ``Decimal("0")`` so one dirty amount never aborts a whole sheet.
+    """
+    try:
+        return to_decimal_lenient(value, error_label=error_label)
+    except (ValueError, ArithmeticError):
+        record_loss(
+            source=source,
+            kind=kind,
+            reason=reason,
+            row_index=row_index,
+            sheet=sheet,
+            field=field,
+            original_value=value,
+        )
+        return Decimal("0")

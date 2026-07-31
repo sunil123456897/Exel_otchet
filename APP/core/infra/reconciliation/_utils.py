@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from typing import Any
 
@@ -334,24 +333,6 @@ def _is_numeric_header(value: Any) -> bool:
 
 def _is_percent_header(value: Any) -> bool:
     return "%" in str(value or "")
-
-
-def _to_decimal(value: Any) -> Decimal:
-    if value is None or value == "":
-        return Decimal("0")
-    if isinstance(value, bool):
-        return Decimal("1") if value else Decimal("0")
-    if isinstance(value, Decimal):
-        return value
-    if isinstance(value, (int, float)):
-        return Decimal(str(value))
-    text = str(value).replace(" ", "").replace(",", ".").strip()
-    if not text or text.startswith("="):
-        return Decimal("0")
-    try:
-        return Decimal(text)
-    except (InvalidOperation, ValueError):
-        raise ValueError(f"Некорректное числовое значение в сверке: {value}") from None
 
 
 def _is_total_row(value: Any) -> bool:

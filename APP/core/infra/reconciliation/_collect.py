@@ -3,7 +3,7 @@ import logging
 from decimal import Decimal
 from typing import Any, Optional
 from openpyxl.worksheet.worksheet import Worksheet
-from core.domain.data_loss_log import record_loss
+from core.domain.utils_helpers import to_decimal_soft
 from core.infra.excel_hyperlinks import (
     extract_hyperlink_formula_parts,
     sanitize_external_hyperlink,
@@ -12,7 +12,6 @@ from ._types import MasterReconciliationRow, RschReconciliationRow, Reconciliati
 
 _log = logging.getLogger(__name__)
 from ._utils import (
-    _to_decimal,
     _normalize_text,
     _is_total_row,
     _is_excluded_customer,
@@ -39,37 +38,6 @@ from ._resolve import (
     _executor_matches,
     _row_amount_matches,
 )
-
-
-def _to_decimal_soft(
-    value: Any,
-    *,
-    sheet: str,
-    row_index: int,
-    field: str,
-    source: str,
-) -> Decimal:
-    """Fail-soft amount parsing for reconciliation row collection.
-
-    Mirrors :func:`_to_decimal` but, instead of raising on a dirty cell,
-    logs the loss to ``data_loss.log`` and returns ``Decimal("0")`` so a
-    single bad amount never aborts the whole sheet. Returning 0 lets the
-    surrounding ``income == 0 and expense == 0`` filter drop the row
-    cleanly when both amounts are unusable.
-    """
-    try:
-        return _to_decimal(value)
-    except (ValueError, ArithmeticError):
-        record_loss(
-            source=source,
-            kind="reconciliation_amount_parse",
-            reason="Некорректное числовое значение в сверке; строка пропущена",
-            row_index=row_index,
-            sheet=sheet,
-            field=field,
-            original_value=value,
-        )
-        return Decimal("0")
 
 
 def _sheet_source(ws: Worksheet) -> str:
@@ -194,19 +162,25 @@ def _collect_master_rows(
         executor = str(ws.cell(row_idx, executor_col).value or "").strip()
         if not customer and not executor:
             continue
-        income = _to_decimal_soft(
+        income = to_decimal_soft(
             ws.cell(row_idx, income_col).value,
             sheet=ws.title,
             row_index=row_idx,
             field="Приход",
             source=_sheet_source(ws),
+            error_label="Некорректное числовое значение в сверке",
+            kind="reconciliation_amount_parse",
+            reason="Некорректное числовое значение в сверке; строка пропущена",
         )
-        expense = _to_decimal_soft(
+        expense = to_decimal_soft(
             ws.cell(row_idx, expense_col).value,
             sheet=ws.title,
             row_index=row_idx,
             field="Расход",
             source=_sheet_source(ws),
+            error_label="Некорректное числовое значение в сверке",
+            kind="reconciliation_amount_parse",
+            reason="Некорректное числовое значение в сверке; строка пропущена",
         )
         if income == 0 and expense == 0:
             # A row WITH customer/executor text but no amounts is suspicious:
@@ -250,19 +224,25 @@ def _collect_rsch_rows(ws: Worksheet) -> list[RschReconciliationRow]:
         first = ws.cell(row_idx, 1).value
         if _is_total_row(first):
             continue
-        income = _to_decimal_soft(
+        income = to_decimal_soft(
             ws.cell(row_idx, headers["Приход"]).value,
             sheet=ws.title,
             row_index=row_idx,
             field="Приход",
             source=_sheet_source(ws),
+            error_label="Некорректное числовое значение в сверке",
+            kind="reconciliation_amount_parse",
+            reason="Некорректное числовое значение в сверке; строка пропущена",
         )
-        expense = _to_decimal_soft(
+        expense = to_decimal_soft(
             ws.cell(row_idx, headers["Расход"]).value,
             sheet=ws.title,
             row_index=row_idx,
             field="Расход",
             source=_sheet_source(ws),
+            error_label="Некорректное числовое значение в сверке",
+            kind="reconciliation_amount_parse",
+            reason="Некорректное числовое значение в сверке; строка пропущена",
         )
         if income == 0 and expense == 0:
             zero_amount_rows += 1

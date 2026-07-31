@@ -8,7 +8,7 @@ from typing import Any, Dict, List, cast
 from ruamel.yaml import YAML
 
 from core.infra.utils import atomic_save_yaml
-from core.infra.utils_logging import scrub_path
+from core.shared.path_scrub import scrub_path
 
 
 class ConfigController:

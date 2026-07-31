@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+from core.domain.utils_helpers import normalize_text
 
 
 logger = logging.getLogger(__name__)
@@ -101,33 +103,9 @@ _EXPENSE_ONLY_LABELS = (
 )
 
 
-def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return " ".join(str(value).replace("\xa0", " ").lower().split())
-
-
 def _is_rsch_sheet_title(sheet_title: str) -> bool:
-    normalized = _normalize_text(sheet_title)
+    normalized = normalize_text(sheet_title)
     return "рсч" in normalized and "шаблон" not in normalized
-
-
-def _to_decimal(value: Any) -> Decimal:
-    if value is None or value == "":
-        return Decimal("0")
-    if isinstance(value, bool):
-        return Decimal("1") if value else Decimal("0")
-    if isinstance(value, Decimal):
-        return value
-    if isinstance(value, (int, float)):
-        return Decimal(str(value))
-    text = str(value).strip().replace(" ", "").replace("\xa0", "").replace(",", ".")
-    if not text:
-        return Decimal("0")
-    try:
-        return Decimal(text)
-    except (InvalidOperation, ValueError):
-        raise ValueError(f"Некорректное числовое значение в РСЧ: {value}") from None
 
 
 def _as_date(value: Any) -> Optional[date]:
@@ -168,7 +146,7 @@ def _pick_text(primary: str, secondary: str) -> str:
 
 
 def _is_special_customer_label(customer: str) -> bool:
-    normalized = _normalize_text(customer)
+    normalized = normalize_text(customer)
     return any(marker in normalized for marker in _SPECIAL_CUSTOMER_MARKERS)
 
 
@@ -179,7 +157,7 @@ def _has_special_marker(row: Dict[str, Any]) -> bool:
     the marker is recognised in contractor / comment / executor too.
     """
     searchable = " ".join(
-        _normalize_text(row.get(key))
+        normalize_text(row.get(key))
         for key in ("executor", "customer", "contractor", "comment")
     )
     return any(marker in searchable for marker in _SPECIAL_CUSTOMER_MARKERS)
@@ -187,7 +165,7 @@ def _has_special_marker(row: Dict[str, Any]) -> bool:
 
 def _is_account_optional_row(row: Dict[str, Any]) -> bool:
     searchable = " ".join(
-        _normalize_text(row.get(key))
+        normalize_text(row.get(key))
         for key in ("executor", "customer", "contractor", "comment")
     )
     return any(marker in searchable for marker in _NO_ACCOUNT_MARKERS)
@@ -198,7 +176,7 @@ def _is_expense_only_row(row: Dict[str, Any]) -> bool:
     contractor and comment are empty — the row legitimately carries only
     an expense with no contractor/comment to fill in.
     """
-    customer = _normalize_text(row.get("customer"))
+    customer = normalize_text(row.get("customer"))
     if not any(label in customer for label in _EXPENSE_ONLY_LABELS):
         return False
     contractor = str(row.get("contractor") or "").strip()
@@ -235,7 +213,7 @@ def _is_problem_row(row: Dict[str, Any]) -> bool:
     if _is_expense_only_row(row):
         return False
 
-    is_getwork_customer = "гетворк" in _normalize_text(customer)
+    is_getwork_customer = "гетворк" in normalize_text(customer)
     if (
         not contractor
         and customer

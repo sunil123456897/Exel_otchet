@@ -11,7 +11,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.worksheet import Worksheet
 
 
-from ._format import _normalize_text
+from core.domain.utils_helpers import normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ _NO_ACCOUNT_MARKERS = (
 
 def _find_total_row(template_ws: Worksheet) -> Optional[int]:
     for row_idx in range(1, template_ws.max_row + 1):
-        label = _normalize_text(template_ws.cell(row_idx, 1).value)
+        label = normalize_text(template_ws.cell(row_idx, 1).value)
         if label.startswith("итого"):
             return row_idx
     return None
@@ -103,7 +103,7 @@ def _find_total_row(template_ws: Worksheet) -> Optional[int]:
 
 def _template_header_values(template_ws: Worksheet, max_scan: int) -> List[str]:
     return [
-        _normalize_text(template_ws.cell(1, col_idx).value)
+        normalize_text(template_ws.cell(1, col_idx).value)
         for col_idx in range(1, max_scan + 1)
     ]
 
@@ -232,7 +232,7 @@ def _build_total_style_columns(cols: Dict[str, int], blank_total_col: int, is_ta
 
 
 def _is_legacy_template(header_values: Sequence[str]) -> bool:
-    expected = [_normalize_text(value) for value in RSCH_TEMPLATE_HEADERS]
+    expected = [normalize_text(value) for value in RSCH_TEMPLATE_HEADERS]
     expected_with_date = ["дата", *expected]
     prefix = list(header_values)
     return not (

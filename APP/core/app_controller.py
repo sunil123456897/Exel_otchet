@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable, cast
 
 from core.infra import DiscoveryService, is_file_writable
-from core.infra.utils_logging import scrub_path
+from core.shared.path_scrub import scrub_path
 from core.app.file_processor import (
     check_master_lock,
     run_engine,

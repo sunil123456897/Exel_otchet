@@ -11,46 +11,19 @@ from typing import Any, Callable, Dict, List, Optional
 import openpyxl
 from python_calamine import CalamineWorkbook
 
-from core.domain.data_loss_log import record_loss
+from core.domain.utils_helpers import normalize_text, to_decimal_soft
 from core.infra.utils import get_local_copy
 
-from ._format import (_normalize_text, _to_decimal, _as_date, _clean_executor_name,
-    _cell_text_from_row, _pick_text, _format_source_label, _is_rsch_sheet_title)
+from ._format import (
+    _as_date,
+    _cell_text_from_row,
+    _clean_executor_name,
+    _format_source_label,
+    _is_rsch_sheet_title,
+    _pick_text,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def _to_decimal_soft(
-    value: Any,
-    *,
-    sheet: str,
-    row_index: int,
-    field: str,
-    source: str,
-) -> Decimal:
-    """Fail-soft amount parsing for РСЧ row collection.
-
-    Mirrors :func:`_to_decimal` but, instead of raising on a dirty cell,
-    logs the loss to ``data_loss.log`` and returns ``Decimal("0")`` so a
-    single bad amount never aborts the whole executor sheet. Previously the
-    ``ValueError`` propagated to the per-sheet ``except`` in the workbook
-    collectors and silently dropped EVERY row of the sheet (hundreds of valid
-    transactions lost for one corrupt cell). Matches reconciliation's
-    ``_to_decimal_soft``.
-    """
-    try:
-        return _to_decimal(value)
-    except (ValueError, ArithmeticError):
-        record_loss(
-            source=f"rsch:{source}",
-            kind="rsch_amount_parse",
-            reason="Некорректное числовое значение в РСЧ; ячейка обнулена",
-            row_index=row_index,
-            sheet=sheet,
-            field=field,
-            original_value=value,
-        )
-        return Decimal("0")
 
 
 def _copy_style(src_cell: Any, dst_cell: Any) -> None:
@@ -69,7 +42,7 @@ def _find_header_row(sheet_data: List[tuple[Any, ...]]) -> Optional[int]:
         values = []
         for col_idx_0 in range(32):
             val = row_values[col_idx_0] if col_idx_0 < len(row_values) else None
-            values.append(_normalize_text(val))
+            values.append(normalize_text(val))
         has_date = any(v == "дата" for v in values)
         has_income = any("приход" in v and "рсч" in v for v in values)
         has_expense = any("расход" in v and "рсч" in v for v in values)
@@ -82,7 +55,7 @@ def _detect_columns(sheet_data: List[tuple[Any, ...]], header_row_idx: int, shee
     row_values = sheet_data[header_row_idx - 1]
     max_scan = min(len(row_values), 128)
     header_values = [
-        _normalize_text(row_values[col_idx_0])
+        normalize_text(row_values[col_idx_0])
         for col_idx_0 in range(max_scan)
     ]
     if len(header_values) < 128:
@@ -202,16 +175,22 @@ def _collect_rows_from_sheet(
 
         income_col = col_map["income"]
         raw_income = row_values[income_col - 1] if income_col and income_col <= len(row_values) else None
-        income = _to_decimal_soft(
+        income = to_decimal_soft(
             raw_income, sheet=ws.title, row_index=row_idx, field="income",
-            source=source_name,
+            source=f"rsch:{source_name}",
+            error_label="Некорректное числовое значение в РСЧ",
+            kind="rsch_amount_parse",
+            reason="Некорректное числовое значение в РСЧ; ячейка обнулена",
         )
 
         expense_col = col_map["expense"]
         raw_expense = row_values[expense_col - 1] if expense_col and expense_col <= len(row_values) else None
-        expense = _to_decimal_soft(
+        expense = to_decimal_soft(
             raw_expense, sheet=ws.title, row_index=row_idx, field="expense",
-            source=source_name,
+            source=f"rsch:{source_name}",
+            error_label="Некорректное числовое значение в РСЧ",
+            kind="rsch_amount_parse",
+            reason="Некорректное числовое значение в РСЧ; ячейка обнулена",
         )
 
         account = _cell_text_from_row(row_values, col_map["account"])

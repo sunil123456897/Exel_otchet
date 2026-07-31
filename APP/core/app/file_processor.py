@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Callable, Optional
 
 from core.app.performance import resolve_max_workers
 from core.infra import is_file_writable
-from core.infra.utils_logging import safe_file_label, scrub_path
+from core.shared.path_scrub import safe_file_label, scrub_path
 
 
 logger = logging.getLogger(__name__)
