@@ -1,35 +1,15 @@
 import sys
 import logging
-import threading
 import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
-from datetime import datetime, timedelta
-from typing import Any, Callable, Optional
+from datetime import datetime
+from typing import Any, Callable, Optional, cast
 from core.ui.theme import ThemeManager
 from core.ui.debounce import Debouncer
-
-
-def _last_day_of_month(month_start: datetime) -> datetime:
-    if month_start.month == 12:
-        return month_start.replace(day=31)
-    return (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-
-
-def _previous_month_start(today: datetime) -> datetime:
-    if today.month == 1:
-        return today.replace(year=today.year - 1, month=12, day=1)
-    return today.replace(month=today.month - 1, day=1)
-
-
-def get_default_period_range(today: datetime | None = None) -> tuple[datetime, datetime]:
-    today = today or datetime.now()
-    if today.day == 1:
-        start = _previous_month_start(today)
-        return start, _last_day_of_month(start)
-
-    start = today.replace(day=1)
-    return start, today
+from core.ui.period_utils import get_default_period_range, last_day_of_month, previous_month_start
+from core.ui.curator_labels import CURATOR_LABELS, curator_key_from_label
+from core.ui.network_drive_poller import NetworkDrivePoller
 
 
 class Sidebar(ttk.Frame):
@@ -74,6 +54,13 @@ class Sidebar(ttk.Frame):
         self.canvas.bind("<Configure>", self._on_canvas_configure)
         self.canvas.bind("<Enter>", self._bind_mousewheel)
         self.canvas.bind("<Leave>", self._unbind_mousewheel)
+        self._net_poller = NetworkDrivePoller(
+            self,
+            get_config=lambda: getattr(
+                getattr(self.controller, "config_controller", None), "config", {}
+            ),
+            on_status=self._set_net_status,
+        )
         self._setup_ui()
 
     def _on_content_configure(self, _event: object) -> None:
@@ -225,15 +212,34 @@ class Sidebar(ttk.Frame):
         return "break"
 
     def _setup_ui(self) -> None:
-        # Local spacing aliases — keep the section bodies readable while
-        # guaranteeing that every sidebar section / button uses the same
-        # token instead of ad-hoc magic numbers (audit found four
-        # different pady values and three LabelFrame paddings here).
+        """Build every sidebar section (spacing tokens are section-local)."""
         sp = ThemeManager.SPACING
-        _section_pad = sp["xs"]          # sidebar LabelFrame padding (compact)
-        _section_gap = (0, sp["sm"])     # vertical gap between sections
-        _btn_gap = (0, sp["xs"])         # bottom gap for full-width action buttons
+        self._section_pad = sp["xs"]          # sidebar LabelFrame padding (compact)
+        self._section_gap = (0, sp["sm"])     # vertical gap between sections
+        self._btn_gap = (0, sp["xs"])         # bottom gap for full-width action buttons
 
+        self._build_header_section()
+        self._build_network_indicator()
+        self._build_date_section()
+        self._build_employees_section()
+        self._build_actions_section()
+        self._build_period_section()
+        self._build_theme_section()
+        self._build_footer_buttons()
+
+        # Subscribe to scale changes for adaptive width
+        self._scale_cb: Callable[..., Any] = lambda _s, _mode: self.after(0, self._recompute_width)
+        ThemeManager.add_scale_listener(self._scale_cb)
+        # Register every icon-bearing button with IconManager so a
+        # light↔dark switch re-applies the new-theme icon automatically.
+        # Without this, ttk.Button keeps the old-theme PhotoImage cached
+        # in its image= option — the "stale icon" bug where buttons stay
+        # in the previous theme's colour after switching.
+        self._register_icon_buttons()
+
+    def _build_header_section(self) -> None:
+        """Panel header with the themed section icon."""
+        sp = ThemeManager.SPACING
         # Section header with themed icon (replaces the chart emoji which
         # rendered unpredictably via the OS emoji font). NOTE: no explicit
         # background= here — an explicit bg option on a ttk widget pins the
@@ -253,9 +259,9 @@ class Sidebar(ttk.Frame):
             padding=(0, 0, sp["xs"], 0),
         ).pack(pady=(0, sp["xs"]), anchor=tk.W)
 
-        # UX-017: network drive indicator — shows a green/red dot
-        # indicating whether the configured network drives are reachable.
-        # Updated every 30s by ``_poll_network_drives``.
+    def _build_network_indicator(self) -> None:
+        """UX-017: network drive indicator — green/red dot, polled every 30s."""
+        sp = ThemeManager.SPACING
         self._net_indicator = tk.Label(
             self.content,
             text="Сеть: проверка...",
@@ -272,10 +278,13 @@ class Sidebar(ttk.Frame):
         # Register for re-theming on dark/light switch.
         ThemeManager.register(self._net_indicator, bg_key="bg_sidebar", fg_key="text_muted")
         self._net_indicator.pack(pady=(0, sp["xs"]), anchor=tk.W)
-        self._net_poll_after_id: Optional[str] = None
-        self.after(2000, self._poll_network_drives)
+        self._net_poller.start()
 
-        # Date Selection
+    def _build_date_section(self) -> None:
+        """Date picker row with weekday tooltip and the refresh button."""
+        sp = ThemeManager.SPACING
+        _section_pad = self._section_pad
+
         date_frame = self._icon_section(self.content, "ВЫБОР ДАТЫ", "calendar", _section_pad)
         date_frame.pack(fill=tk.X, pady=(sp["xs"] // 2, sp["sm"]))
 
@@ -332,6 +341,13 @@ class Sidebar(ttk.Frame):
         )
         self.refresh_btn.pack(side=tk.RIGHT, padx=(sp["xs"], 0))
         Tooltip(self.refresh_btn, "Обновить статус")
+
+    def _build_employees_section(self) -> None:
+        """Employee add/attach buttons."""
+        _section_pad = self._section_pad
+        _section_gap = self._section_gap
+        _btn_gap = self._btn_gap
+
         emp_frame = self._icon_section(self.content, "СОТРУДНИКИ", "user", _section_pad)
         emp_frame.pack(fill=tk.X, pady=_section_gap)
 
@@ -347,17 +363,22 @@ class Sidebar(ttk.Frame):
         )
         self.attach_btn.pack(fill=tk.X)
 
-        # Consolidation Actions
+    def _build_actions_section(self) -> None:
+        """Curator selector + the daily consolidation/RSCH action buttons."""
+        _section_pad = self._section_pad
+        _section_gap = self._section_gap
+        _btn_gap = self._btn_gap
+
         action_frame = self._icon_section(self.content, "СБОРКА", "build", _section_pad)
         action_frame.pack(fill=tk.X, pady=_section_gap)
 
         ttk.Label(action_frame, text="Кураторский отчет:").pack(anchor=tk.W)
-        self.curator_var = tk.StringVar(value="Общий отчет")
+        self.curator_var = tk.StringVar(value=CURATOR_LABELS[0])
         self.curator_combo = ttk.Combobox(
             action_frame,
             textvariable=self.curator_var,
             state="readonly",
-            values=["Общий отчет", "Куратор Борис", "Куратор Иван"],
+            values=CURATOR_LABELS,
         )
         self.curator_combo.pack(fill=tk.X, pady=_btn_gap)
 
@@ -370,6 +391,7 @@ class Sidebar(ttk.Frame):
             command=self.controller.run_consolidation,
         )
         self.consolidate_btn.pack(fill=tk.X, pady=_btn_gap)
+        from core.ui.tooltip import Tooltip
         Tooltip(
             self.consolidate_btn,
             "Собрать отчёт за выбранную дату (Ctrl+D)",
@@ -420,6 +442,13 @@ class Sidebar(ttk.Frame):
             command=self.controller.run_auto_reconciliation_day,
         )
         self.auto_reconciliation_btn.pack(fill=tk.X, pady=_btn_gap)
+
+    def _build_period_section(self) -> None:
+        """Collapsible 'ЗА ПЕРИОД' panel with month range + presets."""
+        sp = ThemeManager.SPACING
+        _section_pad = self._section_pad
+        _section_gap = self._section_gap
+        _btn_gap = self._btn_gap
 
         # --- Collapsible Period Section ---------------------------------
         self._period_expanded = False
@@ -517,6 +546,7 @@ class Sidebar(ttk.Frame):
             command=self.controller.run_consolidation_month,
         )
         self.consolidate_month_btn.pack(fill=tk.X, pady=_btn_gap)
+        from core.ui.tooltip import Tooltip
         Tooltip(
             self.consolidate_month_btn,
             "Собрать отчёт за период «С…По» (Ctrl+M)",
@@ -534,6 +564,12 @@ class Sidebar(ttk.Frame):
             self.rsch_month_btn,
             "Сформировать РСЧ-отчёт за период «С…По» (Ctrl+Shift+R)",
         )
+
+    def _build_theme_section(self) -> None:
+        """Light/dark/system theme switcher."""
+        sp = ThemeManager.SPACING
+        _section_pad = self._section_pad
+        _section_gap = self._section_gap
 
         # Theme switcher: 3 options (light/dark/system). The "system"
         # option follows the OS dark/light setting (polled every 5s).
@@ -555,6 +591,11 @@ class Sidebar(ttk.Frame):
                 command=self._on_theme_changed,
             ).pack(side=tk.LEFT, padx=(0, sp["xs"]))
 
+    def _build_footer_buttons(self) -> None:
+        """Settings + shortcuts buttons pinned under the theme section."""
+        sp = ThemeManager.SPACING
+        from core.ui.tooltip import Tooltip
+
         # Settings button (opens universal settings dialog)
         self.settings_btn = ttk.Button(
             self.content,
@@ -564,7 +605,6 @@ class Sidebar(ttk.Frame):
             command=self._open_settings_fallback,
         )
         self.settings_btn.pack(fill=tk.X, pady=(sp["xs"], 0))
-        from core.ui.tooltip import Tooltip
         Tooltip(
             self.settings_btn,
             "Открыть диалог настроек: пути, сеть, бэкапы, логика, БД, тема",
@@ -586,16 +626,6 @@ class Sidebar(ttk.Frame):
             self.shortcuts_btn,
             "Показать список сочетаний клавиш (F1)",
         )
-
-        # Subscribe to scale changes for adaptive width
-        self._scale_cb: Callable[..., Any] = lambda _s, _mode: self.after(0, self._recompute_width)
-        ThemeManager.add_scale_listener(self._scale_cb)
-        # Register every icon-bearing button with IconManager so a
-        # light↔dark switch re-applies the new-theme icon automatically.
-        # Without this, ttk.Button keeps the old-theme PhotoImage cached
-        # in its image= option — the "stale icon" bug where buttons stay
-        # in the previous theme's colour after switching.
-        self._register_icon_buttons()
 
     def _register_icon_buttons(self) -> None:
         """Register all icon-bearing widgets with IconManager.
@@ -638,6 +668,7 @@ class Sidebar(ttk.Frame):
         # Cancel any pending debounced calls so a fast destroy during
         # the user's date-picking does not fire a stale refresh.
         self._date_debouncer.cancel()
+        self._net_poller.stop()
         if hasattr(self, "_scale_cb"):
             ThemeManager.remove_scale_listener(self._scale_cb)
 
@@ -707,13 +738,13 @@ class Sidebar(ttk.Frame):
     def _set_current_month(self) -> None:
         today = datetime.now()
         self.month_start_entry.set_date(today.replace(day=1))
-        self.month_end_entry.set_date(_last_day_of_month(today))
+        self.month_end_entry.set_date(last_day_of_month(today))
 
     def _set_previous_month(self) -> None:
         today = datetime.now()
-        prev_month = _previous_month_start(today)
+        prev_month = previous_month_start(today)
         self.month_start_entry.set_date(prev_month)
-        self.month_end_entry.set_date(_last_day_of_month(prev_month))
+        self.month_end_entry.set_date(last_day_of_month(prev_month))
         self._validate_period_range()
 
     def _validate_period_range(self) -> None:
@@ -888,89 +919,8 @@ class Sidebar(ttk.Frame):
         except tk.TclError:
             pass
 
-    def _poll_network_drives(self) -> None:
-        """Check if configured network drives are reachable; update indicator.
-
-        Runs every 30 seconds. The ``os.path.exists`` probes are done on a
-        daemon thread because on slow/unreachable network drives each probe
-        blocks for the SMB redirector timeout (5-30 s) — running that on the
-        GUI thread froze the whole window every poll cycle. Only the final
-        ``config(text=...)`` call is marshalled back to the GUI thread.
-        """
-        try:
-            cfg = getattr(self.controller, 'config_controller', None)
-            if cfg is None:
-                self._set_net_status("warn", "Сеть: нет конфиг")
-                return
-            config = getattr(cfg, 'config', {})
-            network_cfg = config.get("network", {}) if isinstance(config, dict) else {}
-            drive_letters = network_cfg.get("drive_letters", ["Q"])
-            if not isinstance(drive_letters, list):
-                drive_letters = [drive_letters]
-
-            def _probe() -> tuple[int, int]:
-                import os
-                reachable = 0
-                total = 0
-                for letter in drive_letters:
-                    drive_path = f"{str(letter)}:\\"
-                    total += 1
-                    if os.path.exists(drive_path):
-                        reachable += 1
-                return reachable, total
-
-            def _on_done(result: tuple[int, int]) -> None:
-                reachable, total = result
-                if total == 0:
-                    self._set_net_status("warn", "Сеть: нет дисков")
-                elif reachable == total:
-                    self._set_net_status(
-                        "ok", f"Сеть: {reachable}/{total} дисков доступны"
-                    )
-                elif reachable > 0:
-                    self._set_net_status(
-                        "warn", f"Сеть: {reachable}/{total} дисков доступны"
-                    )
-                else:
-                    self._set_net_status(
-                        "err", f"Сеть: {reachable}/{total} дисков доступны"
-                    )
-
-            def runner() -> None:
-                try:
-                    result = _probe()
-                except Exception:
-                    logging.exception("Network drive poll failed")
-                    result = (0, 0)
-
-                def safe_done() -> None:
-                    try:
-                        _on_done(result)
-                    except tk.TclError:
-                        pass
-
-                try:
-                    self.after(0, safe_done)
-                except tk.TclError:
-                    pass
-
-            threading.Thread(target=runner, daemon=True).start()
-        except Exception:
-            self._set_net_status("warn", "Сеть: ошибка проверки")
-        finally:
-            # Schedule next poll in 30s
-            try:
-                self._net_poll_after_id = self.after(30000, self._poll_network_drives)
-            except tk.TclError:
-                pass
-
     def get_curator(self) -> str | None:
-        value = self.curator_var.get()
-        if value == "Куратор Борис":
-            return "boris"
-        if value == "Куратор Иван":
-            return "ivan"
-        return None
+        return cast(Optional[str], curator_key_from_label(self.curator_var.get()))
 
     def get_month_range(self) -> tuple[Any, Any]:
         """Возвращает (start_date, end_date) для месячного отчёта."""
